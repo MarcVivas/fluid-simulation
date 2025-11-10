@@ -1,0 +1,17 @@
+[profile.dev]
+opt-level = 1
+
+[package]
+name = "vulkan"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ash = "0.38.0"
+vulkano = { version = "0.35.2" }
+vulkano-shaders = "0.35.0"
+winit = "0.30.12"
+
+
+[build-dependencies]
+shader-slang = "0.1.0"

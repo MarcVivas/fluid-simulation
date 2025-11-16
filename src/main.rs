@@ -1,18 +1,20 @@
-mod vk_engine;
+mod vk_core;
 mod shader_loader;
 mod renderer;
+mod instance;
+mod debug_messenger;
+mod vk_init;
+mod utils;
 
 use std::default::Default;
 use std::sync::Arc;
-use vulkano::instance::{Instance, InstanceCreateFlags, InstanceCreateInfo};
-use vulkano::swapchain::Surface;
-use vulkano::VulkanLibrary;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
-use crate::renderer::Renderer;
-use crate::vk_engine::VkEngine;
+use crate::renderer::renderer::Renderer;
+use crate::renderer::triangle_drawer::TriangleDrawer;
+use crate::vk_core::VkCore;
 
 #[allow(unused)]
 fn main() {
@@ -24,8 +26,8 @@ fn main() {
 
 
 struct App {
-    window: Option<Arc<Window>>,
-    engine: Option<VkEngine>,
+    window: Option<Window>,
+    vk_core: Option<Arc<VkCore>>,
     renderer: Option<Renderer>,
     window_resized: bool,
     recreate_swapchain: bool,
@@ -36,7 +38,7 @@ impl App {
        
         Self {
             window: None,
-            engine: None,
+            vk_core: None,
             renderer: None,
             window_resized: false,
             recreate_swapchain: false,
@@ -52,46 +54,26 @@ impl ApplicationHandler for App {
             let window_attributes = WindowAttributes::default()
                 .with_title("Vulkan")
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
-            Arc::new(event_loop.create_window(window_attributes)
-                         .expect("Failed to create window")
+            event_loop.create_window(window_attributes)
+                .expect("Failed to create window")
+        };
+
+
+        let (vk_core, surface) = vk_init::init_with_window(&window);
+
+        self.renderer = Some(
+            Renderer::new(
+                vk_core.clone(),
+                &window,
+                surface
             )
-        };
-
-
-
-        let instance = {
-            let library = VulkanLibrary::new()
-                .expect("no local Vulkan library/DLL");
-            let required_extensions = Surface::required_extensions(&event_loop)
-                .expect("failed to retrieve required extensions");
-
-            Instance::new(
-                library,
-                InstanceCreateInfo {
-                    flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
-                    enabled_extensions: required_extensions,
-                    ..Default::default()
-                },
-            ).expect("failed to create instance")
-        };
-
-        let surface = Surface::from_window(instance.clone(), window.clone())
-            .expect("failed to create surface");
+        );
+        let triangle_drawer = TriangleDrawer::new(&vk_core, self.renderer.as_ref().unwrap());
+        self.renderer.as_mut().unwrap().set_triangle_drawer(triangle_drawer);
         
-        self.engine = Some(VkEngine::new(
-            &instance,
-            Some(&surface)
-        ));
-        
-        
-        
-        self.renderer = Some(Renderer::new(
-            &self.engine.as_ref().unwrap(),
-            &window,
-            surface
-        ));
-
+        self.vk_core = Some(vk_core);
         self.window = Some(window);
+
     }
     
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
@@ -102,21 +84,10 @@ impl ApplicationHandler for App {
             },
             WindowEvent::Resized(_logical_size) => {
                 self.window_resized = true;
+                self.renderer.as_mut().unwrap().resize_window(self.window.as_ref().unwrap());
             }
 
             WindowEvent::RedrawRequested => {
-                if self.window_resized || self.recreate_swapchain {
-                    self.renderer
-                        .as_mut()
-                        .expect("Engine not initialized")
-                        .window_resized(
-                            self.engine.as_ref().unwrap().device(),
-                            self.engine.as_ref().unwrap().queue(),
-                            self.window.as_ref().expect("Window not initialized")
-                        );
-                    self.window_resized = false;
-                    self.recreate_swapchain = false;
-                }
                 // Redraw the application.
                 //
                 // It's preferable for applications that do not render continuously to render in
@@ -124,11 +95,8 @@ impl ApplicationHandler for App {
                 // the program to gracefully handle redraws requested by the OS.
 
                 // Draw.
-                self.recreate_swapchain = self.renderer.as_mut().unwrap().draw(
-                    self.engine.as_ref().unwrap().device(),
-                    self.engine.as_ref().unwrap().queue()
-                );
-
+                
+                self.renderer.as_mut().unwrap().draw(self.window.as_ref().unwrap());
 
                 // Queue a RedrawRequested event.
                 //

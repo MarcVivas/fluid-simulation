@@ -29,8 +29,7 @@ impl DepthImage {
             .usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-        let mut allocator = vk_core.allocator().lock().unwrap();
-        
+
         let depth_image = unsafe {
             vk_core.device().create_image(&depth_image_create_info, None)
         }.expect("failed to create depth image");
@@ -39,7 +38,9 @@ impl DepthImage {
             vk_core.device().get_image_memory_requirements(depth_image.clone())
         };
 
-        let allocation = allocator.allocate(
+
+        let allocation = utils::allocate(
+            &vk_core,
             &AllocationCreateDesc{
                 name: "Depth image",
                 requirements: depth_image_memory_requirements,
@@ -49,7 +50,6 @@ impl DepthImage {
             }
         ).expect("failed to allocate depth image memory");
 
-        drop(allocator);
 
         unsafe{
             vk_core.device()
@@ -114,8 +114,8 @@ impl DepthImage {
         let depth_image_view = unsafe {
             vk_core.device().create_image_view(&depth_image_view_info, None)
         }.expect("failed to create depth image view");
-        
-        
+
+
         Self {
             vk_core,
             view: depth_image_view,
@@ -123,12 +123,12 @@ impl DepthImage {
             allocation: Some(allocation),
         }
     }
-    
-    
+
+
     pub fn view(&self) -> vk::ImageView {
         self.view
     }
-    
+
 }
 
 impl Drop for DepthImage {
@@ -138,7 +138,7 @@ impl Drop for DepthImage {
             device.destroy_image_view(self.view, None);
             device.destroy_image(self.image, None);
         }
-        
+
         if let Some(allocation) = self.allocation.take() {
             let mut allocator = self.vk_core.allocator().lock().unwrap();
             allocator.free(allocation).expect("failed to free depth image memory");

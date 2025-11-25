@@ -1,6 +1,10 @@
 use ash::{vk, Device};
 use ash::vk::{CommandBuffer, CommandBufferSubmitInfo, PipelineStageFlags2, Semaphore, SemaphoreSubmitInfo};
-
+use gpu_allocator::vulkan::{AllocationCreateDesc, Allocation};
+use gpu_allocator::Result;
+use gpu_allocator::vulkan::Allocator;
+use crate::vk_core::vk_core::VkCore;
+use std::sync::Arc;
 ///
 pub fn execute_commands_once<F: FnOnce(&Device, vk::CommandBuffer)>(
     device: &Device,
@@ -59,7 +63,7 @@ pub fn execute_commands_once<F: FnOnce(&Device, vk::CommandBuffer)>(
             .wait_semaphore_infos(&wait_semaphore_infos)
             .signal_semaphore_infos(&signal_semaphore_infos)
             .command_buffer_infos(&command_buffer_info);
-        
+
         // Submit to the queue.
         // The fence will be blocked until the command buffer has finished executing.
         device
@@ -82,7 +86,7 @@ fn semaphore_submit_info(semaphore: Semaphore, stage_mask: Option<PipelineStageF
             .value(1)
     };
     info
-    
+
 }
 
 fn command_buffer_submit_info(cmd: CommandBuffer) -> CommandBufferSubmitInfo<'static> {
@@ -104,4 +108,10 @@ pub fn find_memory_type_index(
                 && memory_type.property_flags & flags == flags
         })
         .map(|(index, _memory_type)| index as _)
+}
+
+
+pub fn allocate(vk_core: &Arc<VkCore>, desc: &AllocationCreateDesc) -> Result<Allocation> {
+    let mut allocator = vk_core.allocator().lock().unwrap();
+    allocator.allocate(desc)
 }

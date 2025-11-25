@@ -115,3 +115,8 @@ pub fn allocate(vk_core: &Arc<VkCore>, desc: &AllocationCreateDesc) -> Result<Al
     let mut allocator = vk_core.allocator().lock().unwrap();
     allocator.allocate(desc)
 }
+
+pub fn deallocate(vk_core: &Arc<VkCore>, allocation: Allocation) -> Result<()> {
+    let mut allocator = vk_core.allocator().lock().unwrap();
+    allocator.free(allocation)
+}

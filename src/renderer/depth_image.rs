@@ -140,8 +140,8 @@ impl Drop for DepthImage {
         }
 
         if let Some(allocation) = self.allocation.take() {
-            let mut allocator = self.vk_core.allocator().lock().unwrap();
-            allocator.free(allocation).expect("failed to free depth image memory");
+            utils::deallocate(&self.vk_core, allocation)
+                .expect("failed to deallocate depth image");
         }
     }
 }

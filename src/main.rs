@@ -1,9 +1,6 @@
 mod vk_core;
 mod shader_loader;
 mod renderer;
-mod instance;
-mod debug_messenger;
-mod vk_init;
 mod utils;
 
 use std::default::Default;
@@ -14,7 +11,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
 use crate::renderer::renderer::Renderer;
 use crate::renderer::triangle_drawer::TriangleDrawer;
-use crate::vk_core::VkCore;
+use crate::vk_core::init_with_window;
+use crate::vk_core::vk_core::VkCore;
 
 #[allow(unused)]
 fn main() {
@@ -59,7 +57,7 @@ impl ApplicationHandler for App {
         };
 
 
-        let (vk_core, surface) = vk_init::init_with_window(&window);
+        let (vk_core, surface) = init_with_window(&window);
 
         self.renderer = Some(
             Renderer::new(
@@ -68,7 +66,7 @@ impl ApplicationHandler for App {
                 surface
             )
         );
-        let triangle_drawer = TriangleDrawer::new(&vk_core, self.renderer.as_ref().unwrap());
+        let triangle_drawer = TriangleDrawer::new(vk_core.clone(), self.renderer.as_ref().unwrap());
         self.renderer.as_mut().unwrap().set_triangle_drawer(triangle_drawer);
         
         self.vk_core = Some(vk_core);
@@ -76,13 +74,13 @@ impl ApplicationHandler for App {
 
     }
     
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
                 println!("The close button was pressed; stopping");
                 event_loop.exit();
             },
-            WindowEvent::Resized(_logical_size) => {
+            WindowEvent::Resized(logical_size) => {
                 self.window_resized = true;
                 self.renderer.as_mut().unwrap().resize_window(self.window.as_ref().unwrap());
             }

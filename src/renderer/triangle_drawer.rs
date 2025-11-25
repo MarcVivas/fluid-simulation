@@ -6,7 +6,7 @@ use ash::vk::{RenderPassBeginInfo};
 use crate::{shader_loader, utils};
 use crate::renderer::graphics_pipeline::GraphicsPipeline;
 use crate::renderer::renderer::Renderer;
-use crate::vk_core::VkCore;
+use crate::vk_core::vk_core::VkCore;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -16,6 +16,7 @@ struct Vertex {
 }
 
 pub struct TriangleDrawer {
+    vk_core: Arc<VkCore>,
     vertices: [Vertex; 3],
     indices: [u32; 3],
     index_buffer: vk::Buffer,
@@ -28,20 +29,20 @@ pub struct TriangleDrawer {
 }
 
 impl TriangleDrawer {
-    pub fn new(vk_core: &Arc<VkCore>, renderer: &Renderer) -> Self {
+    pub fn new(vk_core: Arc<VkCore>, renderer: &Renderer) -> Self {
 
 
         let vertices = [
             Vertex {
-                pos: [-1.0, 1.0, 0.0, 1.0],
+                pos: [-0.5, 0.5, 0.0, 1.0],
                 color: [0.0, 1.0, 0.0, 1.0],
             },
             Vertex {
-                pos: [1.0, 1.0, 0.0, 1.0],
+                pos: [0.5, 0.5, 0.0, 1.0],
                 color: [0.0, 0.0, 1.0, 1.0],
             },
             Vertex {
-                pos: [0.0, -1.0, 0.0, 1.0],
+                pos: [0.0, -0.5, 0.0, 1.0],
                 color: [1.0, 0.0, 0.0, 1.0],
             },
         ];
@@ -224,7 +225,7 @@ impl TriangleDrawer {
 
 
         let graphics_pipeline = GraphicsPipeline::new(
-            vk_core,
+            vk_core.clone(),
             renderer,
             vk::PrimitiveTopology::TRIANGLE_LIST,
             vertex_input_state_info,
@@ -232,6 +233,7 @@ impl TriangleDrawer {
         );
 
         Self {
+            vk_core,
             vertices,
             indices,
             index_buffer,
@@ -244,46 +246,42 @@ impl TriangleDrawer {
         }
     }
 
-    pub fn draw<'a>(
-        &'a self,
-        render_pass_begin_info: &'a RenderPassBeginInfo,
-        viewports: &'a [vk::Viewport],
-        scissors: &'a [vk::Rect2D],
-    ) -> impl FnOnce(&ash::Device, vk::CommandBuffer) + 'a
+    pub fn draw(
+        &self,
+        cmd_buffer: vk::CommandBuffer,
+    ) 
     {
-        move |device, cmd| unsafe {
-            device.cmd_begin_render_pass(
-                cmd,
-                render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
+        let device = self.vk_core.device();
+        unsafe {
+
 
             device.cmd_bind_pipeline(
-                cmd,
+                cmd_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.graphics_pipeline.graphics_pipeline(),
             );
+            
 
-            device.cmd_set_viewport(cmd, 0, viewports);
-            device.cmd_set_scissor(cmd, 0, scissors);
+            device.cmd_bind_vertex_buffers(cmd_buffer, 0, &[self.vertex_input_buffer], &[0]);
+            device.cmd_bind_index_buffer(cmd_buffer, self.index_buffer, 0, vk::IndexType::UINT32);
 
-            device.cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_input_buffer], &[0]);
-            device.cmd_bind_index_buffer(cmd, self.index_buffer, 0, vk::IndexType::UINT32);
+            device.cmd_draw_indexed(cmd_buffer, self.indices.len() as u32, 1, 0, 0, 1);
 
-            device.cmd_draw_indexed(cmd, self.indices.len() as u32, 1, 0, 0, 1);
-
-            device.cmd_end_render_pass(cmd);
         }
+
     }
-    pub fn cleanup(&self, vk_core: &Arc<VkCore>) {
+}
+
+impl Drop for TriangleDrawer {
+    fn drop(&mut self) {
+        let device = self.vk_core.device();
         unsafe {
-            vk_core.device().free_memory(self.index_buffer_memory, None);
-            vk_core.device().destroy_buffer(self.index_buffer, None);
-            vk_core.device().free_memory(self.vertex_input_buffer_memory, None);
-            vk_core.device().destroy_buffer(self.vertex_input_buffer, None);
-            vk_core.device().destroy_shader_module(self.vertex_shader_module, None);
-            vk_core.device().destroy_shader_module(self.fragment_shader_module, None);
-            self.graphics_pipeline.cleanup(vk_core);
+            device.free_memory(self.index_buffer_memory, None);
+            device.destroy_buffer(self.index_buffer, None);
+            device.free_memory(self.vertex_input_buffer_memory, None);
+            device.destroy_buffer(self.vertex_input_buffer, None);
+            device.destroy_shader_module(self.vertex_shader_module, None);
+            device.destroy_shader_module(self.fragment_shader_module, None);
         }
     }
 }

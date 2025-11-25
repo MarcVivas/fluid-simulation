@@ -5,7 +5,7 @@ use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
 pub struct Surface {
-    surface: ash::vk::SurfaceKHR,
+    surface: vk::SurfaceKHR,
     surface_loader: ash::khr::surface::Instance
 }
 
@@ -32,7 +32,7 @@ impl Surface {
 
     pub fn get_physical_device_surface_support(
         &self,
-        physical_device: vk::PhysicalDevice,
+        physical_device: PhysicalDevice,
         queue_family_index: u32,
     ) -> VkResult<bool> {
         unsafe {
@@ -44,7 +44,7 @@ impl Surface {
         }
     }
     
-    pub fn get_physical_device_surface_formats(&self, physical_device: vk::PhysicalDevice) 
+    pub fn get_physical_device_surface_formats(&self, physical_device: PhysicalDevice) 
         -> VkResult<Vec<SurfaceFormatKHR>> 
     {
         unsafe { 
@@ -78,9 +78,6 @@ impl Surface {
     
     pub fn surface(&self) -> &ash::vk::SurfaceKHR { &self.surface }
     
-    pub fn cleanup(&self) {
-        unsafe { self.surface_loader.destroy_surface(self.surface, None) }
-    }
     
     pub fn surface_resolution(&self, physical_device: PhysicalDevice, window: &Window) -> Extent2D {
         let surface_capabilities = self
@@ -97,5 +94,11 @@ impl Surface {
             _ => surface_capabilities.current_extent,
         };
         surface_resolution
+    }
+}
+
+impl Drop for Surface {
+    fn drop(&mut self) {
+        unsafe { self.surface_loader.destroy_surface(self.surface, None) }
     }
 }

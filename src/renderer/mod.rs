@@ -7,3 +7,5 @@ pub mod renderer;
 pub mod triangle_drawer;
 
 mod depth_image;
+mod window_render_target;
+mod frame_data;

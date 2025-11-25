@@ -1,13 +1,15 @@
-use ash::vk;
+use std::sync::Arc;
+use ash::{vk};
 use ash::vk::FramebufferCreateInfo;
-use crate::vk_core::VkCore;
+use crate::vk_core::vk_core::VkCore;
 
 pub struct Framebuffer {
+    vk_core: Arc<VkCore>,
     framebuffer: vk::Framebuffer
 }
 
 impl Framebuffer {
-    pub fn new(vk_core: &VkCore, framebuffer_create_info: &FramebufferCreateInfo) -> Self {
+    pub fn new(vk_core: Arc<VkCore>, framebuffer_create_info: &FramebufferCreateInfo) -> Self {
         let framebuffer = unsafe {
             vk_core
                 .device()
@@ -15,6 +17,7 @@ impl Framebuffer {
         }.expect("Failed to create framebuffer");
         
         Self {
+            vk_core,
             framebuffer
         }
     }
@@ -23,7 +26,11 @@ impl Framebuffer {
         self.framebuffer.clone()
     }
     
-    pub fn cleanup(&self, vk_core: &VkCore) {
-        unsafe { vk_core.device().destroy_framebuffer(self.framebuffer, None) }
+}
+
+impl Drop for Framebuffer {
+    fn drop(&mut self) {
+        let device = self.vk_core.device();
+        unsafe { device.destroy_framebuffer(self.framebuffer, None) }
     }
 }

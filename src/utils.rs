@@ -1,4 +1,5 @@
 use ash::{vk, Device};
+use ash::vk::{CommandBuffer, CommandBufferSubmitInfo, PipelineStageFlags2, Semaphore, SemaphoreSubmitInfo};
 
 ///
 pub fn execute_commands_once<F: FnOnce(&Device, vk::CommandBuffer)>(
@@ -6,9 +7,9 @@ pub fn execute_commands_once<F: FnOnce(&Device, vk::CommandBuffer)>(
     command_buffer: vk::CommandBuffer,
     command_buffer_reuse_fence: vk::Fence,
     submit_queue: &vk::Queue,
-    wait_mask: &[vk::PipelineStageFlags],
-    wait_semaphores: &[vk::Semaphore],
-    signal_semaphores: &[vk::Semaphore],
+    wait_mask: &[PipelineStageFlags2],
+    wait_semaphores: &[Semaphore],
+    signal_semaphores: &[Semaphore],
     f: F,
 ){
     unsafe {
@@ -35,19 +36,59 @@ pub fn execute_commands_once<F: FnOnce(&Device, vk::CommandBuffer)>(
         device.end_command_buffer(command_buffer)
             .expect("failed to end recording command buffer");
 
-        let command_buffers = vec![command_buffer];
+        let command_buffer_info = vec![
+            command_buffer_submit_info(command_buffer),
+        ];
 
-        let submit_info = vk::SubmitInfo::default()
-            .wait_semaphores(wait_semaphores)
-            .wait_dst_stage_mask(wait_mask)
-            .command_buffers(&command_buffers)
-            .signal_semaphores(signal_semaphores);
 
+
+        let wait_semaphore_infos: Vec<SemaphoreSubmitInfo> = (0..wait_semaphores.len())
+            .map(|i| {
+                if wait_mask.is_empty() {
+                    return semaphore_submit_info(wait_semaphores[i], None)
+                }
+                semaphore_submit_info(wait_semaphores[i], Some(wait_mask[i]))
+            }).collect();
+
+        let signal_semaphore_infos: Vec<SemaphoreSubmitInfo> = (0..signal_semaphores.len())
+            .map(|i| {
+                semaphore_submit_info(signal_semaphores[i], Some(vk::PipelineStageFlags2::ALL_GRAPHICS))
+            }).collect();
+
+        let submit_info = vk::SubmitInfo2::default()
+            .wait_semaphore_infos(&wait_semaphore_infos)
+            .signal_semaphore_infos(&signal_semaphore_infos)
+            .command_buffer_infos(&command_buffer_info);
+        
+        // Submit to the queue.
+        // The fence will be blocked until the command buffer has finished executing.
         device
-            .queue_submit(*submit_queue, &[submit_info], command_buffer_reuse_fence)
+            .queue_submit2(*submit_queue, &[submit_info], command_buffer_reuse_fence)
             .expect("failed to submit draw command buffer");
     }
 
+}
+
+fn semaphore_submit_info(semaphore: Semaphore, stage_mask: Option<PipelineStageFlags2>) -> SemaphoreSubmitInfo<'static> {
+    let info =  if let Some(stage_mask) = stage_mask {
+        SemaphoreSubmitInfo::default()
+            .semaphore(semaphore)
+            .stage_mask(stage_mask)
+            .value(1)
+    }
+    else {
+        SemaphoreSubmitInfo::default()
+            .semaphore(semaphore)
+            .value(1)
+    };
+    info
+    
+}
+
+fn command_buffer_submit_info(cmd: CommandBuffer) -> CommandBufferSubmitInfo<'static> {
+    CommandBufferSubmitInfo::default()
+        .command_buffer(cmd)
+        .device_mask(0)
 }
 
 pub fn find_memory_type_index(

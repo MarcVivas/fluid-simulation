@@ -1,16 +1,17 @@
 use std::sync::Arc;
 use ash::vk;
 use crate::renderer::renderer::Renderer;
-use crate::vk_core::VkCore;
+use crate::vk_core::vk_core::VkCore;
 
 pub struct GraphicsPipeline {
+    vk_core: Arc<VkCore>,
     graphics_pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
 }
 
 impl GraphicsPipeline {
     pub fn new(
-        vk_core: &Arc<VkCore>, 
+        vk_core: Arc<VkCore>, 
         renderer: &Renderer,
         topology: vk::PrimitiveTopology,
         vertex_input_state_info: vk::PipelineVertexInputStateCreateInfo,
@@ -58,7 +59,9 @@ impl GraphicsPipeline {
         let dynamic_state_info = vk::PipelineDynamicStateCreateInfo::default()
             .dynamic_states(&dynamic_state);
         
-        let viewport_state_info = renderer.viewport_state_info();
+        let render_target = renderer.render_target();
+        
+        let viewport_state_info = render_target.viewport_state_info();
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
         let pipeline_layout = unsafe {
@@ -81,7 +84,7 @@ impl GraphicsPipeline {
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state_info)
             .layout(pipeline_layout)
-            .render_pass(renderer.render_pass());
+            .render_pass(render_target.render_pass());
 
         let graphics_pipeline = unsafe {
             vk_core
@@ -93,6 +96,7 @@ impl GraphicsPipeline {
         }.expect("failed to create graphics pipeline")[0];
         
         Self {
+            vk_core,
             graphics_pipeline,
             pipeline_layout
         }
@@ -102,10 +106,14 @@ impl GraphicsPipeline {
         self.graphics_pipeline
     }
     
-    pub fn cleanup(&self, vk_core: &Arc<VkCore>) {
-        unsafe { 
-            vk_core.device().destroy_pipeline(self.graphics_pipeline, None);
-            vk_core.device().destroy_pipeline_layout(self.pipeline_layout, None);
+}
+
+impl Drop for GraphicsPipeline {
+    fn drop(&mut self) {
+        let device = self.vk_core.device();
+        unsafe {
+            device.destroy_pipeline(self.graphics_pipeline, None);
+            device.destroy_pipeline_layout(self.pipeline_layout, None);
         };
     }
 }

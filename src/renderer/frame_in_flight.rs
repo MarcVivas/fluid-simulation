@@ -1,13 +1,20 @@
+use std::sync::Arc;
 use ash::{vk, Device};
+use crate::vk_core::vk_core::VkCore;
 
+/// Holds all semaphores and fences used for synchronization
+/// Fences are for CPU <-> GPU synchronization
+/// Semaphores are for GPU <-> GPU synchronization
 pub struct FrameInFlight {
+    vk_core: Arc<VkCore>,
     present_complete_semaphore: vk::Semaphore,
     rendering_complete_semaphore: vk::Semaphore,
     draw_commands_reuse_fence: vk::Fence,
 }
 
 impl FrameInFlight {
-    pub fn new(device: &Device) -> Self {
+    pub fn new(vk_core: Arc<VkCore>) -> Self {
+        let device = vk_core.device();
         let semaphore_create_info = vk::SemaphoreCreateInfo::default();
         
         let present_complete_semaphore = unsafe {
@@ -26,6 +33,7 @@ impl FrameInFlight {
         }.expect("failed to create fence");
         
         Self {
+            vk_core,
             present_complete_semaphore,
             rendering_complete_semaphore,
             draw_commands_reuse_fence
@@ -44,7 +52,22 @@ impl FrameInFlight {
         self.draw_commands_reuse_fence
     }
     
-    pub fn cleanup(&self, device: &Device) {
+    pub fn wait_for_fence(&self, device: &Device) {
+        unsafe {
+            device.wait_for_fences(&[self.draw_commands_reuse_fence], true, u64::MAX)
+                .unwrap();
+        };
+    }
+    
+    pub fn reset_fence(&self, device: &Device) {
+        unsafe { device.reset_fences(&[self.draw_commands_reuse_fence]).unwrap() }
+    }
+}
+
+
+impl Drop for FrameInFlight {
+    fn drop(&mut self) {
+        let device = self.vk_core.device();
         unsafe {
             device.destroy_semaphore(self.present_complete_semaphore, None);
             device.destroy_semaphore(self.rendering_complete_semaphore, None);

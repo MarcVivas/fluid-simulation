@@ -24,16 +24,16 @@ fn main() {
 
 
 struct App {
-    window: Option<Window>,
     vk_core: Option<Arc<VkCore>>,
     renderer: Option<Renderer>,
+    window: Option<Window>,
     window_resized: bool,
     recreate_swapchain: bool,
 }
 
 impl App {
     pub fn new() -> Self {
-       
+
         Self {
             window: None,
             vk_core: None,
@@ -45,7 +45,7 @@ impl App {
 }
 
 impl ApplicationHandler for App {
-    
+
     /// This creates the window and the engine before the event loop starts.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = {
@@ -68,16 +68,20 @@ impl ApplicationHandler for App {
         );
         let triangle_drawer = TriangleDrawer::new(vk_core.clone(), self.renderer.as_ref().unwrap());
         self.renderer.as_mut().unwrap().set_triangle_drawer(triangle_drawer);
-        
+
         self.vk_core = Some(vk_core);
         self.window = Some(window);
 
     }
-    
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
                 println!("The close button was pressed; stopping");
+                unsafe {
+                    self.vk_core.as_ref().unwrap().device().device_wait_idle()
+                        .unwrap();
+                }
                 event_loop.exit();
             },
             WindowEvent::Resized(logical_size) => {
@@ -93,7 +97,7 @@ impl ApplicationHandler for App {
                 // the program to gracefully handle redraws requested by the OS.
 
                 // Draw.
-                
+
                 self.renderer.as_mut().unwrap().draw(self.window.as_ref().unwrap());
 
                 // Queue a RedrawRequested event.
@@ -103,14 +107,11 @@ impl ApplicationHandler for App {
                 // can render here instead.
                 self.window.as_ref().unwrap().request_redraw();
 
-               
+
             }
             _ => (),
         }
     }
-    
-    
-} 
 
 
-
+}

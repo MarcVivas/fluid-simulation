@@ -49,15 +49,15 @@ impl VkCore {
 
         let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures::default()
             .buffer_device_address(true);
-        
-        
+
+
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_info)
             .enabled_features(&features)
             .enabled_extension_names(&device_extensions_names_raw)
             .push_next(&mut sync2_features)
             .push_next(&mut buffer_device_address_features);
-        
+
         let device: Device = unsafe {
             instance.create_device(physical_device, &device_create_info, None)
         }.expect("failed to create logical device");
@@ -70,23 +70,23 @@ impl VkCore {
             &entry,
             &instance
         );
-        
+
         let device_memory_properties = unsafe {
             instance
                 .get_physical_device_memory_properties(physical_device)
         };
-        
+
         let gpu_allocator = Mutex::new(Allocator::new(
             &AllocatorCreateDesc {
-                instance: instance.clone(),      
-                device: device.clone(),          
+                instance: instance.clone(),
+                device: device.clone(),
                 physical_device,
                 debug_settings: Default::default(),
                 allocation_sizes: Default::default(),
-                buffer_device_address: true 
+                buffer_device_address: true
             }
         ).expect("failed to create GPU allocator"));
-        
+
         Self {
             entry,
             gpu_allocator: Some(gpu_allocator),
@@ -119,7 +119,7 @@ impl VkCore {
                 let supports_sync2 = extensions.iter().any(|ext| {
                     let name = unsafe { std::ffi::CStr::from_ptr(ext.extension_name.as_ptr()) };
                     // Use the constant provided by Ash for safety
-                    *name == KHR_SYNCHRONIZATION2_NAME
+                    *name == *KHR_SYNCHRONIZATION2_NAME
                 });
 
                 let mut bda_feature = vk::PhysicalDeviceBufferDeviceAddressFeatures::default();
@@ -134,8 +134,8 @@ impl VkCore {
                 }
 
                 let supports_bda = bda_feature.buffer_device_address == 1;
-                
-                
+
+
                 if !supports_sync2 || !supports_bda {
                     panic!("PhysicalDevice does not support VK_KHR_synchronization2 or VK_KHR_buffer_device_address");
                 }
@@ -181,43 +181,43 @@ impl VkCore {
             })
             .expect("failed to find a suitable physical device with Sync2 support")
     }
-    
+
     pub fn device(&self) -> &Device {
         &self.device
     }
     pub fn queue(&self) -> &Queue {
         &self.queue
     }
-    
+
     pub fn allocator(&self) -> &Mutex<Allocator> {
         &self.gpu_allocator.as_ref().expect("GPU allocator not initialized")
     }
     pub fn queue_family_index(&self) -> u32 {
         self.queue_family_index
     }
-    
+
     pub fn physical_device(&self) -> &PhysicalDevice {
         &self.physical_device
     }
-    
+
     pub fn instance(&self) -> &Instance {
         &self.instance
     }
-    
+
     pub fn device_memory_properties(&self) -> &PhysicalDeviceMemoryProperties {
         &self.device_memory_properties
     }
-    
+
 }
 
 impl Drop for VkCore {
     fn drop(&mut self) {
         unsafe {
             self.device.device_wait_idle().unwrap();
-            
+
             // Take ownership of the debug messenger and destroy it
             if let Some(debug_messenger) = self.debug_messenger.take() {
-                drop(debug_messenger);                
+                drop(debug_messenger);
             }
 
             self.gpu_allocator.take();
@@ -225,5 +225,5 @@ impl Drop for VkCore {
             self.device.destroy_device(None);
             self.instance.destroy_instance(None);
         }
-    }   
+    }
 }

@@ -8,7 +8,7 @@ use std::{
 use shader_slang::Downcast;
 
 fn load_module(session: &mut shader_slang::Session, file_name: &str) {
-    let module = session.load_module(&format!("{file_name}")).unwrap();
+    let module = session.load_module(&file_name.to_string()).unwrap();
     let entry_point = module.find_entry_point_by_name("main");
 
     let entry_point = if let Some(entry_point) = entry_point {
@@ -44,7 +44,7 @@ fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     path.push(format!("{file_name}.spv"));
 
     let mut file = File::create(&path).unwrap();
-    file.write(shader_bytecode.as_slice()).unwrap();
+    file.write_all(shader_bytecode.as_slice()).unwrap();
 
     let path_str = path.to_str().unwrap();
     println!("cargo:rustc-env={file_name}.spv={path_str}");
@@ -53,7 +53,7 @@ fn load_module(session: &mut shader_slang::Session, file_name: &str) {
 
 const SHADERS_PATH: &str = "src/shaders";
 fn main() {
-    println!("{}", format!("cargo:rerun-if-changed={}", SHADERS_PATH));
+    println!("cargo:rerun-if-changed={}", SHADERS_PATH);
     let global_session = shader_slang::GlobalSession::new().unwrap();
     let search_path = std::ffi::CString::new(SHADERS_PATH).unwrap();
 
@@ -76,14 +76,12 @@ fn main() {
     let mut session = global_session.create_session(&session_desc).unwrap();
 
     let mut dir_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    dir_path.push(SHADERS_PATH.to_string());
+    dir_path.push(SHADERS_PATH);
     let dir = std::fs::read_dir(dir_path).unwrap();
 
-    for x in dir {
-        if let Ok(entry) = x {
-            let file_name = entry.file_name().into_string().unwrap();
-            let file_name = file_name.split(".").next().unwrap();
-            load_module(&mut session, file_name);
-        }
+    for entry in dir.flatten() {
+        let file_name = entry.file_name().into_string().unwrap();
+        let file_name = file_name.split(".").next().unwrap();
+        load_module(&mut session, file_name);
     }
 }

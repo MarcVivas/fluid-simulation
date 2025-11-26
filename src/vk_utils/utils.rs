@@ -1,10 +1,6 @@
 use ash::{vk, Device};
 use ash::vk::{CommandBuffer, CommandBufferSubmitInfo, PipelineStageFlags2, Semaphore, SemaphoreSubmitInfo};
-use gpu_allocator::vulkan::{AllocationCreateDesc, Allocation};
-use gpu_allocator::Result;
-use gpu_allocator::vulkan::Allocator;
-use crate::vk_core::vk_core::VkCore;
-use std::sync::Arc;
+
 ///
 pub fn execute_commands_once<F: FnOnce(&Device, vk::CommandBuffer)>(
     device: &Device,
@@ -108,15 +104,4 @@ pub fn find_memory_type_index(
                 && memory_type.property_flags & flags == flags
         })
         .map(|(index, _memory_type)| index as _)
-}
-
-
-pub fn allocate(vk_core: &Arc<VkCore>, desc: &AllocationCreateDesc) -> Result<Allocation> {
-    let mut allocator = vk_core.allocator().lock().unwrap();
-    allocator.allocate(desc)
-}
-
-pub fn deallocate(vk_core: &Arc<VkCore>, allocation: Allocation) -> Result<()> {
-    let mut allocator = vk_core.allocator().lock().unwrap();
-    allocator.free(allocation)
 }

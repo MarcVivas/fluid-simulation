@@ -41,11 +41,11 @@ impl WindowRenderTarget {
 
             vk_core.device().allocate_command_buffers(&command_buffer_allocate_info)
         }.expect("failed to allocate command buffers")[0];
-        
-        
+
+
         let swapchain = Swapchain::new(vk_core.clone(), &surface, window, None);
 
-        
+
         let depth_image = DepthImage::new(
             vk_core.clone(),
             &surface_resolution,
@@ -79,7 +79,7 @@ impl WindowRenderTarget {
         ];
 
         let scissors = [surface_resolution.into()];
-        
+
         Self {
             vk_core,
             setup_command_buffer,
@@ -198,7 +198,7 @@ impl WindowRenderTarget {
             *vk_core.physical_device(),
             window
         );
-        
+
         // Don't need to resize if the window is not visible
         if self.resolution.width == 0 || self.resolution.height == 0 {
             return;
@@ -233,28 +233,28 @@ impl WindowRenderTarget {
                 min_depth: 0.0,
                 max_depth: 1.0,
             }
-        ];;
+        ];
         self.scissors = [self.resolution.into()];
 
     }
-    
-    
+
+
     pub fn swapchain(&self) -> &Swapchain {
         &self.swapchain
     }
-    
+
     pub fn framebuffers(&self) -> &[Framebuffer] {
         &self.framebuffers
     }
-    
+
     pub fn resolution(&self) -> Extent2D {
         self.resolution
     }
-    
+
     pub fn viewports(&self) -> &[vk::Viewport] {
         &self.viewports
     }
-    
+
     pub fn scissors(&self) -> &[vk::Rect2D] {
         &self.scissors
     }

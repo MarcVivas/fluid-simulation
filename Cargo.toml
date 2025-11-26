@@ -12,6 +12,7 @@ ash-window = "0.13.0"
 winit = "0.30.12"
 log = "0.4.28"
 gpu-allocator = "0.28.0"
+glam = "0.30.9"
 
 
 [build-dependencies]

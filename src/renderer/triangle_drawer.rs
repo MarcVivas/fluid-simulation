@@ -2,8 +2,7 @@ use std::mem::offset_of;
 use std::sync::Arc;
 use ash::util::Align;
 use ash::vk;
-use ash::vk::{RenderPassBeginInfo};
-use crate::{shader_loader, utils};
+use crate::vk_utils::{shader_loader, utils};
 use crate::renderer::graphics_pipeline::GraphicsPipeline;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::vk_core::VkCore;
@@ -11,8 +10,8 @@ use crate::vk_core::vk_core::VkCore;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct Vertex {
-    pos: [f32; 4],
-    color: [f32; 4],
+    pos: glam::Vec4,
+    color: glam::Vec4,
 }
 
 pub struct TriangleDrawer {
@@ -34,16 +33,16 @@ impl TriangleDrawer {
 
         let vertices = [
             Vertex {
-                pos: [-0.5, 0.5, 0.0, 1.0],
-                color: [0.0, 1.0, 0.0, 1.0],
+                pos: glam::Vec4::new(-0.5, 0.5, 0.0, 1.0),
+                color: glam::Vec4::new(0.0, 1.0, 0.0, 1.0),
             },
             Vertex {
-                pos: [0.5, 0.5, 0.0, 1.0],
-                color: [0.0, 0.0, 1.0, 1.0],
+                pos: glam::Vec4::new(0.5, 0.5, 0.0, 1.0),
+                color: glam::Vec4::new(0.0, 0.0, 1.0, 1.0),
             },
             Vertex {
-                pos: [0.0, -0.5, 0.0, 1.0],
-                color: [1.0, 0.0, 0.0, 1.0],
+                pos: glam::Vec4::new(0.0, -0.5, 0.0, 1.0),
+                color: glam::Vec4::new(1.0, 0.0, 0.0, 1.0),
             },
         ];
 
@@ -170,13 +169,11 @@ impl TriangleDrawer {
         let vertex_shader_module = shader_loader::load(
             vk_core.device(),
             "vertex_shader",
-            "main"
         );
 
         let fragment_shader_module = shader_loader::load(
             vk_core.device(),
             "fragment_shader",
-            "main"
         );
 
         let shader_stage_create_infos = vec![
@@ -249,7 +246,7 @@ impl TriangleDrawer {
     pub fn draw(
         &self,
         cmd_buffer: vk::CommandBuffer,
-    ) 
+    )
     {
         let device = self.vk_core.device();
         unsafe {
@@ -260,7 +257,7 @@ impl TriangleDrawer {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.graphics_pipeline.graphics_pipeline(),
             );
-            
+
 
             device.cmd_bind_vertex_buffers(cmd_buffer, 0, &[self.vertex_input_buffer], &[0]);
             device.cmd_bind_index_buffer(cmd_buffer, self.index_buffer, 0, vk::IndexType::UINT32);

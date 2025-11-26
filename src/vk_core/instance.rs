@@ -2,8 +2,6 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use ash::{vk, Entry, Instance};
 use ash::ext::debug_utils;
-use winit::raw_window_handle::HasDisplayHandle;
-use winit::window::Window;
 
 const VALIDATION_LAYERS: [&CStr; 1] = [c"VK_LAYER_KHRONOS_validation"];
 #[cfg(debug_assertions)]
@@ -96,6 +94,3 @@ fn check_validation_support(entry: &Entry) -> bool {
     true
 
 }
-
-
-

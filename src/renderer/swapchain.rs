@@ -10,7 +10,6 @@ pub struct Swapchain {
     vk_core: Arc<VkCore>,
     swapchain_loader: ash::khr::swapchain::Device,
     swapchain: vk::SwapchainKHR,
-    swapchain_images: Vec<vk::Image>,
     swapchain_images_view: Vec<vk::ImageView>,
 }
 
@@ -20,7 +19,7 @@ impl Swapchain {
             Some(old_swapchain) => old_swapchain.swapchain(),
             None => vk::SwapchainKHR::null(),
         };
-        
+
         let swapchain_loader = ash::khr::swapchain::Device::new(
             vk_core.instance(),
             vk_core.device(),
@@ -29,7 +28,7 @@ impl Swapchain {
         let surface_format = surface.get_physical_device_surface_formats(
             *vk_core.physical_device()
         ).expect("failed to get surface formats")[0];
-        
+
 
         let surface_capabilities = surface
             .get_physical_device_surface_capabilities(
@@ -71,7 +70,7 @@ impl Swapchain {
         else {
             surface_capabilities.current_transform
         };
-        
+
 
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(*surface.surface())
@@ -121,16 +120,15 @@ impl Swapchain {
                     vk_core.device().create_image_view(&create_view_info, None)
                 }.expect("failed to create image view")
             }).collect();
-        
+
         Self {
             vk_core,
             swapchain_loader,
             swapchain,
-            swapchain_images,
             swapchain_images_view,
         }
     }
-    
+
     pub fn acquire_next_image(&self, present_complete_semaphore: vk::Semaphore) -> VkResult<(u32, bool)> {
         unsafe {
             self.swapchain_loader.acquire_next_image(
@@ -141,25 +139,23 @@ impl Swapchain {
             )
         }
     }
-    
-    pub fn len(&self) -> usize {
-        self.swapchain_images.len()
-    }
-    
+
+
+
     pub fn swapchain_images_view(&self) -> &Vec<vk::ImageView> {
         &self.swapchain_images_view
     }
-    
+
     pub fn swapchain(&self) -> vk::SwapchainKHR {
         self.swapchain.clone()
     }
-    
+
     pub fn queue_present(&self, queue: vk::Queue, present_info: &vk::PresentInfoKHR) -> VkResult<bool> {
-        unsafe { 
+        unsafe {
             self.swapchain_loader.queue_present(queue, present_info)
         }
     }
-    
+
 }
 
 impl Drop for Swapchain {
@@ -175,6 +171,6 @@ impl Drop for Swapchain {
         unsafe {
             self.swapchain_loader
                 .destroy_swapchain(self.swapchain, None);
-        }    
+        }
     }
 }

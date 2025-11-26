@@ -3,7 +3,7 @@ use ash::{vk};
 use ash::vk::{CommandBuffer, Extent2D};
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
-use crate::utils;
+use crate::vk_utils::{allocation, utils};
 use crate::vk_core::vk_core::VkCore;
 
 pub struct DepthImage {
@@ -39,7 +39,7 @@ impl DepthImage {
         };
 
 
-        let allocation = utils::allocate(
+        let allocation = allocation::allocate(
             &vk_core,
             &AllocationCreateDesc{
                 name: "Depth image",
@@ -140,7 +140,7 @@ impl Drop for DepthImage {
         }
 
         if let Some(allocation) = self.allocation.take() {
-            utils::deallocate(&self.vk_core, allocation)
+            allocation::deallocate(&self.vk_core, allocation)
                 .expect("failed to deallocate depth image");
         }
     }

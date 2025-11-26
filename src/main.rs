@@ -1,7 +1,6 @@
 mod vk_core;
-mod shader_loader;
+mod vk_utils;
 mod renderer;
-mod utils;
 
 use std::default::Default;
 use std::sync::Arc;
@@ -28,7 +27,6 @@ struct App {
     renderer: Option<Renderer>,
     window: Option<Window>,
     window_resized: bool,
-    recreate_swapchain: bool,
 }
 
 impl App {
@@ -39,7 +37,6 @@ impl App {
             vk_core: None,
             renderer: None,
             window_resized: false,
-            recreate_swapchain: false,
         }
     }
 }
@@ -84,7 +81,7 @@ impl ApplicationHandler for App {
                 }
                 event_loop.exit();
             },
-            WindowEvent::Resized(logical_size) => {
+            WindowEvent::Resized(_logical_size) => {
                 self.window_resized = true;
                 self.renderer.as_mut().unwrap().resize_window(self.window.as_ref().unwrap());
             }

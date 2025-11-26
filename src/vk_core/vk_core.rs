@@ -6,7 +6,7 @@ use crate::renderer::surface::Surface;
 use crate::vk_core::debug_messenger::DebugMessenger;
 
 pub struct VkCore {
-    entry: Entry,
+    _entry: Entry,
     instance: Instance,
     device: Device,
     queue: Queue,
@@ -88,7 +88,7 @@ impl VkCore {
         ).expect("failed to create GPU allocator"));
 
         Self {
-            entry,
+            _entry: entry,
             gpu_allocator: Some(gpu_allocator),
             instance,
             device,

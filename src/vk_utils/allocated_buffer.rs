@@ -1,3 +1,4 @@
+use std::error::Error;
 use ash::vk;
 use gpu_allocator::vulkan::{AllocationCreateDesc, Allocation};
 use crate::vk_core::vk_core::VkCore;
@@ -11,12 +12,18 @@ pub struct AllocatedBuffer {
 }
 
 impl AllocatedBuffer {
-    pub fn new(vk_core: Arc<VkCore>, buffer_create_info: vk::BufferCreateInfo, allocation_create_desc: &AllocationCreateDesc) -> Self {
+    pub fn new(
+        vk_core: Arc<VkCore>, 
+        buffer_create_info: &vk::BufferCreateInfo, 
+        allocation_create_desc: &AllocationCreateDesc) 
+        -> 
+        Result<Self, Box<dyn Error>>
+    {
 
         let buffer = unsafe {
             vk_core.device().create_buffer(&buffer_create_info, None)
-                .expect("failed to create buffer")
-        };
+                
+        }?;
 
         let buffer_memory_requirements = unsafe {
             vk_core.device().get_buffer_memory_requirements(buffer)
@@ -24,24 +31,41 @@ impl AllocatedBuffer {
 
 
         let new_allocation_create_desc = AllocationCreateDesc {
-            name: allocation_create_desc.name,
             requirements: buffer_memory_requirements,
-            location: allocation_create_desc.location,
-            linear: allocation_create_desc.linear,
-            allocation_scheme: allocation_create_desc.allocation_scheme
+            ..*allocation_create_desc
         };
 
 
         let allocation = allocate(
             &vk_core,
             &new_allocation_create_desc,
-        ).expect("failed to allocate buffer memory");
-
-        AllocatedBuffer {
-            vk_core,
-            buffer,
-            allocation: Some(allocation),
-        }
+        )?;
+        
+        
+        // Bind memory to buffer
+        unsafe {
+            vk_core.device().bind_buffer_memory(
+                buffer,
+                allocation.memory(),
+                allocation.offset(),
+            )
+        }?;
+        
+        Ok(
+            AllocatedBuffer {
+                vk_core,
+                buffer,
+                allocation: Some(allocation),
+            }
+        )
+    }
+    
+    pub fn allocation(&self) -> &Allocation {
+        self.allocation.as_ref().unwrap()
+    }
+    
+    pub fn buffer(&self) -> vk::Buffer {
+        self.buffer
     }
 }
 

@@ -72,7 +72,16 @@ impl GraphicsPipeline {
 
         let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(topology);
+
+
+        let surface_format = render_target.surface().get_physical_device_surface_formats(*vk_core.physical_device()).unwrap()[0];
+        let color_attachment_formats = [surface_format.format];
+        let depth_attachment_format = render_target.depth_image().format(); 
         
+        let mut pipeline_rendering_info = vk::PipelineRenderingCreateInfo::default()
+            .color_attachment_formats(&color_attachment_formats)
+            .depth_attachment_format(depth_attachment_format);
+
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&shader_stage_create_infos)
             .vertex_input_state(&vertex_input_state_info)
@@ -84,8 +93,8 @@ impl GraphicsPipeline {
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state_info)
             .layout(pipeline_layout)
-            .render_pass(render_target.render_pass());
-
+            .push_next(&mut pipeline_rendering_info);
+        
         let graphics_pipeline = unsafe {
             vk_core
                 .device()

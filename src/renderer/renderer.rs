@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use ash::{vk};
+use ash::prelude::VkResult;
 use winit::window::Window;
 use crate::renderer::frame_data::FrameData;
 use crate::vk_core::vk_core::VkCore;
@@ -43,7 +44,7 @@ impl Renderer {
         };
 
 
-        let render_target = WindowRenderTarget::new(vk_core.clone(), surface, window, &command_pool);
+        let render_target = WindowRenderTarget::new(vk_core.clone(), surface, window);
 
 
         let draw_command_buffers = unsafe {
@@ -96,13 +97,12 @@ impl Renderer {
         if window.inner_size().width == 0 || window.inner_size().height == 0 {
             return;
         }
-
+        
 
         let current_frame = &self.frame_data[self.frame_index % MAX_FRAME_LATENCY];
-
         
         let present_complete_semaphore = current_frame.sync().present_complete_semaphore();
-        let draw_commands_reuse_fence = current_frame.sync().draw_commands_reuse_fence();
+        let draw_fence = current_frame.sync().draw_fence();
 
         // Wait for the GPU to finish with this frame resource
         // The fence blocks the CPU from overwriting this frame's data
@@ -113,12 +113,12 @@ impl Renderer {
 
         // Acquire the next image from the swapchain (could be different from the current CPU frame)
         // Signals the semaphore when the image is ready to be rendered on
-        let present_index = match swapchain.acquire_next_image(present_complete_semaphore) {
-            Ok((present_index, suboptimal)) => {
+        let image_index = match swapchain.acquire_next_image(present_complete_semaphore) {
+            Ok((image_index, suboptimal)) => {
                 if suboptimal {
                     self.should_resize = true;
                 }
-                present_index
+                image_index
             },
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                 self.should_resize = true;
@@ -137,12 +137,125 @@ impl Renderer {
             .rendering_complete_semaphore();
 
         let cmd_buffer = current_frame.command_buffer();
-        self.record_commands(cmd_buffer, present_index as usize);
+        self.record_commands(cmd_buffer, image_index as usize);
+        
+        self.submit_commands_to_the_queue(
+            cmd_buffer, 
+            present_complete_semaphore, 
+            rendering_complete_semaphore,
+            draw_fence
+        );
+        
+        // Present the image to the screen
+        match self.present_image(
+            &[rendering_complete_semaphore],
+            &[swapchain.swapchain()],
+            &[image_index]
+        ){
+            Ok(_) => {}
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR) => {
+                self.should_resize = true;
+                return;
+            }
+            Err(err) => panic!("failed to present swapchain image: {:?}", err),
+        };
+        
+        // Advance to the next frame
+        self.frame_index += 1;
+
+    }
+
+    
+    fn record_commands(&self, cmd_buffer: vk::CommandBuffer, image_index: usize) {
+        let device = self.vk_core.device();
+
+        // Access to the specific ImageView for this frame
+        let current_image_view = self.render_target.image_views()[image_index];
+        // If you have a depth buffer, get its view too
+        let depth_image_view = self.render_target.depth_image().image_view();
+        
         
         unsafe {
+            device.reset_command_buffer(cmd_buffer, vk::CommandBufferResetFlags::empty()).expect("failed to reset command buffer");
             
+
+            device.begin_command_buffer(
+                cmd_buffer,
+                &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+            ).expect("failed to begin recording command buffer");
+
+            // TRANSITION TO RENDER TARGET
+            // Transition Swapchain Image: Undefined/Present -> Color Attachment Optimal
+            self.render_target.transition_image_layout(
+                image_index, 
+                cmd_buffer,
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::NONE,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE
+            );
+
+            let color_attachment_info = [vk::RenderingAttachmentInfo::default()
+                .image_view(current_image_view)
+                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::STORE)
+                .clear_value(self.clear_values[0])];
+
             
-            // Submit the commands to the queue
+            let depth_attachment_info = vk::RenderingAttachmentInfo::default()
+                .image_view(depth_image_view)
+                .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::STORE)
+                .clear_value(self.clear_values[1]); 
+            
+
+            let rendering_info = vk::RenderingInfo::default()
+                .render_area(self.render_target.resolution().into())
+                .layer_count(1)
+                .color_attachments(&color_attachment_info)
+                .depth_attachment(&depth_attachment_info);
+
+            device.cmd_begin_rendering(cmd_buffer, &rendering_info);
+
+
+
+            // Viewport/Scissor (Dynamic State)
+            device.cmd_set_viewport(cmd_buffer, 0, self.render_target.viewports());
+            device.cmd_set_scissor(cmd_buffer, 0, self.render_target.scissors());
+
+            
+            // Record rendering commands
+            self.triangle_drawer.as_ref().unwrap().draw(
+                cmd_buffer,
+            );
+
+            device.cmd_end_rendering(cmd_buffer);
+
+            // TRANSITION TO PRESENT
+            // Transition Swapchain Image: Color Attachment Optimal -> Present Src
+            self.render_target.transition_image_layout(
+                image_index,
+                cmd_buffer,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::PRESENT_SRC_KHR,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::AccessFlags2::NONE
+            );
+            
+            // Finished recording commands
+            device.end_command_buffer(cmd_buffer).expect("failed to record command buffer");
+        }
+    }
+    
+    /// Submits the commands to the queue
+    fn submit_commands_to_the_queue(&self, cmd_buffer: vk::CommandBuffer, present_complete_semaphore: vk::Semaphore, rendering_complete_semaphore: vk::Semaphore, draw_fence: vk::Fence) {
+        unsafe {
             let wait_sem_info = [vk::SemaphoreSubmitInfo::default()
                 .semaphore(present_complete_semaphore)
                 .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
@@ -158,81 +271,28 @@ impl Renderer {
                 .wait_semaphore_infos(&wait_sem_info)
                 .signal_semaphore_infos(&signal_sem_info)
                 .command_buffer_infos(&cmd_info);
-            
+
             self.vk_core.device()
                 .queue_submit2(
                     *self.vk_core.queue(),
                     &[submit_info],
-                    draw_commands_reuse_fence
+                    draw_fence
                 )
                 .expect("failed to submit draw command buffer to queue");
         }
-        
-        // Present the image to the screen
-        let wait_semaphores = [rendering_complete_semaphore];
-        let swapchains = [swapchain.swapchain()];
-        let image_indices = [present_index];
+    }
+    
+    fn present_image(&self, wait_semaphores: &[vk::Semaphore], swapchains: &[vk::SwapchainKHR], image_indices: &[u32]) -> VkResult<bool>{
+        let swapchain = self.render_target.swapchain();
+
         let present_info = vk::PresentInfoKHR::default()
-            .wait_semaphores(&wait_semaphores)
-            .swapchains(&swapchains)
-            .image_indices(&image_indices);
+            .wait_semaphores(wait_semaphores)
+            .swapchains(swapchains)
+            .image_indices(image_indices);
 
-        match swapchain.queue_present(*self.vk_core.queue(), &present_info) {
-            Ok(_) => {}
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR) => {
-                self.should_resize = true;
-                return;
-            }
-            Err(err) => panic!("failed to present swapchain image: {:?}", err),
-        }
-
-        // Advance to the next frame
-        self.frame_index += 1;
+        swapchain.queue_present(*self.vk_core.queue(), &present_info)
 
     }
-
-    
-    fn record_commands(&self, cmd_buffer: vk::CommandBuffer, image_index: usize) {
-        let device = self.vk_core.device();
-        
-        
-        unsafe {
-            device.reset_command_buffer(cmd_buffer, vk::CommandBufferResetFlags::empty()).expect("failed to reset command buffer");
-            
-            let render_pass_info = vk::RenderPassBeginInfo::default()
-                .render_pass(self.render_target.render_pass())
-                .framebuffer(self.render_target.framebuffers()[image_index].framebuffer())
-                .render_area(self.render_target.resolution().into())
-                .clear_values(&self.clear_values);
-
-
-            device.begin_command_buffer(
-                cmd_buffer,
-                &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-            ).expect("failed to begin recording command buffer");
-
-            device.cmd_begin_render_pass(
-                cmd_buffer,
-                &render_pass_info,
-                vk::SubpassContents::INLINE,
-            );
-
-            // Viewport/Scissor (Dynamic State)
-            device.cmd_set_viewport(cmd_buffer, 0, self.render_target.viewports());
-            device.cmd_set_scissor(cmd_buffer, 0, self.render_target.scissors());
-
-            
-            // Record rendering commands
-            self.triangle_drawer.as_ref().unwrap().draw(
-                cmd_buffer,
-            );
-
-            device.cmd_end_render_pass(cmd_buffer);
-
-            // Finished recording commands
-            device.end_command_buffer(cmd_buffer).expect("failed to record command buffer");
-        }
-        }
     
     pub fn set_triangle_drawer(&mut self, triangle_drawer: TriangleDrawer) {
         self.triangle_drawer = Some(triangle_drawer);
@@ -245,7 +305,10 @@ impl Renderer {
     pub fn render_target(&self) -> &WindowRenderTarget {
         &self.render_target
     }
-
+    
+    pub fn command_pool(&self) -> vk::CommandPool {
+        self.command_pool
+    }
 
 }
 

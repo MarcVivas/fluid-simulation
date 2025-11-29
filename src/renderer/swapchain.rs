@@ -11,6 +11,7 @@ pub struct Swapchain {
     swapchain_loader: ash::khr::swapchain::Device,
     swapchain: vk::SwapchainKHR,
     swapchain_images_view: Vec<vk::ImageView>,
+    swapchain_images: Vec<vk::Image>,
 }
 
 impl Swapchain {
@@ -126,6 +127,7 @@ impl Swapchain {
             swapchain_loader,
             swapchain,
             swapchain_images_view,
+            swapchain_images,
         }
     }
 
@@ -154,6 +156,10 @@ impl Swapchain {
         unsafe {
             self.swapchain_loader.queue_present(queue, present_info)
         }
+    }
+    
+    pub fn images(&self) -> &Vec<vk::Image> {
+        &self.swapchain_images
     }
 
 }

@@ -9,7 +9,7 @@ pub struct FrameInFlight {
     vk_core: Arc<VkCore>,
     present_complete_semaphore: vk::Semaphore,
     rendering_complete_semaphore: vk::Semaphore,
-    draw_commands_reuse_fence: vk::Fence,
+    draw_fence: vk::Fence,
 }
 
 impl FrameInFlight {
@@ -36,7 +36,7 @@ impl FrameInFlight {
             vk_core,
             present_complete_semaphore,
             rendering_complete_semaphore,
-            draw_commands_reuse_fence
+            draw_fence: draw_commands_reuse_fence
         }
     }
     
@@ -48,19 +48,19 @@ impl FrameInFlight {
         self.rendering_complete_semaphore
     }
     
-    pub fn draw_commands_reuse_fence(&self) -> vk::Fence {
-        self.draw_commands_reuse_fence
+    pub fn draw_fence(&self) -> vk::Fence {
+        self.draw_fence
     }
     
     pub fn wait_for_fence(&self, device: &Device) {
         unsafe {
-            device.wait_for_fences(&[self.draw_commands_reuse_fence], true, u64::MAX)
+            device.wait_for_fences(&[self.draw_fence], true, u64::MAX)
                 .unwrap();
         };
     }
     
     pub fn reset_fence(&self, device: &Device) {
-        unsafe { device.reset_fences(&[self.draw_commands_reuse_fence]).unwrap() }
+        unsafe { device.reset_fences(&[self.draw_fence]).unwrap() }
     }
 }
 
@@ -71,7 +71,7 @@ impl Drop for FrameInFlight {
         unsafe {
             device.destroy_semaphore(self.present_complete_semaphore, None);
             device.destroy_semaphore(self.rendering_complete_semaphore, None);
-            device.destroy_fence(self.draw_commands_reuse_fence, None);
+            device.destroy_fence(self.draw_fence, None);
         }
     }
 }

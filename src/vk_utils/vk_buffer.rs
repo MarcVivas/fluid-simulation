@@ -1,0 +1,158 @@
+use std::error::Error;
+use std::ptr;
+use std::sync::Arc;
+use ash::vk;
+use ash::vk::CommandBufferSubmitInfo;
+use gpu_allocator::MemoryLocation;
+use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
+use crate::vk_core::vk_core::VkCore;
+use crate::vk_utils::allocated_buffer::AllocatedBuffer;
+
+pub struct VkBuffer {
+    buffer: AllocatedBuffer,
+}
+
+impl VkBuffer {
+    pub fn new<T: Copy>(
+        vk_core: &Arc<VkCore>,
+        data: &[T],
+        buffer_create_info: vk::BufferCreateInfo,
+        allocation_create_desc: AllocationCreateDesc,
+        command_pool: vk::CommandPool
+    ) -> Result<Self, Box<dyn Error>>
+    {
+        let buffer_size = (data.len() * size_of::<T>()) as vk::DeviceSize;
+        let device = vk_core.device();
+
+        let staging_buffer = Self::create_staging_buffer(
+            vk_core,
+            buffer_size
+        )?;
+
+        // Copy data to the staging buffer
+        let staging_data_ptr = staging_buffer
+            .allocation()
+            .mapped_ptr()
+            .expect("failed to get mapped ptr")
+            .as_ptr() as *mut u8;
+
+
+        unsafe {
+            ptr::copy_nonoverlapping(
+                data.as_ptr() as *const u8,
+                staging_data_ptr,
+                buffer_size as usize
+            );
+        }
+
+        // Create the gpu only buffer
+        let buffer_create_info = vk::BufferCreateInfo {
+            usage: buffer_create_info.usage | vk::BufferUsageFlags::TRANSFER_DST,
+            ..buffer_create_info
+        };
+
+
+
+        let allocated_buffer = AllocatedBuffer::new(
+            vk_core.clone(),
+            &buffer_create_info,
+            &allocation_create_desc
+        )?;
+
+
+        // Copy data from the staging buffer to gpu only buffer
+        unsafe {
+
+            let fence_info = vk::FenceCreateInfo::default();
+            let fence = device.create_fence(&fence_info, None)?;
+
+            let alloc_info = vk::CommandBufferAllocateInfo::default()
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_pool(command_pool)
+                .command_buffer_count(1);
+
+            let command_buffer = device
+                .allocate_command_buffers(&alloc_info)
+                ?[0];
+
+            let begin_info = vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+            device.begin_command_buffer(command_buffer, &begin_info)?;
+
+            let copy_region = vk::BufferCopy {
+                src_offset: 0,
+                dst_offset: 0,
+                size: buffer_size,
+            };
+
+            device.cmd_copy_buffer(
+                command_buffer,
+                staging_buffer.buffer(),
+                allocated_buffer.buffer(),
+                &[copy_region]
+            );
+
+            device.end_command_buffer(command_buffer)?;
+
+            let command_buffer_submit_infos = [
+                CommandBufferSubmitInfo::default()
+                    .command_buffer(command_buffer)
+            ];
+
+            let submit_info = vk::SubmitInfo2::default()
+                .command_buffer_infos(&command_buffer_submit_infos);
+
+            device.queue_submit2(
+                *vk_core.queue(),
+                &[submit_info],
+                fence
+            )?;
+
+            // Wait for just this operation, not the whole queue
+            device.wait_for_fences(&[fence], true, u64::MAX)?;
+
+            // Clean up temp resources
+            device.destroy_fence(fence, None);
+            device.free_command_buffers(command_pool, &[command_buffer]);
+        }
+
+
+        Ok(
+            Self
+            {
+                buffer: allocated_buffer
+            }
+        )
+    }
+
+    fn create_staging_buffer(vk_core: &Arc<VkCore>, buffer_size: vk::DeviceSize) -> Result<AllocatedBuffer, Box<dyn Error>> {
+        let staging_buffer_create_info = vk::BufferCreateInfo{
+            size: buffer_size,
+            usage: vk::BufferUsageFlags::TRANSFER_SRC,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..vk::BufferCreateInfo::default()
+        };
+
+        let staging_alloc_create_desc = AllocationCreateDesc {
+            name: "Staging buffer memory allocation",
+            requirements: vk::MemoryRequirements::default(),
+            location: MemoryLocation::CpuToGpu, // Host visible memory
+            linear: true,
+            allocation_scheme: AllocationScheme::GpuAllocatorManaged
+        };
+
+        let staging_buffer = AllocatedBuffer::new(
+            vk_core.clone(),
+            &staging_buffer_create_info,
+            &staging_alloc_create_desc
+        );
+
+        staging_buffer
+    }
+
+    pub fn buffer(&self) -> vk::Buffer {
+        self.buffer.buffer()
+    }
+
+}

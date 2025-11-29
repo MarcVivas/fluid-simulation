@@ -54,7 +54,7 @@ impl Surface {
             ) }
     }
     
-    pub fn get_physical_device_surface_capabilities(&self, physical_device: vk::PhysicalDevice) 
+    pub fn get_physical_device_surface_capabilities(&self, physical_device: PhysicalDevice) 
         -> VkResult<vk::SurfaceCapabilitiesKHR> 
     {
         unsafe { 

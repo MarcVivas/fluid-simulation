@@ -50,13 +50,16 @@ impl VkCore {
         let mut buffer_device_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures::default()
             .buffer_device_address(true);
 
+        let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default()
+            .dynamic_rendering(true);
 
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_info)
             .enabled_features(&features)
             .enabled_extension_names(&device_extensions_names_raw)
             .push_next(&mut sync2_features)
-            .push_next(&mut buffer_device_address_features);
+            .push_next(&mut buffer_device_address_features)
+            .push_next(&mut dynamic_rendering_features);
 
         let device: Device = unsafe {
             instance.create_device(physical_device, &device_create_info, None)
@@ -123,10 +126,12 @@ impl VkCore {
                 });
 
                 let mut bda_feature = vk::PhysicalDeviceBufferDeviceAddressFeatures::default();
-
+                let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default();
+                
                 // We chain it to a Features2 struct
                 let mut features2 = vk::PhysicalDeviceFeatures2::default()
-                    .push_next(&mut bda_feature);
+                    .push_next(&mut bda_feature)
+                    .push_next(&mut dynamic_rendering_features);
 
                 // Query the device properties
                 unsafe {
@@ -134,10 +139,12 @@ impl VkCore {
                 }
 
                 let supports_bda = bda_feature.buffer_device_address == 1;
+                let supports_dynamic_rendering = dynamic_rendering_features.dynamic_rendering == 1;
 
+                
 
-                if !supports_sync2 || !supports_bda {
-                    panic!("PhysicalDevice does not support VK_KHR_synchronization2 or VK_KHR_buffer_device_address");
+                if !supports_sync2 || !supports_bda || !supports_dynamic_rendering {
+                    panic!("PhysicalDevice does not support the required features!");
                 }
 
                 // STEP 2: Check Queue Families

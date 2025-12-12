@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use ash::{vk, Device};
-use ash::vk::CommandBuffer;
 use crate::renderer::frame_in_flight::FrameInFlight;
 use crate::vk_core::vk_core::VkCore;
+use crate::vk_utils::CommandBuffer;
 
 pub struct FrameData {
     sync: FrameInFlight,
-    command_buffer: vk::CommandBuffer,
+    command_buffer: CommandBuffer,
 }
 
 impl FrameData {
@@ -30,8 +30,8 @@ impl FrameData {
         self.sync.reset_fence(device);
     }
     
-    pub fn command_buffer(&self) -> vk::CommandBuffer {
-        self.command_buffer
+    pub fn command_buffer(&self) -> &CommandBuffer {
+        &self.command_buffer
     }
     
     pub fn sync(&self) -> &FrameInFlight {

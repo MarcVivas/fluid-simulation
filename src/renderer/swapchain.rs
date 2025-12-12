@@ -3,6 +3,7 @@ use std::sync::Arc;
 use ash::{vk};
 use ash::prelude::VkResult;
 use ash::vk::{ComponentMapping, Extent2D};
+use crate::renderer::renderer::MAX_FRAME_LATENCY;
 use crate::vk_core::vk_core::VkCore;
 use crate::renderer::surface::Surface;
 
@@ -17,7 +18,7 @@ pub struct Swapchain {
 impl Swapchain {
     pub fn new(vk_core: Arc<VkCore>, surface: &Surface, window: &Window, old_swapchain: Option<&Swapchain>) -> Self {
         let old_handle = match old_swapchain {
-            Some(old_swapchain) => old_swapchain.swapchain(),
+            Some(old_swapchain) => old_swapchain.vk_swapchain(),
             None => vk::SwapchainKHR::null(),
         };
 
@@ -36,7 +37,7 @@ impl Swapchain {
                 *vk_core.physical_device()
             ).expect("failed to get surface capabilities");
 
-        let mut desired_image_count = surface_capabilities.min_image_count.max(3);
+        let mut desired_image_count = surface_capabilities.min_image_count.max(MAX_FRAME_LATENCY as u32);
 
         // Only clamp if max_image_count is NOT zero.
         if surface_capabilities.max_image_count > 0 {
@@ -148,7 +149,7 @@ impl Swapchain {
         &self.swapchain_images_view
     }
 
-    pub fn swapchain(&self) -> vk::SwapchainKHR {
+    pub fn vk_swapchain(&self) -> vk::SwapchainKHR {
         self.swapchain.clone()
     }
 

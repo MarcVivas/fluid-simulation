@@ -1,12 +1,15 @@
 use std::mem::offset_of;
 use std::sync::Arc;
 use ash::vk;
+use ash::vk::{DescriptorSetLayoutBinding};
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
-use crate::vk_utils::{shader_loader};
+use crate::renderer::drawable::Drawable;
+use crate::vk_utils::{shader_loader, CommandBuffer};
 use crate::renderer::graphics_pipeline::GraphicsPipeline;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::vk_core::VkCore;
+use crate::vk_utils::pipeline_layout::PipelineLayout;
 use crate::vk_utils::vk_buffer::VkBuffer;
 
 #[repr(C)]
@@ -105,13 +108,24 @@ impl TriangleDrawer {
             .vertex_attribute_descriptions(&vertex_input_attribute_descriptions);
 
 
-
+        let descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)];
+        
+        let pipeline_layout = PipelineLayout::new(
+            vk_core.clone(),
+            &descriptor_set_layout_binding,    
+        ).expect("Failed to create pipeline layout");
+        
         let graphics_pipeline = GraphicsPipeline::new(
             vk_core.clone(),
             renderer,
             vk::PrimitiveTopology::TRIANGLE_LIST,
             vertex_input_state_info,
-            shader_stage_create_infos
+            shader_stage_create_infos,
+            pipeline_layout,
         );
         
         let vertex_buffer = TriangleDrawer::create_vertex_buffer(
@@ -197,30 +211,30 @@ impl TriangleDrawer {
 
         index_buffer
     }
+    
+    pub fn graphics_pipeline(&self) -> &GraphicsPipeline {
+        &self.graphics_pipeline
+    }
+}
 
-    pub fn draw(
-        &self,
-        cmd_buffer: vk::CommandBuffer,
-    )
-    {
+impl Drawable for TriangleDrawer {
+    fn draw(&self, cmd_buffer: &CommandBuffer) {
         let device = self.vk_core.device();
-        unsafe {
+        cmd_buffer.bind_pipeline(device, vk::PipelineBindPoint::GRAPHICS, self.graphics_pipeline.graphics_pipeline());
+        cmd_buffer.bind_vertex_buffers(device, 0, &[self.vertex_buffer.vk_buffer()], &[0]);
+        cmd_buffer.bind_index_buffer(device, self.index_buffer.vk_buffer(), 0, vk::IndexType::UINT16);
+        cmd_buffer.draw_indexed(device, self.indices.len() as u32, 1, 0, 0, 1);
+    }
 
-
-            device.cmd_bind_pipeline(
-                cmd_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.graphics_pipeline.graphics_pipeline(),
-            );
-
-
-            device.cmd_bind_vertex_buffers(cmd_buffer, 0, &[self.vertex_buffer.buffer()], &[0]);
-            device.cmd_bind_index_buffer(cmd_buffer, self.index_buffer.buffer(), 0, vk::IndexType::UINT16);
-
-            device.cmd_draw_indexed(cmd_buffer, self.indices.len() as u32, 1, 0, 0, 1);
-
-        }
-
+    fn bind_descriptor_sets(&self, cmd_buffer: &CommandBuffer, descriptor_sets: &[vk::DescriptorSet]) {
+        cmd_buffer.bind_descriptor_sets(
+            self.vk_core.device(),
+            vk::PipelineBindPoint::GRAPHICS,
+            self.graphics_pipeline().pipeline_layout().vk_pipeline_layout(),
+            0,
+            descriptor_sets,
+            &[]
+        );
     }
 }
 

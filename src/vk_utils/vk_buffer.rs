@@ -88,8 +88,8 @@ impl VkBuffer {
 
             device.cmd_copy_buffer(
                 command_buffer,
-                staging_buffer.buffer(),
-                allocated_buffer.buffer(),
+                staging_buffer.vk_buffer(),
+                allocated_buffer.vk_buffer(),
                 &[copy_region]
             );
 
@@ -151,8 +151,26 @@ impl VkBuffer {
         staging_buffer
     }
 
-    pub fn buffer(&self) -> vk::Buffer {
-        self.buffer.buffer()
+    pub fn vk_buffer(&self) -> vk::Buffer {
+        self.buffer.vk_buffer()
+    }
+
+
+    /// Efficiently writes data to the mapped memory.
+    /// The buffer must have been created with MemoryLocation::CpuToGpu
+    pub fn update<T: Copy>(&self, data: &T) {
+        let allocation = self.buffer.allocation();
+
+        // CpuToGpu is usually persistently mapped. 
+        // If unmapped, you might need allocation.map() here.
+        if let Some(ptr) = allocation.mapped_ptr() {
+            unsafe {
+                let data_ptr = ptr.as_ptr() as *mut T;
+                ptr::copy_nonoverlapping(data, data_ptr, 1);
+            }
+        } else {
+            panic!("Cannot update buffer: Memory is not mapped!");
+        }
     }
 
 }

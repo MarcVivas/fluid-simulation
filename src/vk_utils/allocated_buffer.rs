@@ -64,7 +64,7 @@ impl AllocatedBuffer {
         self.allocation.as_ref().unwrap()
     }
     
-    pub fn buffer(&self) -> vk::Buffer {
+    pub fn vk_buffer(&self) -> vk::Buffer {
         self.buffer
     }
 }

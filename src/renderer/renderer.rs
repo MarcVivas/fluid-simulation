@@ -1,29 +1,45 @@
 use std::sync::Arc;
 use ash::{vk};
 use ash::prelude::VkResult;
+use gpu_allocator::MemoryLocation;
+use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
 use winit::window::Window;
+use crate::renderer::camera::{Camera, CameraUniform};
+use crate::renderer::drawable::Drawable;
 use crate::renderer::frame_data::FrameData;
+use crate::renderer::render_config::RenderConfig;
 use crate::vk_core::vk_core::VkCore;
 use crate::renderer::surface::Surface;
-use crate::renderer::triangle_drawer::TriangleDrawer;
 use crate::renderer::window_render_target::WindowRenderTarget;
+use crate::vk_utils::{CommandBuffer, CommandPool, DescriptorPool, DescriptorSet, PipelineLayout};
 
 pub const MAX_FRAME_LATENCY: usize = 3;
 
 pub struct Renderer {
     vk_core: Arc<VkCore>,
     render_target: WindowRenderTarget,
+    render_config: RenderConfig,
+    command_pool: CommandPool,
 
-    command_pool: vk::CommandPool,
-
-    triangle_drawer: Option<TriangleDrawer>,
+    drawables: Vec<Box<dyn Drawable>>,
 
     frame_data: Vec<FrameData>,
     frame_index: usize,
     
-    clear_values: [vk::ClearValue; 2],
     
-    should_resize: bool,
+    should_resize: RenderState,
+    
+    #[allow(dead_code)]
+    descriptor_pool: DescriptorPool,
+    descriptor_sets: DescriptorSet,
+
+    camera: Camera,
+
+}
+
+enum RenderState {
+    Ready,
+    NeedsResize,
 }
 
 impl Renderer {
@@ -33,32 +49,43 @@ impl Renderer {
         surface: Surface,
     ) -> Self 
     {
-
-        let command_pool = unsafe {
-            let command_pool_create_info = vk::CommandPoolCreateInfo::default()
+        
+        let render_config = RenderConfig::new(
+            MAX_FRAME_LATENCY,
+            vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] } },
+            vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
+        );
+        
+        let command_pool = CommandPool::new(
+            vk_core.clone(),
+            &vk::CommandPoolCreateInfo::default()
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                .queue_family_index(vk_core.queue_family_index());
+                .queue_family_index(vk_core.queue_family_index())
+        ).expect("failed to create command pool");
 
-            vk_core.device().create_command_pool(&command_pool_create_info, None)
-                .expect("failed to create command pool")
-        };
+        let camera = Camera::new(
+            &vk_core,
+            &glam::Vec2::new(100.0, 100.0),
+            &window.inner_size(),
+            &command_pool,
+        ).expect("failed to create camera");
 
-
+        
         let render_target = WindowRenderTarget::new(vk_core.clone(), surface, window);
 
 
-        let draw_command_buffers = unsafe {
+        let draw_command_buffers = {
             let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::default()
                 .command_buffer_count(MAX_FRAME_LATENCY as u32)
-                .command_pool(command_pool)
+                .command_pool(command_pool.vk_cmd_pool())
                 .level(vk::CommandBufferLevel::PRIMARY);
-
-            vk_core.device().allocate_command_buffers(&command_buffer_allocate_info)
+            unsafe {
+                vk_core.device().allocate_command_buffers(&command_buffer_allocate_info)
+            }
         }.expect("failed to allocate command buffers");
 
-
-        let clear_values = Self::create_clear_values();
-
+        let draw_command_buffers: Vec<_> = draw_command_buffers.into_iter().map(|cmd_buffer| CommandBuffer::new(cmd_buffer)).collect();
+        
         let frame_data = (0..MAX_FRAME_LATENCY)
             .map(|i| FrameData::new(
                 vk_core.clone(),
@@ -67,78 +94,147 @@ impl Renderer {
             .collect();
 
 
+        let desc_pool = Self::create_descriptor_pool(&vk_core);
+        let desc_sets = Self::create_descriptor_set(&vk_core, &camera, &desc_pool);
+        let drawables = Vec::new();
+
         Self {
+            render_config,
             vk_core,
             render_target,
             command_pool,
-            triangle_drawer: None,
+            drawables,
             frame_index: 0,
-            clear_values,
-            should_resize: false,
-            frame_data
+            should_resize: RenderState::Ready,
+            frame_data,
+            descriptor_pool: desc_pool,
+            camera,
+            descriptor_sets: desc_sets
         }
     }
+    
+    fn create_descriptor_pool(vk_core: &Arc<VkCore>) -> DescriptorPool {
+        let desc_pool_sizes = [vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(MAX_FRAME_LATENCY as u32)];
+        let desc_pool_create_info = vk::DescriptorPoolCreateInfo::default()
+            .pool_sizes(&desc_pool_sizes)
+            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
+            .max_sets(MAX_FRAME_LATENCY as u32);
 
+        let desc_pool = DescriptorPool::new(
+            vk_core.clone(),
+            &desc_pool_create_info
+        ).expect("failed to create descriptor pool");
 
-    fn create_clear_values() -> [vk::ClearValue; 2] {
-        [
-            vk::ClearValue { color: vk::ClearColorValue { float32: [0.0, 0.0, 0.0, 1.0] } },
-            vk::ClearValue { depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 } },
-        ]
+        desc_pool
+    }
+    
+    fn create_descriptor_set(vk_core: &Arc<VkCore>, camera: &Camera, desc_pool: &DescriptorPool) -> DescriptorSet {
+        let desc_set_layout_binding = [
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
+        ];
+
+        let pipeline_layout = PipelineLayout::new(
+            vk_core.clone(),
+            &desc_set_layout_binding,
+        ).expect("failed to create pipeline layout");
+
+        let layouts = vec![
+            pipeline_layout.vk_descriptor_set_layout()[0]; MAX_FRAME_LATENCY
+        ];
+
+        let desc_set_info = vk::DescriptorSetAllocateInfo::default().descriptor_pool(desc_pool.vk_pool()).set_layouts(&layouts);
+        
+        let desc_sets = DescriptorSet::new(&vk_core, &desc_set_info)
+            .expect("failed to allocate descriptor set");
+
+        for i in 0..MAX_FRAME_LATENCY {
+            let desc_buffer_info = [
+                vk::DescriptorBufferInfo::default()
+                    .buffer(camera.buffer(i).vk_buffer())
+                    .offset(0)
+                    .range(size_of::<CameraUniform>() as u64)
+            ];
+
+            let write_desc_set = [
+                vk::WriteDescriptorSet::default()
+                    .dst_set(desc_sets.vk_descriptor_set()[i])
+                    .dst_binding(0)
+                    .dst_array_element(0)
+                    .descriptor_count(1)
+                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                    .buffer_info(&desc_buffer_info)
+            ];
+
+            unsafe {
+                vk_core.device().update_descriptor_sets(
+                    &write_desc_set,
+                    &[]
+                );
+            };
+        }
+        
+        desc_sets
     }
 
-    pub fn draw(&mut self, window: &Window){
-        if self.should_resize {
-            self.resize_window(window);
-            self.should_resize = false;
-        }
+    
+    pub fn draw_scene(&mut self, window: &Window){
+        
+        self.handle_resize(window);
 
         // Don't render if the window is minimized
-        if window.inner_size().width == 0 || window.inner_size().height == 0 {
+        if Self::is_minimized(window) {
             return;
         }
         
-
-        let current_frame = &self.frame_data[self.frame_index % MAX_FRAME_LATENCY];
         
-        let present_complete_semaphore = current_frame.sync().present_complete_semaphore();
-        let draw_fence = current_frame.sync().draw_fence();
+        let current_frame_idx = self.frame_index % MAX_FRAME_LATENCY;
+        
+        let present_complete_semaphore = self.frame_data[current_frame_idx].sync().present_complete_semaphore();
+        let draw_fence = self.frame_data[current_frame_idx].sync().draw_fence();
 
         // Wait for the GPU to finish with this frame resource
         // The fence blocks the CPU from overwriting this frame's data
-        current_frame.wait_for_fence(self.vk_core.device());
+        self.frame_data[current_frame_idx].wait_for_fence(self.vk_core.device());
 
 
-        let swapchain = self.render_target.swapchain();
 
         // Acquire the next image from the swapchain (could be different from the current CPU frame)
         // Signals the semaphore when the image is ready to be rendered on
-        let image_index = match swapchain.acquire_next_image(present_complete_semaphore) {
+        let image_index = match self.render_target.swapchain().acquire_next_image(present_complete_semaphore) {
             Ok((image_index, suboptimal)) => {
                 if suboptimal {
-                    self.should_resize = true;
+                    self.should_resize = RenderState::NeedsResize;
                 }
                 image_index
             },
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                self.should_resize = true;
+                self.should_resize = RenderState::NeedsResize;
                 return;
             }
             Err(err) => panic!("failed to acquire swapchain image: {:?}", err),
         };
-        
-        current_frame.reset_fence(self.vk_core.device());
 
-        
+        self.frame_data[current_frame_idx].reset_fence(self.vk_core.device());
+
+        self.update_camera(current_frame_idx);
+
         // The semaphore that blocks the Screen from showing the result
         // The semaphore is signaled when the image is ready to be presented on the screen
-        let rendering_complete_semaphore = current_frame
+        let rendering_complete_semaphore = self.frame_data[current_frame_idx]
             .sync()
             .rendering_complete_semaphore();
 
-        let cmd_buffer = current_frame.command_buffer();
+        let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
         self.record_commands(cmd_buffer, image_index as usize);
-        
+
+
+
         self.submit_commands_to_the_queue(
             cmd_buffer, 
             present_complete_semaphore, 
@@ -149,12 +245,17 @@ impl Renderer {
         // Present the image to the screen
         match self.present_image(
             &[rendering_complete_semaphore],
-            &[swapchain.swapchain()],
+            &[self.render_target.swapchain().vk_swapchain()],
             &[image_index]
         ){
-            Ok(_) => {}
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR) => {
-                self.should_resize = true;
+            
+            Ok(true) => {
+                self.should_resize = RenderState::NeedsResize;
+                return;
+            }
+            Ok(false) => {}
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                self.should_resize = RenderState::NeedsResize;
                 return;
             }
             Err(err) => panic!("failed to present swapchain image: {:?}", err),
@@ -164,97 +265,134 @@ impl Renderer {
         self.frame_index += 1;
 
     }
-
     
-    fn record_commands(&self, cmd_buffer: vk::CommandBuffer, image_index: usize) {
+    fn is_minimized(window: &Window) -> bool {
+        window.inner_size().width == 0 || window.inner_size().height == 0
+    }
+    
+    fn handle_resize(&mut self, window: &Window){
+        match self.should_resize {
+            RenderState::Ready => {}
+            RenderState::NeedsResize => {
+                self.resize_window(window);
+                self.should_resize = RenderState::Ready;
+            }
+        }
+    }
+    fn update_camera(&mut self, current_frame_idx: usize) {
+        // Get the window size for the projection aspect ratio
+        let extent = self.render_target.resolution();
+        let screen_size = glam::Vec2::new(extent.width as f32, extent.height as f32);
+
+        // This calculates the new View-Projection matrix inside the camera struct
+        self.camera.build_view_projection_matrix(&screen_size);
+
+        let uniform_data = self.camera.get_uniform();
+
+        // Only update the buffer for the current frame to avoid race conditions
+        self.camera.buffer(current_frame_idx).update(uniform_data);
+    }
+    
+    fn record_commands(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+        self.begin_render_pass(cmd_buffer, image_index);
+        self.render_drawables(cmd_buffer, image_index);
+        self.end_render_pass(cmd_buffer, image_index);
+    }
+    
+    
+    fn render_drawables(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+        let device = self.vk_core.device();
+
+        // Viewport/Scissor (Dynamic State)
+        cmd_buffer.set_viewport(device, 0, self.render_target.viewports());
+        cmd_buffer.set_scissor(device, 0, self.render_target.scissors());
+
+        for drawable in &self.drawables {
+            let descriptor_sets = [self.descriptor_sets.vk_descriptor_set()[image_index]];
+            drawable.bind_descriptor_sets(cmd_buffer, &descriptor_sets);
+
+            // Record rendering commands
+            drawable.draw(&cmd_buffer);
+        }
+    }
+    
+    fn begin_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
         let device = self.vk_core.device();
 
         // Access to the specific ImageView for this frame
         let current_image_view = self.render_target.image_views()[image_index];
         // If you have a depth buffer, get its view too
         let depth_image_view = self.render_target.depth_image().image_view();
+
+        cmd_buffer.reset(device, &vk::CommandBufferResetFlags::empty()).expect("failed to reset command buffer");
+
+        cmd_buffer.begin_command_buffer(
+            device,
+            &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+        ).expect("failed to begin recording command buffer");
+
+        // TRANSITION TO RENDER TARGET
+        // Transition Swapchain Image: Undefined/Present -> Color Attachment Optimal
+        self.render_target.transition_image_layout(
+            image_index,
+            cmd_buffer,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            vk::AccessFlags2::NONE,
+            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE
+        );
+
+        let color_attachment_info = [vk::RenderingAttachmentInfo::default()
+            .image_view(current_image_view)
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(*self.render_config.clear_value())];
+
+
+        let depth_attachment_info = vk::RenderingAttachmentInfo::default()
+            .image_view(depth_image_view)
+            .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(*self.render_config.depth_clear());
+
+
+        let rendering_info = vk::RenderingInfo::default()
+            .render_area(self.render_target.resolution().into())
+            .layer_count(1)
+            .color_attachments(&color_attachment_info)
+            .depth_attachment(&depth_attachment_info);
+
+        cmd_buffer.begin_render_pass(device, &rendering_info);
+    }
+    
+    fn end_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+        let device = self.vk_core.device();
         
-        
-        unsafe {
-            device.reset_command_buffer(cmd_buffer, vk::CommandBufferResetFlags::empty()).expect("failed to reset command buffer");
-            
+        cmd_buffer.end_rendering(device);
 
-            device.begin_command_buffer(
-                cmd_buffer,
-                &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-            ).expect("failed to begin recording command buffer");
+        // TRANSITION TO PRESENT
+        // Transition Swapchain Image: Color Attachment Optimal -> Present Src
+        self.render_target.transition_image_layout(
+            image_index,
+            cmd_buffer,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+            vk::AccessFlags2::NONE
+        );
 
-            // TRANSITION TO RENDER TARGET
-            // Transition Swapchain Image: Undefined/Present -> Color Attachment Optimal
-            self.render_target.transition_image_layout(
-                image_index, 
-                cmd_buffer,
-                vk::ImageLayout::UNDEFINED,
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                vk::AccessFlags2::NONE,
-                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE
-            );
-
-            let color_attachment_info = [vk::RenderingAttachmentInfo::default()
-                .image_view(current_image_view)
-                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
-                .store_op(vk::AttachmentStoreOp::STORE)
-                .clear_value(self.clear_values[0])];
-
-            
-            let depth_attachment_info = vk::RenderingAttachmentInfo::default()
-                .image_view(depth_image_view)
-                .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
-                .store_op(vk::AttachmentStoreOp::STORE)
-                .clear_value(self.clear_values[1]); 
-            
-
-            let rendering_info = vk::RenderingInfo::default()
-                .render_area(self.render_target.resolution().into())
-                .layer_count(1)
-                .color_attachments(&color_attachment_info)
-                .depth_attachment(&depth_attachment_info);
-
-            device.cmd_begin_rendering(cmd_buffer, &rendering_info);
-
-
-
-            // Viewport/Scissor (Dynamic State)
-            device.cmd_set_viewport(cmd_buffer, 0, self.render_target.viewports());
-            device.cmd_set_scissor(cmd_buffer, 0, self.render_target.scissors());
-
-            
-            // Record rendering commands
-            self.triangle_drawer.as_ref().unwrap().draw(
-                cmd_buffer,
-            );
-
-            device.cmd_end_rendering(cmd_buffer);
-
-            // TRANSITION TO PRESENT
-            // Transition Swapchain Image: Color Attachment Optimal -> Present Src
-            self.render_target.transition_image_layout(
-                image_index,
-                cmd_buffer,
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::ImageLayout::PRESENT_SRC_KHR,
-                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                vk::AccessFlags2::NONE
-            );
-            
-            // Finished recording commands
-            device.end_command_buffer(cmd_buffer).expect("failed to record command buffer");
-        }
+        // Finished recording commands
+        cmd_buffer.end_command_buffer(device).expect("failed to record command buffer");
     }
     
     /// Submits the commands to the queue
-    fn submit_commands_to_the_queue(&self, cmd_buffer: vk::CommandBuffer, present_complete_semaphore: vk::Semaphore, rendering_complete_semaphore: vk::Semaphore, draw_fence: vk::Fence) {
+    fn submit_commands_to_the_queue(&self, cmd_buffer: &CommandBuffer, present_complete_semaphore: vk::Semaphore, rendering_complete_semaphore: vk::Semaphore, draw_fence: vk::Fence) {
         unsafe {
             let wait_sem_info = [vk::SemaphoreSubmitInfo::default()
                 .semaphore(present_complete_semaphore)
@@ -264,8 +402,10 @@ impl Renderer {
                 .semaphore(rendering_complete_semaphore)
                 .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
 
-            let cmd_info = [vk::CommandBufferSubmitInfo::default()
-                .command_buffer(cmd_buffer)];
+            let cmd_info = [
+                vk::CommandBufferSubmitInfo::default()
+                    .command_buffer(cmd_buffer.vk_cmd_buffer())
+            ];
 
             let submit_info = vk::SubmitInfo2::default()
                 .wait_semaphore_infos(&wait_sem_info)
@@ -294,8 +434,8 @@ impl Renderer {
 
     }
     
-    pub fn set_triangle_drawer(&mut self, triangle_drawer: TriangleDrawer) {
-        self.triangle_drawer = Some(triangle_drawer);
+    pub fn push_drawable(&mut self, drawable: Box<dyn Drawable>) {
+        self.drawables.push(drawable);
     }
     
     pub fn resize_window(&mut self, window: &Window) {
@@ -307,9 +447,8 @@ impl Renderer {
     }
     
     pub fn command_pool(&self) -> vk::CommandPool {
-        self.command_pool
+        self.command_pool.vk_cmd_pool()
     }
-
 }
 
 impl Drop for Renderer {
@@ -317,7 +456,6 @@ impl Drop for Renderer {
         let device = self.vk_core.device();
         unsafe {
             device.device_wait_idle().unwrap();
-            device.destroy_command_pool(self.command_pool, None);
         }
     }
 }

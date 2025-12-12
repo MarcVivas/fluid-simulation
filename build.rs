@@ -7,6 +7,45 @@ use std::{
 
 use shader_slang::Downcast;
 
+const SHADERS_PATH: &str = "src/shaders";
+
+/// The build file compiles all the shaders in the shaders folder. 
+/// Executed automatically after compiling the project and before running it.  
+fn main() {
+    println!("cargo:rerun-if-changed={}", SHADERS_PATH);
+    let global_session = shader_slang::GlobalSession::new().unwrap();
+    let search_path = std::ffi::CString::new(SHADERS_PATH).unwrap();
+
+    // All compiler options are available through this builder.
+    let session_options = shader_slang::CompilerOptions::default()
+        //.optimization(shader_slang::OptimizationLevel::High)
+        .vulkan_use_entry_point_name(true)
+        .matrix_layout_row(true);
+
+    let target_desc = shader_slang::TargetDesc::default().format(shader_slang::CompileTarget::Spirv);
+
+    let targets = [target_desc];
+    let search_paths = [search_path.as_ptr()];
+
+    let session_desc = shader_slang::SessionDesc::default()
+        .targets(&targets)
+        .search_paths(&search_paths)
+        .options(&session_options);
+
+    let mut session = global_session.create_session(&session_desc).unwrap();
+
+    let mut dir_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    dir_path.push(SHADERS_PATH);
+    let dir = std::fs::read_dir(dir_path).unwrap();
+
+    for entry in dir.flatten() {
+        let file_name = entry.file_name().into_string().unwrap();
+        let file_name = file_name.split(".").next().unwrap();
+        load_module(&mut session, file_name);
+    }
+}
+
+
 fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     let module = session.load_module(&file_name.to_string()).unwrap();
     let entry_point = module.find_entry_point_by_name("main");
@@ -51,37 +90,3 @@ fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     println!("cargo:warning=Compiled! {length} bytes, saved to {path_str}");
 }
 
-const SHADERS_PATH: &str = "src/shaders";
-fn main() {
-    println!("cargo:rerun-if-changed={}", SHADERS_PATH);
-    let global_session = shader_slang::GlobalSession::new().unwrap();
-    let search_path = std::ffi::CString::new(SHADERS_PATH).unwrap();
-
-    // All compiler options are available through this builder.
-    let session_options = shader_slang::CompilerOptions::default()
-        //.optimization(shader_slang::OptimizationLevel::High)
-        .vulkan_use_entry_point_name(true)
-        .matrix_layout_row(true);
-
-    let target_desc = shader_slang::TargetDesc::default().format(shader_slang::CompileTarget::Spirv);
-
-    let targets = [target_desc];
-    let search_paths = [search_path.as_ptr()];
-
-    let session_desc = shader_slang::SessionDesc::default()
-        .targets(&targets)
-        .search_paths(&search_paths)
-        .options(&session_options);
-
-    let mut session = global_session.create_session(&session_desc).unwrap();
-
-    let mut dir_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    dir_path.push(SHADERS_PATH);
-    let dir = std::fs::read_dir(dir_path).unwrap();
-
-    for entry in dir.flatten() {
-        let file_name = entry.file_name().into_string().unwrap();
-        let file_name = file_name.split(".").next().unwrap();
-        load_module(&mut session, file_name);
-    }
-}

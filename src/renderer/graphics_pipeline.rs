@@ -2,11 +2,12 @@ use std::sync::Arc;
 use ash::vk;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::vk_core::VkCore;
+use crate::vk_utils::PipelineLayout;
 
 pub struct GraphicsPipeline {
     vk_core: Arc<VkCore>,
     graphics_pipeline: vk::Pipeline,
-    pipeline_layout: vk::PipelineLayout,
+    pipeline_layout: PipelineLayout
 }
 
 impl GraphicsPipeline {
@@ -16,6 +17,7 @@ impl GraphicsPipeline {
         topology: vk::PrimitiveTopology,
         vertex_input_state_info: vk::PipelineVertexInputStateCreateInfo,
         shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo>,
+        pipeline_layout: PipelineLayout
     ) -> Self 
     {
 
@@ -39,6 +41,7 @@ impl GraphicsPipeline {
             .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL)
             .front(noop_stencil_state)
             .back(noop_stencil_state)
+            .min_depth_bounds(0.0)
             .max_depth_bounds(1.0);
 
         let color_blend_attachment_states = [vk::PipelineColorBlendAttachmentState::default()
@@ -62,14 +65,7 @@ impl GraphicsPipeline {
         let render_target = renderer.render_target();
         
         let viewport_state_info = render_target.viewport_state_info();
-
-        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
-        let pipeline_layout = unsafe {
-            vk_core
-                .device()
-                .create_pipeline_layout(&pipeline_layout_create_info, None)
-        }.expect("failed to create pipeline layout");
-
+        
         let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(topology);
 
@@ -92,7 +88,7 @@ impl GraphicsPipeline {
             .depth_stencil_state(&depth_state_info)
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state_info)
-            .layout(pipeline_layout)
+            .layout(pipeline_layout.vk_pipeline_layout())
             .push_next(&mut pipeline_rendering_info);
         
         let graphics_pipeline = unsafe {
@@ -115,6 +111,10 @@ impl GraphicsPipeline {
         self.graphics_pipeline
     }
     
+    pub fn pipeline_layout(&self) -> &PipelineLayout {
+        &self.pipeline_layout
+    }
+    
 }
 
 impl Drop for GraphicsPipeline {
@@ -122,7 +122,6 @@ impl Drop for GraphicsPipeline {
         let device = self.vk_core.device();
         unsafe {
             device.destroy_pipeline(self.graphics_pipeline, None);
-            device.destroy_pipeline_layout(self.pipeline_layout, None);
         };
     }
 }

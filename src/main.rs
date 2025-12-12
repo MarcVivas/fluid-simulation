@@ -1,6 +1,7 @@
 mod vk_core;
 mod vk_utils;
 mod renderer;
+mod particle_system;
 
 use std::default::Default;
 use std::sync::Arc;
@@ -8,8 +9,8 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
+use crate::particle_system::ParticleSystem;
 use crate::renderer::renderer::Renderer;
-use crate::renderer::triangle_drawer::TriangleDrawer;
 use crate::vk_core::init_with_window;
 use crate::vk_core::vk_core::VkCore;
 
@@ -63,8 +64,16 @@ impl ApplicationHandler for App {
                 surface
             )
         );
-        let triangle_drawer = TriangleDrawer::new(vk_core.clone(), self.renderer.as_ref().unwrap());
-        self.renderer.as_mut().unwrap().set_triangle_drawer(triangle_drawer);
+
+        let particle_system = Box::new(
+            ParticleSystem::new(
+                1_000,
+                &glam::Vec4::new(100.0, 100.0, 100.0, 0.0),
+                &vk_core,
+                self.renderer.as_ref().unwrap()
+            ).expect("Failed to create particle system")
+        );
+        self.renderer.as_mut().unwrap().push_drawable(particle_system);
 
         self.vk_core = Some(vk_core);
         self.window = Some(window);
@@ -95,7 +104,7 @@ impl ApplicationHandler for App {
 
                 // Draw.
 
-                self.renderer.as_mut().unwrap().draw(self.window.as_ref().unwrap());
+                self.renderer.as_mut().unwrap().draw_scene(self.window.as_ref().unwrap());
 
                 // Queue a RedrawRequested event.
                 //

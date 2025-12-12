@@ -6,6 +6,7 @@ use crate::renderer::depth_image::DepthImage;
 use crate::renderer::surface::Surface;
 use crate::renderer::swapchain::Swapchain;
 use crate::vk_core::vk_core::VkCore;
+use crate::vk_utils::CommandBuffer;
 
 pub struct WindowRenderTarget {
     vk_core: Arc<VkCore>,
@@ -142,7 +143,7 @@ impl WindowRenderTarget {
     pub fn transition_image_layout(
         &self, 
         image_index: usize, 
-        cmd_buffer: vk::CommandBuffer,
+        cmd_buffer: &CommandBuffer,
         old_layout: vk::ImageLayout, 
         new_layout: vk::ImageLayout,
         src_stage_mask: vk::PipelineStageFlags2,
@@ -170,9 +171,8 @@ impl WindowRenderTarget {
         let dependency_info = vk::DependencyInfo::default()
             .image_memory_barriers(&image_barrier);
 
-        unsafe{
-            self.vk_core.device().cmd_pipeline_barrier2(cmd_buffer, &dependency_info);
-        }
+        
+        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &dependency_info);
     }
 }
 

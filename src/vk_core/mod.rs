@@ -1,11 +1,11 @@
 pub mod vk_core;
+pub use vk_core::VkCore;
 mod debug_messenger;
 mod instance;
 
 use std::sync::Arc;
 use winit::raw_window_handle::HasDisplayHandle;
 use crate::renderer::surface::Surface;
-use crate::vk_core::vk_core::VkCore;
 
 pub fn init_with_window(window: &winit::window::Window) -> (Arc<VkCore>, Surface){
     let entry = unsafe{ash::Entry::load()}.expect("Failed to load ash entry");

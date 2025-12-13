@@ -12,6 +12,7 @@ use crate::vk_core::vk_core::VkCore;
 use crate::renderer::surface::Surface;
 use crate::renderer::window_render_target::WindowRenderTarget;
 use crate::vk_utils::{CommandBuffer, CommandPool, DescriptorPool, DescriptorSet, PipelineLayout};
+use crate::world::World;
 
 pub const MAX_FRAME_LATENCY: usize = 3;
 
@@ -183,7 +184,7 @@ impl Renderer {
     }
 
     
-    pub fn draw_scene(&mut self, window: &Window){
+    pub fn draw_world(&mut self, window: &Window, world: &World){
         
         self.handle_resize(window);
 
@@ -231,7 +232,7 @@ impl Renderer {
             .rendering_complete_semaphore();
 
         let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
-        self.record_commands(cmd_buffer, image_index as usize);
+        self.record_commands(cmd_buffer, image_index as usize, world);
 
 
 
@@ -293,27 +294,26 @@ impl Renderer {
         self.camera.buffer(current_frame_idx).update(uniform_data);
     }
     
-    fn record_commands(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+    fn record_commands(&self, cmd_buffer: &CommandBuffer, image_index: usize, world: &World) {
         self.begin_render_pass(cmd_buffer, image_index);
-        self.render_drawables(cmd_buffer, image_index);
+        self.render_drawables(cmd_buffer, image_index, world);
         self.end_render_pass(cmd_buffer, image_index);
     }
     
     
-    fn render_drawables(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+    fn render_drawables(&self, cmd_buffer: &CommandBuffer, image_index: usize, world: &World) {
         let device = self.vk_core.device();
 
         // Viewport/Scissor (Dynamic State)
         cmd_buffer.set_viewport(device, 0, self.render_target.viewports());
         cmd_buffer.set_scissor(device, 0, self.render_target.scissors());
 
-        for drawable in &self.drawables {
-            let descriptor_sets = [self.descriptor_sets.vk_descriptor_set()[image_index]];
-            drawable.bind_descriptor_sets(cmd_buffer, &descriptor_sets);
+        let descriptor_sets = [self.descriptor_sets.vk_descriptor_set()[image_index]];
+        world.bind_descriptor_sets(cmd_buffer, &descriptor_sets);
 
-            // Record rendering commands
-            drawable.draw(&cmd_buffer);
-        }
+        // Record rendering commands
+        world.draw(&cmd_buffer);  
+        
     }
     
     fn begin_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize) {

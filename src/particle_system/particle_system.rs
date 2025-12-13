@@ -9,7 +9,7 @@ use crate::renderer::Drawable;
 use crate::particle_system::particle_system_drawer::ParticleSystemDrawer;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
-use crate::vk_utils::{CommandBuffer, CommandPool};
+use crate::vk_utils::{CommandBuffer};
 use crate::vk_utils::vk_buffer::VkBuffer;
 
 pub struct ParticleSystem {
@@ -19,7 +19,7 @@ pub struct ParticleSystem {
 }
 
 impl ParticleSystem {
-    pub fn new(num_particles: usize, world_dim: &glam::Vec4, vk_core: &Arc<VkCore>, renderer: &Renderer) -> Result<Self, Box<dyn Error>> {
+    pub fn new(num_particles: usize, world_dim: &glam::Vec3, vk_core: &Arc<VkCore>, renderer: &Renderer) -> Result<Self, Box<dyn Error>> {
         let mut random_number_generator = rand::rng(); 
         
         let positions: Vec<glam::Vec4> = (0..num_particles)

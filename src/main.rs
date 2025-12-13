@@ -2,9 +2,12 @@ mod vk_core;
 mod vk_utils;
 mod renderer;
 mod particle_system;
+mod world;
+mod compute;
 
 use std::default::Default;
 use std::sync::Arc;
+use glam::Vec3;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -13,6 +16,7 @@ use crate::particle_system::ParticleSystem;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::init_with_window;
 use crate::vk_core::vk_core::VkCore;
+use crate::world::World;
 
 #[allow(unused)]
 fn main() {
@@ -28,6 +32,7 @@ struct App {
     renderer: Option<Renderer>,
     window: Option<Window>,
     window_resized: bool,
+    world: Option<World>
 }
 
 impl App {
@@ -37,7 +42,9 @@ impl App {
             window: None,
             vk_core: None,
             renderer: None,
+            world: None,
             window_resized: false,
+            
         }
     }
 }
@@ -65,15 +72,9 @@ impl ApplicationHandler for App {
             )
         );
 
-        let particle_system = Box::new(
-            ParticleSystem::new(
-                1_000,
-                &glam::Vec4::new(100.0, 100.0, 100.0, 0.0),
-                &vk_core,
-                self.renderer.as_ref().unwrap()
-            ).expect("Failed to create particle system")
-        );
-        self.renderer.as_mut().unwrap().push_drawable(particle_system);
+      
+        
+        self.world = Some(World::new(&vk_core, Vec3::new(100.0, 100.0, 100.0), self.renderer.as_ref().unwrap()));
 
         self.vk_core = Some(vk_core);
         self.window = Some(window);
@@ -104,7 +105,7 @@ impl ApplicationHandler for App {
 
                 // Draw.
 
-                self.renderer.as_mut().unwrap().draw_scene(self.window.as_ref().unwrap());
+                self.renderer.as_mut().unwrap().draw_world(self.window.as_ref().unwrap(), self.world.as_ref().unwrap());
 
                 // Queue a RedrawRequested event.
                 //

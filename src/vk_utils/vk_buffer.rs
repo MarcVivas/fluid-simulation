@@ -10,6 +10,7 @@ use crate::vk_utils::allocated_buffer::AllocatedBuffer;
 
 pub struct VkBuffer {
     buffer: AllocatedBuffer,
+    len: usize
 }
 
 impl VkBuffer {
@@ -21,7 +22,8 @@ impl VkBuffer {
         command_pool: vk::CommandPool
     ) -> Result<Self, Box<dyn Error>>
     {
-        let buffer_size = (data.len() * size_of::<T>()) as vk::DeviceSize;
+        let len = data.len();
+        let buffer_size = (len * size_of::<T>()) as vk::DeviceSize;
         let device = vk_core.device();
 
         let staging_buffer = Self::create_staging_buffer(
@@ -121,7 +123,8 @@ impl VkBuffer {
         Ok(
             Self
             {
-                buffer: allocated_buffer
+                buffer: allocated_buffer,
+                len
             }
         )
     }
@@ -155,6 +158,9 @@ impl VkBuffer {
         self.buffer.vk_buffer()
     }
 
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
     /// Efficiently writes data to the mapped memory.
     /// The buffer must have been created with MemoryLocation::CpuToGpu

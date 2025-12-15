@@ -8,13 +8,14 @@ use crate::renderer::GraphicsPipeline;
 use crate::particle_system::particle_system::ParticleSystem;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
-use crate::vk_utils::{shader_loader, CommandBuffer, PipelineLayout};
+use crate::vk_utils::{shader_loader, CommandBuffer, DescriptorSet, PipelineLayout};
+use crate::vk_utils::pipeline_layout::DescriptorSetLayoutConfig;
 use crate::vk_utils::vk_buffer::VkBuffer;
 
 pub struct ParticleSystemDrawer {
     vk_core: Arc<VkCore>,
     graphics_pipeline: GraphicsPipeline,
-    vertex_shader_module: vk::ShaderModule,
+    mesh_shader_module: vk::ShaderModule,
     fragment_shader_module: vk::ShaderModule,
     quad_vertex_buffer: VkBuffer,
     quad_index_buffer: VkBuffer,
@@ -40,9 +41,9 @@ impl ParticleSystemDrawer {
     ) -> Self {
 
         
-        let vertex_shader_module = shader_loader::load(
+        let mesh_shader_module = shader_loader::load(
             vk_core.device(),
-            "particle_vertex_shader",
+            "particle_mesh_shader",
         );
 
         let fragment_shader_module = shader_loader::load(
@@ -52,9 +53,9 @@ impl ParticleSystemDrawer {
 
         let shader_stage_create_infos = vec![
             vk::PipelineShaderStageCreateInfo::default()
-                .module(vertex_shader_module)
+                .module(mesh_shader_module)
                 .name(c"main")
-                .stage(vk::ShaderStageFlags::VERTEX),
+                .stage(vk::ShaderStageFlags::MESH_EXT),
             vk::PipelineShaderStageCreateInfo::default()
                 .module(fragment_shader_module)
                 .name(c"main")
@@ -62,60 +63,43 @@ impl ParticleSystemDrawer {
         ];
 
 
-        // Binding 0: The quad vertices
-        let binding_0_quad = vk::VertexInputBindingDescription {
-            binding: 0,
-            stride: size_of::<Vec2>() as u32,
-            input_rate: vk::VertexInputRate::VERTEX,
-        };
-            
-        
-        // Binding 1: The particle's positions
-        let binding_1_instance = vk::VertexInputBindingDescription {
-            binding: 1,
-            stride: size_of::<Vec4>() as u32,
-            input_rate: vk::VertexInputRate::INSTANCE,
-        };
-        
-        let binding_descriptions = [binding_0_quad, binding_1_instance];
-
-        let vertex_input_attribute_descriptions = [
-            // Attribute 0: Quad 
-            vk::VertexInputAttributeDescription {
-                binding: 0,
-                location: 0,
-                format: vk::Format::R32G32_SFLOAT,
-                offset: 0
-            },
-            vk::VertexInputAttributeDescription {
-                location: 1,
-                binding: 1,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: 0
-            }
-        ];
-
-        let vertex_input_state_info = vk::PipelineVertexInputStateCreateInfo::default()
-            .vertex_binding_descriptions(&binding_descriptions)
-            .vertex_attribute_descriptions(&vertex_input_attribute_descriptions);
-
         // Pipeline layout
-        let descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
+
+        // Set 0: Camera uniform buffer
+        let camera_descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)];
+            .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)];
+
+        // Set 1: Particle data buffer
+        let particle_descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::MESH_EXT)];
+
+        let descriptor_set_layout_config = [
+            DescriptorSetLayoutConfig {
+                bindings: &camera_descriptor_set_layout_binding,
+                flags: None
+            },
+            DescriptorSetLayoutConfig {
+                bindings: &particle_descriptor_set_layout_binding,
+                flags: Some(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
+            },
+        ];
 
         let pipeline_layout = PipelineLayout::new(
             vk_core.clone(),
-            &descriptor_set_layout_binding,
+            &descriptor_set_layout_config,
         ).expect("Failed to create pipeline layout");
 
         let graphics_pipeline = GraphicsPipeline::new(
             vk_core.clone(),
             renderer,
-            vk::PrimitiveTopology::TRIANGLE_LIST,
-            vertex_input_state_info,
+            None,
+            None,
             shader_stage_create_infos,
             pipeline_layout,
         );
@@ -140,7 +124,7 @@ impl ParticleSystemDrawer {
             quad_index_buffer,
             quad_vertex_buffer,
             graphics_pipeline,
-            vertex_shader_module,
+            mesh_shader_module,
             fragment_shader_module,
         }
     }
@@ -179,52 +163,32 @@ impl ParticleSystemDrawer {
         &self.graphics_pipeline
     }
     
-    pub fn draw(&self, cmd_buffer: &CommandBuffer, particle_system: &ParticleSystem){
+    pub fn draw(&self, command_buffer: &CommandBuffer, particle_system: &ParticleSystem){
         let device = self.vk_core.device();
         // Bind pipeline
-        cmd_buffer.bind_pipeline(
+        command_buffer.bind_pipeline(
             device,
             vk::PipelineBindPoint::GRAPHICS,
             self.graphics_pipeline.graphics_pipeline()
         );
 
-        // Bind vertex buffers
-        let buffers = [
-            self.quad_vertex_buffer.vk_buffer(),
-            particle_system.positions_buffer().vk_buffer()
-        ];
 
-        let offsets = [0, 0];
-
-        cmd_buffer.bind_vertex_buffers(
-            device,
-            0,
-            &buffers,
-            &offsets
-        );
-
-        // Bind index buffer
-        cmd_buffer.bind_index_buffer(
-            device,
-            self.quad_index_buffer.vk_buffer(),
-            0,
-            vk::IndexType::UINT16
-        );
-
-        // Draw indexed
-        cmd_buffer.draw_indexed(
-            device,
-            QUAD_INDICES.len() as u32,
-            particle_system.particle_count() as u32,
-            0,
-            0,
-            0
-        );
+        // Draw 
+        let particle_buffer = particle_system.positions_buffer();
+        let group_count_x = (particle_buffer.len() + 63) / 64;
+        let mesh_shader_loader = self.vk_core.mesh_shader_loader().unwrap();
+        unsafe {
+            mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer.vk_cmd_buffer(), group_count_x as u32, 1, 1);
+        }
         
     }
 
-    pub fn bind_descriptor_sets(&self, cmd_buffer: &CommandBuffer, descriptor_sets: &[vk::DescriptorSet]) {
-        cmd_buffer.bind_descriptor_sets(
+    pub fn bind_descriptor_sets(
+        &self, command_buffer: &CommandBuffer,
+        descriptor_sets: &[vk::DescriptorSet],
+        particle_buffer: &VkBuffer,
+    ) {
+        command_buffer.bind_descriptor_sets(
             self.vk_core.device(),
             vk::PipelineBindPoint::GRAPHICS,
             self.graphics_pipeline().pipeline_layout().vk_pipeline_layout(),
@@ -232,6 +196,28 @@ impl ParticleSystemDrawer {
             descriptor_sets,
             &[]
         );
+
+        // Push the Particle Buffer (Set 1)
+        let particle_buffer_info = [vk::DescriptorBufferInfo::default()
+            .buffer(particle_buffer.vk_buffer())
+            .offset(0)
+            .range(vk::WHOLE_SIZE)];
+
+        let write_descriptor_set = vk::WriteDescriptorSet::default()
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&particle_buffer_info);
+
+        // Pushing Set 1
+        unsafe {
+            self.vk_core.push_descriptor().cmd_push_descriptor_set(
+                command_buffer.vk_cmd_buffer(),
+                vk::PipelineBindPoint::GRAPHICS,
+                self.graphics_pipeline.pipeline_layout().vk_pipeline_layout(),
+                1, // Set Index: 1
+                &[write_descriptor_set],
+            );
+        }
     }
 }
 
@@ -239,7 +225,7 @@ impl Drop for ParticleSystemDrawer {
     fn drop(&mut self) {
         let device = self.vk_core.device();
         unsafe {
-            device.destroy_shader_module(self.vertex_shader_module, None);
+            device.destroy_shader_module(self.mesh_shader_module, None);
             device.destroy_shader_module(self.fragment_shader_module, None);
         }
     }

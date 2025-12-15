@@ -76,7 +76,7 @@ impl Drawable for ParticleSystem {
         self.particle_system_drawer.draw(cmd_buffer, &self);
     }
 
-    fn bind_descriptor_sets(&self, cmd_buffer: &CommandBuffer, descriptor_sets: &[DescriptorSet]) {
-        self.particle_system_drawer.bind_descriptor_sets(cmd_buffer, descriptor_sets);
+    fn bind_descriptor_sets(&self, cmd_buffer: &CommandBuffer, global_descriptor_set: &[DescriptorSet]) {
+        self.particle_system_drawer.bind_descriptor_sets(cmd_buffer, global_descriptor_set, &self.positions_buffer);
     }
 }

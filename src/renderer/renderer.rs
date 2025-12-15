@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use ash::{vk};
 use ash::prelude::VkResult;
+use ash::vk::DescriptorSetLayoutBinding;
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
 use winit::window::Window;
@@ -11,7 +12,7 @@ use crate::renderer::render_config::RenderConfig;
 use crate::vk_core::vk_core::VkCore;
 use crate::renderer::surface::Surface;
 use crate::renderer::window_render_target::WindowRenderTarget;
-use crate::vk_utils::{CommandBuffer, CommandPool, DescriptorPool, DescriptorSet, PipelineLayout};
+use crate::vk_utils::{CommandBuffer, CommandPool, DescriptorPool, DescriptorSet, DescriptorSetLayoutConfig, PipelineLayout};
 use crate::world::World;
 
 pub const MAX_FRAME_LATENCY: usize = 3;
@@ -137,12 +138,20 @@ impl Renderer {
                 .binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
+                .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)
+        ];
+        
+
+        let descriptor_set_layout_config = [
+            DescriptorSetLayoutConfig {
+                bindings: &desc_set_layout_binding,
+                flags: None
+            },
         ];
 
         let pipeline_layout = PipelineLayout::new(
             vk_core.clone(),
-            &desc_set_layout_binding,
+            &descriptor_set_layout_config,
         ).expect("failed to create pipeline layout");
 
         let layouts = vec![

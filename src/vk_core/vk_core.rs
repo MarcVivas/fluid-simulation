@@ -19,6 +19,7 @@ const REQUIRED_DEVICE_EXTENSIONS: &[&CStr] = &[
     ash::ext::mesh_shader::NAME,
     ash::khr::synchronization2::NAME,
     ash::ext::scalar_block_layout::NAME,
+    ash::khr::push_descriptor::NAME,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     ash::khr::portability_subset::NAME,
 ];
@@ -32,6 +33,8 @@ pub struct VkCore {
     physical_device: PhysicalDevice,
     debug_messenger: Option<DebugMessenger>,
     gpu_allocator: Option<Mutex<Allocator>>,
+    push_descriptor: ash::khr::push_descriptor::Device,
+    mesh_shader_loader: Option<ash::ext::mesh_shader::Device>,
 }
 
 impl VkCore {
@@ -42,7 +45,7 @@ impl VkCore {
             &entry,
             &instance
         );
-        
+
         let (physical_device, queue_family_index) = Self::select_physical_device(
             &instance,
             surface,
@@ -67,6 +70,10 @@ impl VkCore {
             }
         ).expect("failed to create GPU allocator"));
 
+
+        let push_descriptor = ash::khr::push_descriptor::Device::new(&instance, &device);
+        let mesh_shader_loader = Some(ash::ext::mesh_shader::Device::new(&instance, &device));
+
         Self {
             _entry: entry,
             gpu_allocator: Some(gpu_allocator),
@@ -76,6 +83,8 @@ impl VkCore {
             queue_family_index,
             physical_device,
             debug_messenger,
+            push_descriptor,
+            mesh_shader_loader
         }
     }
 
@@ -163,8 +172,7 @@ impl VkCore {
         let mut dynamic_rendering = vk::PhysicalDeviceDynamicRenderingFeatures::default();
         let mut scalar_alignment = vk::PhysicalDeviceScalarBlockLayoutFeatures::default();
         let mut mesh_shader = vk::PhysicalDeviceMeshShaderFeaturesEXT::default();
-        
-        
+
         let mut features2 = vk::PhysicalDeviceFeatures2::default()
             .push_next(&mut sync2)
             .push_next(&mut bda)
@@ -231,6 +239,13 @@ impl VkCore {
         &self.instance
     }
 
+    pub fn push_descriptor(&self) -> &ash::khr::push_descriptor::Device {
+        &self.push_descriptor
+    }
+    
+    pub fn mesh_shader_loader(&self) -> Option<&ash::ext::mesh_shader::Device> {
+        self.mesh_shader_loader.as_ref()
+    }
 }
 
 impl Drop for VkCore {

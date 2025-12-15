@@ -14,8 +14,8 @@ impl GraphicsPipeline {
     pub fn new(
         vk_core: Arc<VkCore>, 
         renderer: &Renderer,
-        topology: vk::PrimitiveTopology,
-        vertex_input_state_info: vk::PipelineVertexInputStateCreateInfo,
+        topology: Option<vk::PrimitiveTopology>,
+        vertex_input_state_info: Option<vk::PipelineVertexInputStateCreateInfo>,
         shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo>,
         pipeline_layout: PipelineLayout
     ) -> Self 
@@ -66,6 +66,8 @@ impl GraphicsPipeline {
         
         let viewport_state_info = render_target.viewport_state_info();
         
+        let topology = topology.unwrap_or_default();
+        
         let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(topology);
 
@@ -78,6 +80,8 @@ impl GraphicsPipeline {
             .color_attachment_formats(&color_attachment_formats)
             .depth_attachment_format(depth_attachment_format);
 
+        let vertex_input_state_info = vertex_input_state_info.unwrap_or_default();
+        
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&shader_stage_create_infos)
             .vertex_input_state(&vertex_input_state_info)

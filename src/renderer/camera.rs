@@ -17,11 +17,11 @@ pub struct Camera {
 
 impl Camera {
     pub fn new(
-        vk_core: &Arc<VkCore>, 
-        world_size: &Vec2, 
+        vk_core: &Arc<VkCore>,
+        world_size: &Vec2,
         window_size: &PhysicalSize<u32>,
         command_pool: &CommandPool
-    ) -> VkResult<Self> 
+    ) -> VkResult<Self>
     {
         let min_x = 0.0;
         let max_x = world_size.x;
@@ -73,11 +73,11 @@ impl Camera {
 
             camera_buffers.push(camera_buffer);
         }
-        
-        
-        
 
-       
+
+
+
+
         Ok(
             Self {
                 camera_buffers,

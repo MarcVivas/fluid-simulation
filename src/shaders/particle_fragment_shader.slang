@@ -7,7 +7,7 @@ struct VertexOutput{
 
 struct FragmentOutput {
     float4 color : SV_Target0;
-    float depth : SV_Depth;
+    float depth : SV_DepthLessEqual;
 };
 
 struct Camera {

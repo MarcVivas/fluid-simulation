@@ -4,6 +4,9 @@ use ash::prelude::VkResult;
 use ash::vk::DescriptorSetLayoutBinding;
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
+use winit::dpi::PhysicalPosition;
+use winit::event::MouseScrollDelta;
+use winit::keyboard::KeyCode;
 use winit::window::Window;
 use crate::renderer::camera::{Camera, CameraUniform};
 use crate::renderer::drawable::Drawable;
@@ -22,9 +25,7 @@ pub struct Renderer {
     render_target: WindowRenderTarget,
     render_config: RenderConfig,
     command_pool: CommandPool,
-
-    drawables: Vec<Box<dyn Drawable>>,
-
+    
     frame_data: Vec<FrameData>,
     frame_index: usize,
     
@@ -67,7 +68,7 @@ impl Renderer {
 
         let camera = Camera::new(
             &vk_core,
-            &glam::Vec2::new(100.0, 100.0),
+            &glam::Vec3::new(100.0, 100.0, 100.0),
             &window.inner_size(),
             &command_pool,
         ).expect("failed to create camera");
@@ -98,14 +99,12 @@ impl Renderer {
 
         let desc_pool = Self::create_descriptor_pool(&vk_core);
         let desc_sets = Self::create_descriptor_set(&vk_core, &camera, &desc_pool);
-        let drawables = Vec::new();
 
         Self {
             render_config,
             vk_core,
             render_target,
             command_pool,
-            drawables,
             frame_index: 0,
             should_resize: RenderState::Ready,
             frame_data,
@@ -138,7 +137,7 @@ impl Renderer {
                 .binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)
+                .stage_flags(vk::ShaderStageFlags::TASK_EXT | vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)
         ];
         
 
@@ -294,6 +293,8 @@ impl Renderer {
         let extent = self.render_target.resolution();
         let screen_size = glam::Vec2::new(extent.width as f32, extent.height as f32);
 
+        self.camera.update(0.0016, &screen_size);
+
         // This calculates the new View-Projection matrix inside the camera struct
         self.camera.build_view_projection_matrix(&screen_size);
 
@@ -443,9 +444,6 @@ impl Renderer {
 
     }
     
-    pub fn push_drawable(&mut self, drawable: Box<dyn Drawable>) {
-        self.drawables.push(drawable);
-    }
     
     pub fn resize_window(&mut self, window: &Window) {
         self.render_target.resize_window(&self.vk_core, window);
@@ -457,6 +455,18 @@ impl Renderer {
     
     pub fn command_pool(&self) -> vk::CommandPool {
         self.command_pool.vk_cmd_pool()
+    }
+
+    pub fn move_camera(&mut self, key: KeyCode, is_pressed: bool){
+        self.camera.move_camera(key, is_pressed);
+    }
+
+    pub fn zoom_camera(&mut self, mouse_scroll_delta: MouseScrollDelta){
+        self.camera.zoom_camera(mouse_scroll_delta);
+    }
+
+    pub fn set_camera_zoom_position(&mut self, pos: Option<PhysicalPosition<f64>>) {
+        self.camera.set_camera_zoom_position(pos);
     }
 }
 

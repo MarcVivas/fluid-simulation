@@ -4,16 +4,20 @@ mod renderer;
 mod particle_system;
 mod world;
 mod compute;
+mod utils;
 
 use std::default::Default;
 use std::sync::Arc;
 use glam::Vec3;
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::dpi;
+use winit::event::{KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 use crate::particle_system::ParticleSystem;
 use crate::renderer::renderer::Renderer;
+use crate::utils::input_manager;
 use crate::vk_core::init_with_window;
 use crate::vk_core::vk_core::VkCore;
 use crate::world::World;
@@ -32,7 +36,8 @@ struct App {
     renderer: Option<Renderer>,
     window: Option<Window>,
     window_resized: bool,
-    world: Option<World>
+    world: Option<World>,
+    mouse_position: dpi::PhysicalPosition<f64>,
 }
 
 impl App {
@@ -44,7 +49,7 @@ impl App {
             renderer: None,
             world: None,
             window_resized: false,
-            
+            mouse_position: dpi::PhysicalPosition::default(),
         }
     }
 }
@@ -56,7 +61,7 @@ impl ApplicationHandler for App {
         let window = {
             let window_attributes = WindowAttributes::default()
                 .with_title("Vulkan")
-                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
+                .with_inner_size(dpi::LogicalSize::new(1280.0, 720.0));
             event_loop.create_window(window_attributes)
                 .expect("Failed to create window")
         };
@@ -74,11 +79,11 @@ impl ApplicationHandler for App {
 
       
         
-        self.world = Some(World::new(&vk_core, Vec3::new(100.0, 100.0, 100.0), self.renderer.as_ref().unwrap()));
+        self.world = Some(World::new(&vk_core, Vec3::new(1000.0, 1000.0, 1000.0), self.renderer.as_ref().unwrap()));
 
         self.vk_core = Some(vk_core);
         self.window = Some(window);
-
+        
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -97,28 +102,39 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                // Redraw the application.
-                //
-                // It's preferable for applications that do not render continuously to render in
-                // this event rather than in AboutToWait, since rendering in here allows
-                // the program to gracefully handle redraws requested by the OS.
-
-                // Draw.
-
-                self.renderer.as_mut().unwrap().draw_world(self.window.as_ref().unwrap(), self.world.as_ref().unwrap());
-
-                // Queue a RedrawRequested event.
-                //
-                // You only need to call this if you've determined that you need to redraw in
-                // applications which do not always need to. Applications that redraw continuously
-                // can render here instead.
                 self.window.as_ref().unwrap().request_redraw();
-
-
-            }
+                self.renderer.as_mut().unwrap().draw_world(self.window.as_ref().unwrap(), self.world.as_ref().unwrap());
+            },
+            WindowEvent::KeyboardInput {
+                event:
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(code),
+                    state: key_state,
+                    ..
+                },
+                ..
+            } => input_manager::process_keyboard_input(self, event_loop, &code, &key_state),
+            WindowEvent::CursorMoved { position, .. } => input_manager::process_cursor_moved(self, &position),
+            WindowEvent::MouseInput {state: mouse_state, button: mouse_button, ..} => input_manager::process_mouse_input(self, &mouse_state, &mouse_button),
+            WindowEvent::MouseWheel { delta, .. } => input_manager::process_mouse_wheel(self, delta),
             _ => (),
         }
     }
+    
+}
 
 
+impl App {
+    pub fn move_camera(&mut self, key: KeyCode, is_pressed: bool){
+        self.renderer.as_mut().unwrap().move_camera(key, is_pressed);
+    }
+    pub fn zoom_camera(&mut self, mouse_scroll_delta: MouseScrollDelta){
+        self.renderer.as_mut().unwrap().zoom_camera(mouse_scroll_delta);
+    }
+    
+    pub fn set_mouse_position(&mut self, position: Option<dpi::PhysicalPosition<f64>>) {
+        self.mouse_position = position.unwrap();
+        self.renderer.as_mut().unwrap().set_camera_zoom_position(position);
+    }
+    
 }

@@ -14,6 +14,11 @@ struct Camera {
 // xyz is position w component is radius
 [[vk::binding(0, 1)]] StructuredBuffer<float4> particleData; 
 
+// Must match the Task Shader struct
+struct MeshPayload {
+    uint numVisible;
+    uint indices[GROUP_SIZE];
+};
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -22,54 +27,50 @@ struct VertexOutput {
     nointerpolation float radius : PSIZE;
 };
 
-
-static const float2 quadVertices[4] = {
+static const float2 quadVertices[VERTICES_PER_PARTICLE] = {
     float2(-0.5, -0.5),
     float2( 0.5, -0.5),
     float2(-0.5,  0.5),
     float2( 0.5,  0.5)
 };
 
-static const uint3 quadIndices[2] = {
+static const uint3 quadIndices[INDICES_PER_PARTICLE] = {
     uint3(0, 1, 2),
     uint3(2, 1, 3)
 };
 
+[shader("mesh")]
 [numthreads(GROUP_SIZE, 1, 1)]
 [outputtopology("triangle")]
 void main(
-    uint groupThreadId : SV_GroupThreadID,      // 0 to GROUP_SIZE - 1 (Index inside this group)
-    uint dispatchThreadId : SV_DispatchThreadID,   // Global Particle Index
-    out indices uint3 triangles[128],   // Max primitives: GROUP_SIZE * 2 = 64
-    out vertices VertexOutput vertices[256] // Max vertices: GROUP_SIZE * 4 = 128
+    uint groupThreadId : SV_GroupThreadID,
+    in payload MeshPayload payload, // <--- Receive data from Task Shader
+    out indices uint3 triangles[GROUP_SIZE * INDICES_PER_PARTICLE],   // Max primitives: GROUP_SIZE * 2 = 128
+    out vertices VertexOutput vertices[GROUP_SIZE * VERTICES_PER_PARTICLE] // Max vertices: GROUP_SIZE * 4 = 256
 )
 {
-    // Determine how many particles this specific group is processing
-    uint numParticles;
-    uint stride;
-    particleData.GetDimensions(numParticles, stride);
-    
-    // Check if this thread is valid
-    bool isValid = dispatchThreadId < numParticles;
+    // Retrieve the valid count directly from the payload
+    // We trust the Task Shader did the counting for us
+    uint validCount = payload.numVisible;
 
-
-    uint validCount = WaveActiveCountBits(isValid);
-    
     // Set the output counts (mandatory)
-  
-        SetMeshOutputCounts(
-            validCount * VERTICES_PER_PARTICLE,
-            validCount * INDICES_PER_PARTICLE
-        );
-    
-    
+    SetMeshOutputCounts(
+        validCount * VERTICES_PER_PARTICLE,
+        validCount * INDICES_PER_PARTICLE
+    );
 
-    if (!isValid) return; // Out of bounds
+    // Check if this thread index is within the number of visible particles
+    if (groupThreadId >= validCount) return;
 
-    // Load Particle Data
-    const float4 particleData = particleData[dispatchThreadId];
-    const float3 particleCenter = particleData.xyz;
-    const float radius = particleData.w;
+    // --- KEY CHANGE ---
+    // Instead of using dispatchThreadId directly, we look up the
+    // actual particle index from the payload list
+    uint particleIndex = payload.indices[groupThreadId];
+
+    // Load Particle Data using the compacted index
+    const float4 particle = particleData[particleIndex];
+    const float3 particleCenter = particle.xyz;
+    const float radius = particle.w;
     const float diameter = radius * 2.0;
 
     // Convert particle position to view space

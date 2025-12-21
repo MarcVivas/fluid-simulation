@@ -15,6 +15,7 @@ use crate::vk_utils::vk_buffer::VkBuffer;
 pub struct ParticleSystemDrawer {
     vk_core: Arc<VkCore>,
     graphics_pipeline: GraphicsPipeline,
+    task_shader_module: vk::ShaderModule,
     mesh_shader_module: vk::ShaderModule,
     fragment_shader_module: vk::ShaderModule,
     quad_vertex_buffer: VkBuffer,
@@ -39,7 +40,11 @@ impl ParticleSystemDrawer {
         vk_core: Arc<VkCore>, 
         renderer: &Renderer
     ) -> Self {
-
+        
+        let task_shader_module = shader_loader::load(
+            vk_core.device(),
+            "particle_task_shader",
+        );
         
         let mesh_shader_module = shader_loader::load(
             vk_core.device(),
@@ -52,6 +57,10 @@ impl ParticleSystemDrawer {
         );
 
         let shader_stage_create_infos = vec![
+            vk::PipelineShaderStageCreateInfo::default()
+                .module(task_shader_module)
+                .name(c"main")
+                .stage(vk::ShaderStageFlags::TASK_EXT),
             vk::PipelineShaderStageCreateInfo::default()
                 .module(mesh_shader_module)
                 .name(c"main")
@@ -70,14 +79,14 @@ impl ParticleSystemDrawer {
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)];
+            .stage_flags(vk::ShaderStageFlags::TASK_EXT | vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)];
 
         // Set 1: Particle data buffer
         let particle_descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
             .binding(0)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::MESH_EXT)];
+            .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT)];
 
         let descriptor_set_layout_config = [
             DescriptorSetLayoutConfig {
@@ -124,6 +133,7 @@ impl ParticleSystemDrawer {
             quad_index_buffer,
             quad_vertex_buffer,
             graphics_pipeline,
+            task_shader_module,
             mesh_shader_module,
             fragment_shader_module,
         }
@@ -225,6 +235,7 @@ impl Drop for ParticleSystemDrawer {
     fn drop(&mut self) {
         let device = self.vk_core.device();
         unsafe {
+            device.destroy_shader_module(self.task_shader_module, None);
             device.destroy_shader_module(self.mesh_shader_module, None);
             device.destroy_shader_module(self.fragment_shader_module, None);
         }

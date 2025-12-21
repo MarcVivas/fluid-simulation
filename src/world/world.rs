@@ -18,7 +18,7 @@ impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: Vec3, renderer: &Renderer) -> Self{
 
         let particle_system = ParticleSystem::new(
-            1_000_000,
+            100_000,
             &size,
             &vk_core,
             renderer

@@ -5,9 +5,8 @@ use ash::vk::{PhysicalDevice, Queue};
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 use crate::renderer::surface::Surface;
 use crate::vk_core::debug_messenger::DebugMessenger;
-
-
-
+use crate::vk_core::queue_family_indices::QueueFamilyIndices;
+use std::collections::HashSet;
 
 /*
     1. Add the extension name to the required list.
@@ -30,7 +29,7 @@ pub struct VkCore {
     device: Device,
     graphics_queue: Queue,
     compute_queue: Queue,
-    queue_family_index: u32,
+    queue_family_indices: QueueFamilyIndices,
     physical_device: PhysicalDevice,
     debug_messenger: Option<DebugMessenger>,
     gpu_allocator: Option<Mutex<Allocator>>,
@@ -47,16 +46,20 @@ impl VkCore {
             &instance
         );
 
-        let (physical_device, queue_family_index) = Self::select_physical_device(
+        let (physical_device, queue_family_indices) = Self::select_physical_device(
             &instance,
             surface,
         ).expect( "failed to find a suitable GPU!");
 
 
-        let device = Self::create_logical_device(physical_device, queue_family_index, &instance);
+        let device = Self::create_logical_device(physical_device, &queue_family_indices, &instance);
 
-        let queue = unsafe {
-            device.get_device_queue(queue_family_index, 0)
+        let graphics_queue = unsafe {
+            device.get_device_queue(queue_family_indices.graphics_family, 0)
+        };
+        
+        let compute_queue = unsafe {
+            device.get_device_queue(queue_family_indices.compute_family, 0)
         };
 
 
@@ -74,15 +77,15 @@ impl VkCore {
 
         let push_descriptor = ash::khr::push_descriptor::Device::new(&instance, &device);
         let mesh_shader_loader = Some(ash::ext::mesh_shader::Device::new(&instance, &device));
-
+        
         Self {
             _entry: entry,
             gpu_allocator: Some(gpu_allocator),
             instance,
             device,
-            graphics_queue: queue,
-            compute_queue: queue,
-            queue_family_index,
+            graphics_queue,
+            compute_queue,
+            queue_family_indices, 
             physical_device,
             debug_messenger,
             push_descriptor,
@@ -91,7 +94,7 @@ impl VkCore {
     }
 
 
-    fn create_logical_device(physical_device: PhysicalDevice, queue_family_index: u32, instance: &Instance) -> Device {
+    fn create_logical_device(physical_device: PhysicalDevice, queue_family_indices: &QueueFamilyIndices, instance: &Instance) -> Device {
         // Convert strict CStr references to raw pointers for Vulkan
         let extension_names: Vec<*const i8> = REQUIRED_DEVICE_EXTENSIONS
             .iter()
@@ -103,11 +106,21 @@ impl VkCore {
             ..vk::PhysicalDeviceFeatures::default()
         };
 
-        let priorities = [1.0];
+        let mut unique_indices = HashSet::new();
+        unique_indices.insert(queue_family_indices.graphics_family);
+        unique_indices.insert(queue_family_indices.compute_family);
 
-        let queue_info = [vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(queue_family_index)
-            .queue_priorities(&priorities)];
+        // If indices are same, we need 2 priorities for 2 queues. If different, 1 priority each.
+        let priorities = [1.0f32, 1.0f32];
+        let mut queue_create_infos = Vec::new();
+
+        for &family_index in &unique_indices {
+            let count = if queue_family_indices.graphics_family == queue_family_indices.compute_family { 2 } else { 1 };
+            let info = vk::DeviceQueueCreateInfo::default()
+                .queue_family_index(family_index)
+                .queue_priorities(&priorities[..count as usize]);
+            queue_create_infos.push(info);
+        }
 
         // Remember to check the required features before enabling them!
         let mut sync2_features = vk::PhysicalDeviceSynchronization2Features::default().synchronization2(true);
@@ -117,7 +130,7 @@ impl VkCore {
         let mut mesh_shader = vk::PhysicalDeviceMeshShaderFeaturesEXT::default().mesh_shader(true).task_shader(true);
 
         let device_create_info = vk::DeviceCreateInfo::default()
-            .queue_create_infos(&queue_info)
+            .queue_create_infos(&queue_create_infos)
             .enabled_features(&features)
             .enabled_extension_names(&extension_names)
             .push_next(&mut sync2_features)
@@ -134,7 +147,7 @@ impl VkCore {
     fn select_physical_device(
         instance: &Instance,
         surface: Option<&Surface>,
-    ) -> Option<(PhysicalDevice, u32)> {
+    ) -> Option<(PhysicalDevice, QueueFamilyIndices)> {
         let physical_devices = unsafe { instance.enumerate_physical_devices().ok()? };
 
         physical_devices.into_iter().find_map(|physical_device| {
@@ -149,9 +162,9 @@ impl VkCore {
             }
 
             // Check Queue Support
-            let queue_index = Self::find_queue_family(instance, physical_device, surface)?;
+            let queue_family_indices = Self::find_queue_families(instance, physical_device, surface);
 
-            Some((physical_device, queue_index))
+            Some((physical_device, queue_family_indices))
         })
     }
 
@@ -192,31 +205,39 @@ impl VkCore {
             && mesh_shader.task_shader == vk::TRUE
     }
 
-    fn find_queue_family(instance: &Instance, physical_device: PhysicalDevice, surface: Option<&Surface>) -> Option<u32> {
+    fn find_queue_families(instance: &Instance, physical_device: PhysicalDevice, surface: Option<&Surface>) -> QueueFamilyIndices {
         let queue_props = unsafe { instance.get_physical_device_queue_family_properties(physical_device)};
+        let mut compute_index: Option<u32> = None;
+        let mut graphics_index: Option<u32> = None;
 
-        queue_props.iter().enumerate().find_map(|(i, queue_props)| {
+        for (i, prop) in queue_props.iter().enumerate() {
             let index = i as u32;
 
-            return if let Some(surface) = surface {
-                // Scenario: Graphics + present
-                let supports_graphics = queue_props.queue_flags.contains(vk::QueueFlags::GRAPHICS);
-                let supports_present = surface.get_physical_device_surface_support(physical_device, index).unwrap_or(false);
-                let supports_compute = queue_props.queue_flags.contains(vk::QueueFlags::COMPUTE);
-                if supports_graphics && supports_present && supports_compute {
-                    Some(index)
+            // Look for Graphics (and Present)
+            if prop.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                if let Some(s) = surface {
+                    if s.get_physical_device_surface_support(physical_device, index).unwrap_or(false) {
+                        graphics_index = Some(index);
+                    }
                 } else {
-                    None
-                }
-            } else {
-                // Scenario: Compute only
-                if queue_props.queue_flags.contains(vk::QueueFlags::COMPUTE) {
-                    Some(index)
-                } else {
-                    None
+                    graphics_index = Some(index);
                 }
             }
-        })
+
+            // Look for Compute
+            // Ideal: A family that has Compute but NOT Graphics (Async Compute Queue)
+            if prop.queue_flags.contains(vk::QueueFlags::COMPUTE) {
+                if !prop.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                    compute_index = Some(index);
+                } else if compute_index.is_none() {
+                    // Fallback: Use the same family as graphics if no dedicated exists
+                    compute_index = Some(index);
+                }
+            }
+        }
+        let indices = QueueFamilyIndices::new(graphics_index.unwrap(), compute_index.unwrap());
+        indices
+        
     }
 
     pub fn device(&self) -> &Device {
@@ -232,8 +253,12 @@ impl VkCore {
     pub fn allocator(&self) -> &Mutex<Allocator> {
         &self.gpu_allocator.as_ref().expect("GPU allocator not initialized")
     }
-    pub fn queue_family_index(&self) -> u32 {
-        self.queue_family_index
+    pub fn compute_queue_family_index(&self) -> u32 {
+        self.queue_family_indices.compute_family
+    }
+    
+    pub fn graphics_queue_family_index(&self) -> u32 {
+        self.queue_family_indices.graphics_family
     }
 
     pub fn physical_device(&self) -> &PhysicalDevice {

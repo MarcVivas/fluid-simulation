@@ -23,7 +23,7 @@ impl ComputeSystem {
             vk_core.clone(),
             &vk::CommandPoolCreateInfo::default()
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                .queue_family_index(vk_core.queue_family_index())
+                .queue_family_index(vk_core.compute_queue_family_index())
         )?;
 
 
@@ -142,12 +142,10 @@ impl ComputeSystem {
             device.cmd_dispatch(self.command_buffer.vk_cmd_buffer(), group_count, 1, 1);
 
             let buffer_barrier = vk::BufferMemoryBarrier2::default()
-                // What was the GPU doing? (Compute writing)
                 .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
                 .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-                // What will the GPU (or CPU) do next? (Host read or Vertex shader read)
-                .dst_stage_mask(vk::PipelineStageFlags2::HOST | vk::PipelineStageFlags2::TASK_SHADER_EXT )
-                .dst_access_mask(vk::AccessFlags2::HOST_READ | vk::AccessFlags2::SHADER_READ)
+                .dst_stage_mask(vk::PipelineStageFlags2::NONE )
+                .dst_access_mask(vk::AccessFlags2::NONE)
                 .buffer(buffers.positions_buffer.vk_buffer())
                 .size(vk::WHOLE_SIZE);
 

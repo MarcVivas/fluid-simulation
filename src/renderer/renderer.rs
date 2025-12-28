@@ -63,7 +63,7 @@ impl Renderer {
             vk_core.clone(),
             &vk::CommandPoolCreateInfo::default()
                 .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-                .queue_family_index(vk_core.queue_family_index())
+                .queue_family_index(vk_core.graphics_queue_family_index())
         ).expect("failed to create command pool");
 
         let camera = Camera::new(

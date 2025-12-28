@@ -2,6 +2,7 @@ pub mod vk_core;
 pub use vk_core::VkCore;
 mod debug_messenger;
 mod instance;
+mod queue_family_indices;
 
 use std::sync::Arc;
 use winit::raw_window_handle::HasDisplayHandle;

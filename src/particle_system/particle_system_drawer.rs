@@ -6,6 +6,7 @@ use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
 use crate::renderer::GraphicsPipeline;
 use crate::particle_system::particle_system::ParticleSystem;
+use crate::particle_system::ParticleSystemBuffers;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
 use crate::vk_utils::{shader_loader, CommandBuffer, DescriptorSet, PipelineLayout};
@@ -82,11 +83,13 @@ impl ParticleSystemDrawer {
             .stage_flags(vk::ShaderStageFlags::TASK_EXT | vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)];
 
         // Set 1: Particle data buffer
-        let particle_descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT)];
+        let particle_descriptor_set_layout_binding = [
+            DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT),
+        ];
 
         let descriptor_set_layout_config = [
             DescriptorSetLayoutConfig {
@@ -102,6 +105,7 @@ impl ParticleSystemDrawer {
         let pipeline_layout = PipelineLayout::new(
             vk_core.clone(),
             &descriptor_set_layout_config,
+            &[]
         ).expect("Failed to create pipeline layout");
 
         let graphics_pipeline = GraphicsPipeline::new(
@@ -194,9 +198,10 @@ impl ParticleSystemDrawer {
     }
 
     pub fn bind_descriptor_sets(
-        &self, command_buffer: &CommandBuffer,
+        &self, 
+        command_buffer: &CommandBuffer,
         descriptor_sets: &[vk::DescriptorSet],
-        particle_buffer: &VkBuffer,
+        buffers: &ParticleSystemBuffers,
     ) {
         command_buffer.bind_descriptor_sets(
             self.vk_core.device(),
@@ -208,16 +213,18 @@ impl ParticleSystemDrawer {
         );
 
         // Push the Particle Buffer (Set 1)
-        let particle_buffer_info = [vk::DescriptorBufferInfo::default()
-            .buffer(particle_buffer.vk_buffer())
+        let positions_buffer_info = [vk::DescriptorBufferInfo::default()
+            .buffer(buffers.positions_buffer.vk_buffer())
             .offset(0)
             .range(vk::WHOLE_SIZE)];
-
-        let write_descriptor_set = vk::WriteDescriptorSet::default()
+        
+        let positions_descriptor_write = vk::WriteDescriptorSet::default()
             .dst_binding(0)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .buffer_info(&particle_buffer_info);
-
+            .buffer_info(&positions_buffer_info);
+        
+        let descriptor_writes = [positions_descriptor_write];
+        
         // Pushing Set 1
         unsafe {
             self.vk_core.push_descriptor().cmd_push_descriptor_set(
@@ -225,7 +232,7 @@ impl ParticleSystemDrawer {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.graphics_pipeline.pipeline_layout().vk_pipeline_layout(),
                 1, // Set Index: 1
-                &[write_descriptor_set],
+                &descriptor_writes,
             );
         }
     }

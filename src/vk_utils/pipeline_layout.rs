@@ -19,7 +19,7 @@ pub struct DescriptorSetLayoutConfig<'a> {
 }
 
 impl PipelineLayout {
-    pub fn new(vk_core: Arc<VkCore>, descriptor_set_layout_config: &[DescriptorSetLayoutConfig]) -> VkResult<Self> {
+    pub fn new(vk_core: Arc<VkCore>, descriptor_set_layout_config: &[DescriptorSetLayoutConfig], push_constant_ranges: &[vk::PushConstantRange]) -> VkResult<Self> {
         let device = vk_core.device();
         let mut descriptor_set_layouts = Vec::with_capacity(descriptor_set_layout_config.len());
         
@@ -39,7 +39,8 @@ impl PipelineLayout {
         
 
         let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default()
-            .set_layouts(&descriptor_set_layouts);
+            .set_layouts(&descriptor_set_layouts)
+            .push_constant_ranges(push_constant_ranges);
         
         let pipeline_layout = unsafe {
             vk_core

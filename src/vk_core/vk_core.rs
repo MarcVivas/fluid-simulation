@@ -28,7 +28,8 @@ pub struct VkCore {
     _entry: Entry,
     instance: Instance,
     device: Device,
-    queue: Queue,
+    graphics_queue: Queue,
+    compute_queue: Queue,
     queue_family_index: u32,
     physical_device: PhysicalDevice,
     debug_messenger: Option<DebugMessenger>,
@@ -79,7 +80,8 @@ impl VkCore {
             gpu_allocator: Some(gpu_allocator),
             instance,
             device,
-            queue,
+            graphics_queue: queue,
+            compute_queue: queue,
             queue_family_index,
             physical_device,
             debug_messenger,
@@ -220,10 +222,13 @@ impl VkCore {
     pub fn device(&self) -> &Device {
         &self.device
     }
-    pub fn queue(&self) -> &Queue {
-        &self.queue
+    pub fn graphics_queue(&self) -> &Queue {
+        &self.graphics_queue
     }
 
+    pub fn compute_queue(&self) -> &Queue {
+        &self.compute_queue
+    }
     pub fn allocator(&self) -> &Mutex<Allocator> {
         &self.gpu_allocator.as_ref().expect("GPU allocator not initialized")
     }

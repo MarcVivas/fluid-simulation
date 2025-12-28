@@ -35,7 +35,11 @@ impl World{
     pub fn size(&self) -> &Vec3{
         &self.size
     }
-
+    
+    /// Updates the world 
+    pub fn update(&self, delta_time: f32){
+        self.particle_system.update(delta_time, self.size());
+    }
 
 }
 

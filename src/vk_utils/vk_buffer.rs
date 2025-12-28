@@ -106,7 +106,7 @@ impl VkBuffer {
                 .command_buffer_infos(&command_buffer_submit_infos);
 
             device.queue_submit2(
-                *vk_core.queue(),
+                *vk_core.graphics_queue(),
                 &[submit_info],
                 fence
             )?;
@@ -179,4 +179,90 @@ impl VkBuffer {
         }
     }
 
+
+    pub fn read_back<T: Copy>(
+        &self,
+        vk_core: &Arc<VkCore>,
+        command_pool: vk::CommandPool,
+    ) -> Result<Vec<T>, Box<dyn Error>> {
+        let device = vk_core.device();
+        let buffer_size = (self.len * size_of::<T>()) as vk::DeviceSize;
+
+        // 1. Create a "Read" Staging Buffer (GpuToCpu)
+        let staging_buffer_create_info = vk::BufferCreateInfo::default()
+            .size(buffer_size)
+            .usage(vk::BufferUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+
+        let staging_alloc_desc = AllocationCreateDesc {
+            name: "Readback staging buffer",
+            requirements: vk::MemoryRequirements::default(),
+            location: MemoryLocation::GpuToCpu, // Optimized for reading back to CPU
+            linear: true,
+            allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+        };
+
+        let staging_buffer = AllocatedBuffer::new(
+            vk_core.clone(),
+            &staging_buffer_create_info,
+            &staging_alloc_desc,
+        )?;
+
+        // 2. Record Copy Command
+        unsafe {
+            let fence = device.create_fence(&vk::FenceCreateInfo::default(), None)?;
+            let alloc_info = vk::CommandBufferAllocateInfo::default()
+                .level(vk::CommandBufferLevel::PRIMARY)
+                .command_pool(command_pool)
+                .command_buffer_count(1);
+
+            let cmd = device.allocate_command_buffers(&alloc_info)?[0];
+
+            device.begin_command_buffer(cmd, &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT))?;
+
+            // --- IMPORTANT: Sync2 Barrier ---
+            // Ensure the compute shader is actually DONE writing before we start the copy
+            let barrier = vk::BufferMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+                .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
+                .buffer(self.buffer.vk_buffer())
+                .size(vk::WHOLE_SIZE);
+
+            device.cmd_pipeline_barrier2(cmd, &vk::DependencyInfo::default().buffer_memory_barriers(&[barrier]));
+
+            let copy_region = vk::BufferCopy {
+                src_offset: 0,
+                dst_offset: 0,
+                size: buffer_size,
+            };
+
+            device.cmd_copy_buffer(cmd, self.buffer.vk_buffer(), staging_buffer.vk_buffer(), &[copy_region]);
+
+            device.end_command_buffer(cmd)?;
+
+            // 3. Submit and Wait
+            let command_buffer_submit_infos = [vk::CommandBufferSubmitInfo::default().command_buffer(cmd)];
+            
+            let submit_info = vk::SubmitInfo2::default()
+                .command_buffer_infos(&command_buffer_submit_infos);
+
+            device.queue_submit2(*vk_core.graphics_queue(), &[submit_info], fence)?;
+            device.wait_for_fences(&[fence], true, u64::MAX)?;
+
+            // 4. Map and Copy to Vec
+            let mut result = Vec::with_capacity(self.len);
+            let ptr = staging_buffer.allocation().mapped_ptr().ok_or("Failed to map readback memory")?.as_ptr();
+
+            std::ptr::copy_nonoverlapping(ptr as *const T, result.as_mut_ptr(), self.len);
+            result.set_len(self.len);
+
+            // Cleanup
+            device.destroy_fence(fence, None);
+            device.free_command_buffers(command_pool, &[cmd]);
+
+            Ok(result)
+        }
+    }
 }

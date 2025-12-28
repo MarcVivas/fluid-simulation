@@ -7,12 +7,11 @@ struct Camera {
     float4x4 proj;
 };
 
-// (Set 0)
+// Set 0
 [[vk::binding(0, 0)]] ConstantBuffer<Camera> camera;
 
-// (Set 1)
-// xyz is position w component is radius
-[[vk::binding(0, 1)]] StructuredBuffer<float4> particleData; 
+// Set 1
+[[vk::binding(0, 1)]] StructuredBuffer<float4> positions;
 
 // Must match the Task Shader struct
 struct MeshPayload {
@@ -65,16 +64,16 @@ void main(
     // --- KEY CHANGE ---
     // Instead of using dispatchThreadId directly, we look up the
     // actual particle index from the payload list
-    uint particleIndex = payload.indices[groupThreadId];
+    uint particle_index = payload.indices[groupThreadId];
 
     // Load Particle Data using the compacted index
-    const float4 particle = particleData[particleIndex];
-    const float3 particleCenter = particle.xyz;
-    const float radius = particle.w;
+    const float4 particle_data = positions[particle_index];
+    const float3 particle_position = particle_data.xyz;
+    const float radius = particle_data.w;
     const float diameter = radius * 2.0;
 
     // Convert particle position to view space
-    float4 centerView = mul(camera.view, float4(particleCenter, 1.0));
+    float4 centerView = mul(camera.view, float4(particle_position, 1.0));
 
     // Calculate base index for this particle in the output arrays
     // Vertices start at groupThreadId * 4

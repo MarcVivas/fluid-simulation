@@ -102,6 +102,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
+                self.world.as_ref().unwrap().update(1.0 / 60.0);
                 self.window.as_ref().unwrap().request_redraw();
                 self.renderer.as_mut().unwrap().draw_world(self.window.as_ref().unwrap(), self.world.as_ref().unwrap());
             },

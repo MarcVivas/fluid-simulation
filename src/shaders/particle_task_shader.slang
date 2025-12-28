@@ -8,9 +8,8 @@ struct Camera {
 // (Set 0)
 [[vk::binding(0, 0)]] ConstantBuffer<Camera> camera;
 
-// (Set 1)
-// xyz is position w component is radius
-[[vk::binding(0, 1)]] StructuredBuffer<float4> particleData;
+// Set 1
+[[vk::binding(0, 1)]] StructuredBuffer<float4> positions;
 
 struct MeshPayload {
     uint numVisible;
@@ -49,14 +48,16 @@ void main(
     // Determine how many particles exist
     uint numParticles;
     uint stride;
-    particleData.GetDimensions(numParticles, stride);
+    positions.GetDimensions(numParticles, stride);
 
     bool isVisible = false;
 
     // Check bounds and visibility
     if (dispatchThreadId < numParticles) {
-        const float4 particle = particleData[dispatchThreadId];
-        isVisible = IsVisible(particle.xyz, particle.w);
+        const float4 particle_data = positions[dispatchThreadId];
+        const float3 particle_pos = particle_data.xyz;
+        const float particle_radius = particle_data.w;
+        isVisible = IsVisible(particle_pos, particle_radius);
     }
 
     // Compaction: If visible, add to the shared list

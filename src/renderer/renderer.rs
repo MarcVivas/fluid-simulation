@@ -151,6 +151,7 @@ impl Renderer {
         let pipeline_layout = PipelineLayout::new(
             vk_core.clone(),
             &descriptor_set_layout_config,
+            &[]
         ).expect("failed to create pipeline layout");
 
         let layouts = vec![
@@ -240,6 +241,9 @@ impl Renderer {
             .rendering_complete_semaphore();
 
         let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
+
+
+       
         self.record_commands(cmd_buffer, image_index as usize, world);
 
 
@@ -424,7 +428,7 @@ impl Renderer {
 
             self.vk_core.device()
                 .queue_submit2(
-                    *self.vk_core.queue(),
+                    *self.vk_core.graphics_queue(),
                     &[submit_info],
                     draw_fence
                 )
@@ -440,7 +444,7 @@ impl Renderer {
             .swapchains(swapchains)
             .image_indices(image_indices);
 
-        swapchain.queue_present(*self.vk_core.queue(), &present_info)
+        swapchain.queue_present(*self.vk_core.graphics_queue(), &present_info)
 
     }
     

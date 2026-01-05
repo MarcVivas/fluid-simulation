@@ -1,10 +1,13 @@
 mod vk_core;
 mod vk_utils;
 mod renderer;
-mod particle_system;
+mod resources;
 mod world;
 mod compute;
 mod utils;
+mod components;
+mod systems;
+mod physics_engine;
 
 use std::default::Default;
 use std::sync::Arc;
@@ -15,7 +18,8 @@ use winit::event::{KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
-use crate::particle_system::ParticleSystem;
+use crate::compute::ComputeCommandPool;
+use crate::resources::Particles;
 use crate::renderer::renderer::Renderer;
 use crate::utils::input_manager;
 use crate::vk_core::init_with_window;
@@ -37,6 +41,7 @@ struct App {
     window: Option<Window>,
     window_resized: bool,
     world: Option<World>,
+    compute_command_pool: Option<ComputeCommandPool>,
     mouse_position: dpi::PhysicalPosition<f64>,
 }
 
@@ -48,6 +53,7 @@ impl App {
             vk_core: None,
             renderer: None,
             world: None,
+            compute_command_pool: None,
             window_resized: false,
             mouse_position: dpi::PhysicalPosition::default(),
         }
@@ -78,8 +84,14 @@ impl ApplicationHandler for App {
         );
 
       
+        self.compute_command_pool = Some(ComputeCommandPool::new(vk_core.clone()).unwrap());
         
-        self.world = Some(World::new(&vk_core, Vec3::new(1000.0, 1000.0, 1000.0), self.renderer.as_ref().unwrap()));
+        self.world = Some(World::new(
+            &vk_core,
+            Vec3::new(1000.0, 1000.0, 1000.0),
+            self.renderer.as_ref().unwrap(),
+            self.compute_command_pool.as_ref().unwrap()
+        ));
 
         self.vk_core = Some(vk_core);
         self.window = Some(window);
@@ -102,7 +114,7 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                self.world.as_ref().unwrap().update(1.0 / 60.0);
+                self.world.as_mut().unwrap().update(self.vk_core.as_ref().unwrap(),1.0 / 60.0, self.compute_command_pool.as_ref().unwrap());
                 self.window.as_ref().unwrap().request_redraw();
                 self.renderer.as_mut().unwrap().draw_world(self.window.as_ref().unwrap(), self.world.as_ref().unwrap());
             },

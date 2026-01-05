@@ -67,7 +67,8 @@ impl Camera {
                     linear: false,
                     allocation_scheme: AllocationScheme::GpuAllocatorManaged
                 },
-                command_pool.vk_cmd_pool()
+                command_pool.vk_cmd_pool(),
+                *vk_core.graphics_queue()
             ).expect("Failed to create camera uniform buffer");
 
             camera_buffers.push(camera_buffer);

@@ -48,33 +48,35 @@ fn main() {
 
 fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     let module = session.load_module(&file_name.to_string()).unwrap();
-    let entry_point = module.find_entry_point_by_name("main");
 
-    let entry_point = if let Some(entry_point) = entry_point {
-        entry_point
-    } else {
+    // 1. Start the list of components with the Module itself
+    // We need to use a Vector because we don't know how many entry points exist yet
+    let mut components = vec![module.downcast().clone()];
+
+    // 2. Iterate dynamically over all entry points defined in the .slang file
+    let entry_point_count = module.entry_point_count();
+
+    // If no entry points are found, we can't compile a program
+    if entry_point_count == 0 {
+        println!("cargo:warning=No entry points found in {file_name}.slang");
         return;
-    };
+    }
 
-    let program = if let Some(entry_point2) = module.find_entry_point_by_name("update") {
-        session
-            .create_composite_component_type(&[
-                module.downcast().clone(),
-                entry_point.downcast().clone(),
-                entry_point2.downcast().clone()
-            ])
-            .unwrap()
-    } else {
-        session
-            .create_composite_component_type(&[
-                module.downcast().clone(),
-                entry_point.downcast().clone(),
-            ])
-            .unwrap()
-    };
+    for i in 0..entry_point_count {
+        let entry_point = module.entry_point_by_index(i).unwrap();
+        // Add every entry point (main, count, scan, etc.) to the components list
+        components.push(entry_point.downcast().clone());
+    }
 
-    let linked_program = program.link().unwrap();
-    let shader_bytecode = linked_program.target_code(0).unwrap();
+    // 3. Create the composite program with ALL discovered entry points
+    let program = session
+        .create_composite_component_type(&components)
+        .expect(&format!("Failed to create composite type for {file_name}"));
+
+    let linked_program = program.link().expect(&format!("Failed to link {file_name}"));
+    let shader_bytecode = linked_program.target_code(0).expect("Failed to get SPIR-V");
+
+    // ... (The rest of your file writing logic remains the same) ...
     let raw = shader_bytecode.as_slice();
     let length = raw.len();
 
@@ -83,10 +85,9 @@ fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     path.push(format!("{file_name}.spv"));
 
     let mut file = File::create(&path).unwrap();
-    file.write_all(shader_bytecode.as_slice()).unwrap();
+    file.write_all(raw).unwrap();
 
     let path_str = path.to_str().unwrap();
     println!("cargo:rustc-env={file_name}.spv={path_str}");
-    println!("cargo:warning=Compiled! {length} bytes, saved to {path_str}");
+    println!("cargo:warning=Compiled {file_name}! {length} bytes, {entry_point_count} entry points.");
 }
-

@@ -61,6 +61,18 @@ impl CommandBuffer {
         }
     }
     
+    pub fn push_constants(&self, device: &ash::Device, pipeline_layout: vk::PipelineLayout, stage_flags: vk::ShaderStageFlags, offset: u32, push_constants: &[u8]) {
+        unsafe {
+            device.cmd_push_constants(
+                self.cmd_buffer,
+                pipeline_layout,
+                stage_flags,
+                offset,
+                push_constants
+            );
+        }
+    }
+    
     pub fn vk_cmd_buffer(&self) -> vk::CommandBuffer {
         self.cmd_buffer
     }

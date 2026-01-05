@@ -19,7 +19,8 @@ impl VkBuffer {
         data: &[T],
         buffer_create_info: vk::BufferCreateInfo,
         allocation_create_desc: AllocationCreateDesc,
-        command_pool: vk::CommandPool
+        command_pool: vk::CommandPool,
+        queue: vk::Queue
     ) -> Result<Self, Box<dyn Error>>
     {
         let len = data.len();
@@ -106,7 +107,7 @@ impl VkBuffer {
                 .command_buffer_infos(&command_buffer_submit_infos);
 
             device.queue_submit2(
-                *vk_core.graphics_queue(),
+                queue,
                 &[submit_info],
                 fence
             )?;
@@ -248,14 +249,14 @@ impl VkBuffer {
             let submit_info = vk::SubmitInfo2::default()
                 .command_buffer_infos(&command_buffer_submit_infos);
 
-            device.queue_submit2(*vk_core.graphics_queue(), &[submit_info], fence)?;
+            device.queue_submit2(*vk_core.compute_queue(), &[submit_info], fence)?;
             device.wait_for_fences(&[fence], true, u64::MAX)?;
 
             // 4. Map and Copy to Vec
             let mut result = Vec::with_capacity(self.len);
             let ptr = staging_buffer.allocation().mapped_ptr().ok_or("Failed to map readback memory")?.as_ptr();
 
-            std::ptr::copy_nonoverlapping(ptr as *const T, result.as_mut_ptr(), self.len);
+            ptr::copy_nonoverlapping(ptr as *const T, result.as_mut_ptr(), self.len);
             result.set_len(self.len);
 
             // Cleanup

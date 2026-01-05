@@ -5,20 +5,20 @@ use glam::{Vec2, Vec4};
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
 use crate::renderer::GraphicsPipeline;
-use crate::particle_system::particle_system::ParticleSystem;
-use crate::particle_system::ParticleSystemBuffers;
+use crate::resources::Particles;
+use crate::resources::ParticleData;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
-use crate::vk_utils::{shader_loader, CommandBuffer, DescriptorSet, PipelineLayout};
+use crate::vk_utils::{shader_loader, CommandBuffer, DescriptorSet, PipelineLayout, ShaderModule};
 use crate::vk_utils::pipeline_layout::DescriptorSetLayoutConfig;
 use crate::vk_utils::vk_buffer::VkBuffer;
 
-pub struct ParticleSystemDrawer {
+pub struct ParticleDrawingSystem {
     vk_core: Arc<VkCore>,
     graphics_pipeline: GraphicsPipeline,
-    task_shader_module: vk::ShaderModule,
-    mesh_shader_module: vk::ShaderModule,
-    fragment_shader_module: vk::ShaderModule,
+    task_shader_module: ShaderModule,
+    mesh_shader_module: ShaderModule,
+    fragment_shader_module: ShaderModule,
     quad_vertex_buffer: VkBuffer,
     quad_index_buffer: VkBuffer,
 }
@@ -36,38 +36,29 @@ const QUAD_VERTICES: [Vec2; 4] = [
 
 const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
-impl ParticleSystemDrawer {
+impl ParticleDrawingSystem {
     pub fn new(
         vk_core: Arc<VkCore>, 
         renderer: &Renderer
     ) -> Self {
         
-        let task_shader_module = shader_loader::load(
-            vk_core.device(),
-            "particle_task_shader",
-        );
+        let task_shader_module = ShaderModule::new(vk_core.clone(), "particle_task_shader");
         
-        let mesh_shader_module = shader_loader::load(
-            vk_core.device(),
-            "particle_mesh_shader",
-        );
+        let mesh_shader_module = ShaderModule::new(vk_core.clone(), "particle_mesh_shader");
 
-        let fragment_shader_module = shader_loader::load(
-            vk_core.device(),
-            "particle_fragment_shader",
-        );
+        let fragment_shader_module = ShaderModule::new(vk_core.clone(), "particle_fragment_shader");
 
         let shader_stage_create_infos = vec![
             vk::PipelineShaderStageCreateInfo::default()
-                .module(task_shader_module)
+                .module(task_shader_module.vk_shader_module())
                 .name(c"main")
                 .stage(vk::ShaderStageFlags::TASK_EXT),
             vk::PipelineShaderStageCreateInfo::default()
-                .module(mesh_shader_module)
+                .module(mesh_shader_module.vk_shader_module())
                 .name(c"main")
                 .stage(vk::ShaderStageFlags::MESH_EXT),
             vk::PipelineShaderStageCreateInfo::default()
-                .module(fragment_shader_module)
+                .module(fragment_shader_module.vk_shader_module())
                 .name(c"main")
                 .stage(vk::ShaderStageFlags::FRAGMENT),
         ];
@@ -167,7 +158,8 @@ impl ParticleSystemDrawer {
             data,
             index_buffer_create_info,
             allocation_create_desc,
-            command_pool
+            command_pool,
+            *vk_core.graphics_queue()
         ).expect("Failed to create index buffer");
 
         index_buffer
@@ -177,7 +169,7 @@ impl ParticleSystemDrawer {
         &self.graphics_pipeline
     }
     
-    pub fn draw(&self, command_buffer: &CommandBuffer, particle_system: &ParticleSystem){
+    pub fn draw(&self, command_buffer: &CommandBuffer, particle_system: &Particles){
         let device = self.vk_core.device();
         // Bind pipeline
         command_buffer.bind_pipeline(
@@ -198,10 +190,10 @@ impl ParticleSystemDrawer {
     }
 
     pub fn bind_descriptor_sets(
-        &self, 
+        &self,
         command_buffer: &CommandBuffer,
         descriptor_sets: &[vk::DescriptorSet],
-        buffers: &ParticleSystemBuffers,
+        buffers: &ParticleData,
     ) {
         command_buffer.bind_descriptor_sets(
             self.vk_core.device(),
@@ -234,17 +226,6 @@ impl ParticleSystemDrawer {
                 1, // Set Index: 1
                 &descriptor_writes,
             );
-        }
-    }
-}
-
-impl Drop for ParticleSystemDrawer {
-    fn drop(&mut self) {
-        let device = self.vk_core.device();
-        unsafe {
-            device.destroy_shader_module(self.task_shader_module, None);
-            device.destroy_shader_module(self.mesh_shader_module, None);
-            device.destroy_shader_module(self.fragment_shader_module, None);
         }
     }
 }

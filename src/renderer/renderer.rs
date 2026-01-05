@@ -241,9 +241,11 @@ impl Renderer {
             .rendering_complete_semaphore();
 
         let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
+        
+        let shared_buffer = world.get_positions();
 
-
-       
+        
+        
         self.record_commands(cmd_buffer, image_index as usize, world);
 
 
@@ -252,6 +254,7 @@ impl Renderer {
             cmd_buffer, 
             present_complete_semaphore, 
             rendering_complete_semaphore,
+            world.compute_finished_semaphore(),
             draw_fence
         );
         
@@ -309,9 +312,9 @@ impl Renderer {
     }
     
     fn record_commands(&self, cmd_buffer: &CommandBuffer, image_index: usize, world: &World) {
-        self.begin_render_pass(cmd_buffer, image_index);
+        self.begin_render_pass(cmd_buffer, image_index, world.get_positions());
         self.render_drawables(cmd_buffer, image_index, world);
-        self.end_render_pass(cmd_buffer, image_index);
+        self.end_render_pass(cmd_buffer, image_index, world.get_positions());
     }
     
     
@@ -330,7 +333,7 @@ impl Renderer {
         
     }
     
-    fn begin_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+    fn begin_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize, shared_buffer: vk::Buffer) {
         let device = self.vk_core.device();
 
         // Access to the specific ImageView for this frame
@@ -345,6 +348,19 @@ impl Renderer {
             &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
         ).expect("failed to begin recording command buffer");
 
+        let acquire_from_compute = [vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::NONE)
+            .src_access_mask(vk::AccessFlags2::NONE)
+            .dst_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT) // Valid on Graphics Queue
+            .dst_access_mask(vk::AccessFlags2::SHADER_READ)
+            .src_queue_family_index(self.vk_core.compute_queue_family_index())
+            .dst_queue_family_index(self.vk_core.graphics_queue_family_index())
+            .buffer(shared_buffer)
+            .size(vk::WHOLE_SIZE)];
+
+        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &vk::DependencyInfo::default()
+            .buffer_memory_barriers(&acquire_from_compute));
+        
         // TRANSITION TO RENDER TARGET
         // Transition Swapchain Image: Undefined/Present -> Color Attachment Optimal
         self.render_target.transition_image_layout(
@@ -383,7 +399,7 @@ impl Renderer {
         cmd_buffer.begin_render_pass(device, &rendering_info);
     }
     
-    fn end_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize) {
+    fn end_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize, shared_buffer: vk::Buffer) {
         let device = self.vk_core.device();
         
         cmd_buffer.end_rendering(device);
@@ -401,16 +417,40 @@ impl Renderer {
             vk::AccessFlags2::NONE
         );
 
+
+        let release_to_compute = vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
+            .src_access_mask(vk::AccessFlags2::SHADER_READ)
+            .dst_stage_mask(vk::PipelineStageFlags2::NONE)
+            .dst_access_mask(vk::AccessFlags2::NONE)
+            .src_queue_family_index(self.vk_core.graphics_queue_family_index())
+            .dst_queue_family_index(self.vk_core.compute_queue_family_index())
+            .buffer(shared_buffer)
+            .size(vk::WHOLE_SIZE);
+
+        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &vk::DependencyInfo::default()
+            .buffer_memory_barriers(std::slice::from_ref(&release_to_compute)));
+
         // Finished recording commands
         cmd_buffer.end_command_buffer(device).expect("failed to record command buffer");
     }
     
     /// Submits the commands to the queue
-    fn submit_commands_to_the_queue(&self, cmd_buffer: &CommandBuffer, present_complete_semaphore: vk::Semaphore, rendering_complete_semaphore: vk::Semaphore, draw_fence: vk::Fence) {
+    fn submit_commands_to_the_queue(&self, 
+                                    cmd_buffer: &CommandBuffer, 
+                                    present_complete_semaphore: vk::Semaphore, 
+                                    rendering_complete_semaphore: vk::Semaphore,
+                                    compute_finished_semaphore: vk::Semaphore,
+                                    draw_fence: vk::Fence) {
         unsafe {
-            let wait_sem_info = [vk::SemaphoreSubmitInfo::default()
-                .semaphore(present_complete_semaphore)
-                .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
+            let wait_sem_info = [
+                vk::SemaphoreSubmitInfo::default()
+                    .semaphore(present_complete_semaphore)
+                    .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT),
+                vk::SemaphoreSubmitInfo::default()
+                    .semaphore(compute_finished_semaphore)
+                    .stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
+            ];
 
             let signal_sem_info = [vk::SemaphoreSubmitInfo::default()
                 .semaphore(rendering_complete_semaphore)

@@ -77,7 +77,7 @@ impl VkCore {
 
         let push_descriptor = ash::khr::push_descriptor::Device::new(&instance, &device);
         let mesh_shader_loader = Some(ash::ext::mesh_shader::Device::new(&instance, &device));
-        
+
         Self {
             _entry: entry,
             gpu_allocator: Some(gpu_allocator),

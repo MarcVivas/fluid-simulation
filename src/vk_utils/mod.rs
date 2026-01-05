@@ -13,5 +13,8 @@ mod command_pool;
 pub use self::command_pool::CommandPool;
 
 mod command_buffer;
+mod shader_module;
+pub use shader_module::ShaderModule;
+
 pub use self::command_buffer::CommandBuffer;
 

@@ -16,7 +16,6 @@ struct IntegrationPushConstants {
 [shader("compute")]
 [numthreads(GROUP_SIZE, 1, 1)]
 void main(
-    uint groupThreadId : SV_GroupThreadID,
     uint dispatchThreadId : SV_DispatchThreadID
 ){
     uint num_elements, stride;

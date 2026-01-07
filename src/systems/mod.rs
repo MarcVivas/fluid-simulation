@@ -2,6 +2,9 @@ mod integration_system;
 mod morton_encoding_system;
 pub mod particle_drawing_system;
 mod sorting_system;
+mod rearranging_system;
+
+pub use rearranging_system::*;
 
 pub use sorting_system::*;
 

@@ -193,7 +193,7 @@ impl Renderer {
     }
 
     
-    pub fn draw_world(&mut self, window: &Window, world: &World){
+    pub fn draw_world(&mut self, window: &Window, world: &World, compute_finished_semaphore: vk::Semaphore){
         
         self.handle_resize(window);
 
@@ -242,19 +242,13 @@ impl Renderer {
 
         let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
         
-        let shared_buffer = world.get_positions();
-
-        
-        
         self.record_commands(cmd_buffer, image_index as usize, world);
-
-
-
+        
         self.submit_commands_to_the_queue(
             cmd_buffer, 
             present_complete_semaphore, 
             rendering_complete_semaphore,
-            world.compute_finished_semaphore(),
+            compute_finished_semaphore,
             draw_fence
         );
         

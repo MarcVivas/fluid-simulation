@@ -5,8 +5,7 @@ use ash::vk::{DescriptorSetLayoutBinding, PushConstantRange};
 use bytemuck::{Pod, Zeroable};
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
-use crate::compute::{ComputeCommandPool, ComputePass};
-use crate::systems::IntegrationPushConstants;
+use crate::compute::{ComputeCommandPool, ComputeEngine, ComputePass};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 use crate::vk_utils::vk_buffer::VkBuffer;
@@ -317,16 +316,16 @@ impl SortingSystem {
 
         let compute_pass = ComputePass::new(
             vk_core.clone(),
-            compute_command_pool,
             count_pipeline,
             pipeline_layout,
         );
         
-        compute_pass
+        Ok(compute_pass)
         
     }
     
-    pub fn sort(&self, vk_core: &Arc<VkCore>, keys: &VkBuffer, payload: &VkBuffer, compute_command_pool: &ComputeCommandPool){
+    pub fn sort(&self, vk_core: &Arc<VkCore>, keys: &VkBuffer, payload: &VkBuffer, command_buffer: &CommandBuffer) {
+        
         for i in 0..NUM_PASSES {
             let shift = i * BITS_PER_PASS;
 
@@ -360,126 +359,115 @@ impl SortingSystem {
                     .buffer_info(&descriptor_buffer_infos[0..7]),
             ];
             
-            
+            let device = vk_core.device();
             
             // Pass 1: Count bits. Generates the histogram of every block
             // 4 bits per pass -> 2^4=16 possible bins, binary numbers
-            self.counting_pass.execute(
-                [push_constants.num_thread_groups, 1, 1],
-                &[],
-                |device, cmd_buffer, pipeline_layout |{
-                    cmd_buffer.push_constants(
-                        device,
-                        pipeline_layout.vk_pipeline_layout(),
-                        vk::ShaderStageFlags::COMPUTE,
-                        0,
-                        push_constants_bytes
-                    );
-
-                    // PUSH the descriptor directly
-                    unsafe {
-                        vk_core.push_descriptor().cmd_push_descriptor_set(
-                            cmd_buffer.vk_cmd_buffer(),
-                            vk::PipelineBindPoint::COMPUTE,
-                            pipeline_layout.vk_pipeline_layout(),
-                            0,
-                            &descriptor_writes,
-                        );
-                    }
-                    barrier(vk_core, cmd_buffer);
-                }
+            self.counting_pass.bind(device, command_buffer.vk_cmd_buffer());
+            command_buffer.push_constants(
+                device,
+                self.counting_pass.pipeline_layout().vk_pipeline_layout(),
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                push_constants_bytes
             );
+
+            // PUSH the descriptor directly
+            unsafe {
+                vk_core.push_descriptor().cmd_push_descriptor_set(
+                    command_buffer.vk_cmd_buffer(),
+                    vk::PipelineBindPoint::COMPUTE,
+                    self.counting_pass.pipeline_layout().vk_pipeline_layout(),
+                    0,
+                    &descriptor_writes,
+                );
+            }
             
-            
-            // Pass 2: Reduce (For large arrays). Group blocks together (e.g 8 blocks = 1 big block) and sum their histograms
+            let thread_group_counts = [push_constants.num_thread_groups, 1, 1];
+            self.counting_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+
+            barrier(vk_core, command_buffer);
+
+
+            // Pass 2: Reduce. Group blocks together (e.g 8 blocks = 1 big block) and sum their histograms
             // This reads the large SumTable and creates a smaller "ReduceTable"
-            self.reduce_pass.execute(
-                [push_constants.num_scan_values, 1, 1],
-                &[],
-                |device, cmd_buffer, pipeline_layout| {
-                    // 1. Push Constants 
-                    // (Must update because we are in a new pipeline bind, though data is same)
-                    cmd_buffer.push_constants(
-                        device,
-                        pipeline_layout.vk_pipeline_layout(),
-                        vk::ShaderStageFlags::COMPUTE,
-                        0,
-                        push_constants_bytes
-                    );
+            self.reduce_pass.bind(vk_core.device(), command_buffer.vk_cmd_buffer());
 
-                    // 2. Push Descriptors
-                    unsafe {
-                        vk_core.push_descriptor().cmd_push_descriptor_set(
-                            cmd_buffer.vk_cmd_buffer(),
-                            vk::PipelineBindPoint::COMPUTE,
-                            pipeline_layout.vk_pipeline_layout(),
-                            0,
-                            &descriptor_writes,
-                        );
-                    }
-
-                    // 3. Barrier
-                    // Critical: The next pass (Scan) needs to read the ReduceTable we just wrote.
-                    barrier(vk_core, cmd_buffer);
-                }
+            // Set push Constants 
+            command_buffer.push_constants(
+                device,
+                self.reduce_pass.pipeline_layout().vk_pipeline_layout(),
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                push_constants_bytes
             );
+
+            // Set push Descriptors
+            unsafe {
+                vk_core.push_descriptor().cmd_push_descriptor_set(
+                    command_buffer.vk_cmd_buffer(),
+                    vk::PipelineBindPoint::COMPUTE,
+                    self.reduce_pass.pipeline_layout().vk_pipeline_layout(),
+                    0,
+                    &descriptor_writes,
+                );
+            }
+            
+            let thread_group_counts = [push_constants.num_scan_values, 1, 1];
+            self.reduce_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+
+            barrier(vk_core, command_buffer);
             
             
             // Pass 3: Scan to know where each bin starts globally
             // Scans the ReduceTable.
-            self.scan_pass.execute(
-                [1, 1, 1],
-                &[],
-                |device, cmd, layout| {
-                    cmd.push_constants(device, layout.vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
-                    unsafe {
-                        vk_core.push_descriptor().cmd_push_descriptor_set(
-                            cmd.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                            layout.vk_pipeline_layout(), 0, &descriptor_writes
-                        );
-                    }
-                    barrier(vk_core, cmd);
-                }
-            );
+            self.scan_pass.bind(device, command_buffer.vk_cmd_buffer());
+
+            command_buffer.push_constants(device, self.scan_pass.pipeline_layout().vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
+            unsafe {
+                vk_core.push_descriptor().cmd_push_descriptor_set(
+                    command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
+                    self.scan_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
+                );
+            }
+            
+            let thread_group_counts = [1, 1, 1];
+            self.scan_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+
+            barrier(vk_core, command_buffer);
+            
             
             
             // Pass 4: Scan and add. Convert the big block offsets back to the smaller blocks
-            self.scan_add_pass.execute(
-                [push_constants.num_scan_values, 1, 1],
-                &[],
-                |device, cmd, layout| {
-                    cmd.push_constants(device, layout.vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
-                    unsafe {
-                        vk_core.push_descriptor().cmd_push_descriptor_set(
-                            cmd.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                            layout.vk_pipeline_layout(), 0, &descriptor_writes
-                        );
-                    }
-                    barrier(vk_core, cmd);
-                }
-            );
+            self.scan_add_pass.bind(device, command_buffer.vk_cmd_buffer());
+            command_buffer.push_constants(device, self.scan_add_pass.pipeline_layout().vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
+            unsafe {
+                vk_core.push_descriptor().cmd_push_descriptor_set(
+                    command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
+                    self.scan_add_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
+                );
+            }
             
+            let thread_group_counts = [push_constants.num_scan_values, 1, 1];
+            self.scan_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+            barrier(vk_core, command_buffer);
+
             
             // Pass 5: Scatter. Read the offsets from the scan and move the keys and payloads to the correct position.
-            self.scatter_pass.execute(
-                [push_constants.num_thread_groups, 1, 1],
-                &[],
-                |device, cmd, layout| {
-                    cmd.push_constants(device, layout.vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
-                    unsafe {
-                        vk_core.push_descriptor().cmd_push_descriptor_set(
-                            cmd.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                            layout.vk_pipeline_layout(), 0, &descriptor_writes
-                        );
-                    }
-                    barrier(vk_core, cmd);
-                }
-            );
+            self.scatter_pass.bind(device, command_buffer.vk_cmd_buffer());
+            
+            let thread_group_counts = [push_constants.num_thread_groups, 1, 1];
+            self.scatter_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+            command_buffer.push_constants(device, self.scatter_pass.pipeline_layout().vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
+            unsafe {
+                vk_core.push_descriptor().cmd_push_descriptor_set(
+                    command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
+                    self.scatter_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
+                );
+            }
+            barrier(vk_core, command_buffer);
+            
         }
-
-        let keys = keys.read_back::<u32>(vk_core, compute_command_pool.vk_cmd_pool()).unwrap();
-        let is_sorted = keys.is_sorted();
-        assert!(is_sorted);
     }
 }
 

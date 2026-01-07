@@ -9,6 +9,7 @@ use crate::renderer::Drawable;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
 use crate::vk_utils::CommandBuffer;
+use crate::compute::ComputeEngine;
 
 pub struct World{
     size: Vec3,
@@ -16,7 +17,7 @@ pub struct World{
     particle_system: Particles
 }
 
-const NUM_PARTICLES: u32 = 8193;
+const NUM_PARTICLES: u32 = 4; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
@@ -42,14 +43,17 @@ impl World{
     }
     
     /// Updates the world 
-    pub fn update(&mut self, vk_core: &Arc<VkCore>, delta_time: f32, compute_command_pool: &ComputeCommandPool){
-        let buffers = self.particle_system.buffers();
+    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, delta_time: f32){
         let world_size = self.size();
         let cell_size = self.particle_system.max_radius() * 2.2;
-        self.physics_engine.update(vk_core, buffers, delta_time, &world_size, cell_size, compute_command_pool);
+        self.physics_engine.update(vk_core, compute_engine, self.particle_system.buffers_mut(), delta_time, &world_size, cell_size);
+        
+        let buffers = self.particle_system.buffers();
+        let compute_command_pool = compute_engine.command_pool();
         let morton_codes = buffers.morton_codes_buffer.read_back::<u32>(vk_core, compute_command_pool.vk_cmd_pool()).unwrap();
         let object_ids = buffers.object_indices_buffer.read_back::<u32>(vk_core, compute_command_pool.vk_cmd_pool()).unwrap();
-        let positions = buffers.positions_buffer.read_back::<Vec4>(vk_core, compute_command_pool.vk_cmd_pool()).unwrap();
+        let positions = buffers.positions_buffer.current().read_back::<Vec4>(vk_core, compute_command_pool.vk_cmd_pool()).unwrap();
+        
         /*
         for i in 0..self.particle_system.len() {
             dbg!(
@@ -59,12 +63,20 @@ impl World{
                 object_ids[i],
             );
         }
+        
+        self.particle_system.buffers_mut().swap();
+        let positions = self.particle_system.buffers().positions_buffer.current().read_back::<Vec4>(vk_core, compute_command_pool.vk_cmd_pool()).unwrap();
+        for i in 0..self.particle_system.len() {
+            dbg!("After swap");
+            dbg!(
+                self.particle_system.max_radius() * 2.2,
+                positions[i],
+                morton_codes[i],
+                object_ids[i],
+            );
+        }
+        
          */
-        
-        
-    }
-    pub fn compute_finished_semaphore(&self) -> vk::Semaphore{
-        self.physics_engine.compute_finished_semaphore()
     }
     
     pub fn get_positions(&self, ) -> vk::Buffer {

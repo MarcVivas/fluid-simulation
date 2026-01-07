@@ -206,7 +206,7 @@ impl ParticleDrawingSystem {
 
         // Push the Particle Buffer (Set 1)
         let positions_buffer_info = [vk::DescriptorBufferInfo::default()
-            .buffer(buffers.positions_buffer.vk_buffer())
+            .buffer(buffers.positions_buffer.current().vk_buffer())
             .offset(0)
             .range(vk::WHOLE_SIZE)];
         

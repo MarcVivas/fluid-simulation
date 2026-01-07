@@ -18,7 +18,7 @@ use winit::event::{KeyEvent, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
-use crate::compute::ComputeCommandPool;
+use crate::compute::{ComputeCommandPool, ComputeEngine};
 use crate::resources::Particles;
 use crate::renderer::renderer::Renderer;
 use crate::utils::input_manager;
@@ -41,7 +41,7 @@ struct App {
     window: Option<Window>,
     window_resized: bool,
     world: Option<World>,
-    compute_command_pool: Option<ComputeCommandPool>,
+    compute_engine: Option<ComputeEngine>,
     mouse_position: dpi::PhysicalPosition<f64>,
 }
 
@@ -53,9 +53,9 @@ impl App {
             vk_core: None,
             renderer: None,
             world: None,
-            compute_command_pool: None,
             window_resized: false,
             mouse_position: dpi::PhysicalPosition::default(),
+            compute_engine: None,
         }
     }
 }
@@ -84,13 +84,17 @@ impl ApplicationHandler for App {
         );
 
       
-        self.compute_command_pool = Some(ComputeCommandPool::new(vk_core.clone()).unwrap());
+        self.compute_engine = Some(
+            ComputeEngine::new(
+                vk_core.clone()
+            ).unwrap()
+        );
         
         self.world = Some(World::new(
             &vk_core,
             Vec3::new(1000.0, 1000.0, 1000.0),
             self.renderer.as_ref().unwrap(),
-            self.compute_command_pool.as_ref().unwrap()
+            self.compute_engine.as_ref().unwrap().command_pool()
         ));
 
         self.vk_core = Some(vk_core);
@@ -114,9 +118,17 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                self.world.as_mut().unwrap().update(self.vk_core.as_ref().unwrap(),1.0 / 60.0, self.compute_command_pool.as_ref().unwrap());
+                self.world.as_mut().unwrap().update(
+                    self.vk_core.as_ref().unwrap(),
+                    self.compute_engine.as_ref().unwrap(),
+                    1.0 / 60.0
+                );
                 self.window.as_ref().unwrap().request_redraw();
-                self.renderer.as_mut().unwrap().draw_world(self.window.as_ref().unwrap(), self.world.as_ref().unwrap());
+                self.renderer.as_mut().unwrap().draw_world(
+                    self.window.as_ref().unwrap(),
+                    self.world.as_ref().unwrap(),
+                    self.compute_engine.as_ref().unwrap().compute_finished_semaphore()
+                );
             },
             WindowEvent::KeyboardInput {
                 event:

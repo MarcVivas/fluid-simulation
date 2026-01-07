@@ -7,7 +7,7 @@ use glam::Vec3;
 use crate::compute::{ComputeCommandPool, ComputePass};
 use crate::resources::{ParticleData};
 use crate::vk_core::VkCore;
-use crate::vk_utils::{DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
 pub struct IntegrationSystem{
     integration_pass: ComputePass,
@@ -24,7 +24,7 @@ pub struct IntegrationPushConstants {
 
 impl IntegrationSystem{
     
-    pub fn new(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool) -> VkResult<Self> {
+    pub fn new(vk_core: &Arc<VkCore>) -> VkResult<Self> {
 
         let integration_shader = ShaderModule::new(vk_core.clone(), "integration");
 
@@ -81,121 +81,118 @@ impl IntegrationSystem{
 
         let compute_system = ComputePass::new(
             vk_core.clone(),
-            compute_command_pool,
             pipeline,
             pipeline_layout,
-        )?;
+        );
         
         Ok(
             Self{integration_pass: compute_system, integration_shader, first_frame: true}
         )
     }
     
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, buffers: &ParticleData, delta_time: f32, world_size: &Vec3, wait_semaphores: &[vk::SemaphoreSubmitInfo]) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, buffers: &ParticleData, delta_time: f32, world_size: &Vec3, command_buffer: &CommandBuffer) {
         let push_constants = IntegrationPushConstants {
             delta_time,
             world_size: *world_size
         };
 
-        let total_elements = buffers.positions_buffer.len() as u32;
+        let total_elements = buffers.morton_codes_buffer.len() as u32;
         
-        self.integration_pass.execute(
-            [(total_elements + 63) / 64, 1, 1],
-            wait_semaphores,
-            |device, command_buffer, pipeline_layout| {
+        let device = vk_core.device();
+        
+        self.integration_pass.bind(device, command_buffer.vk_cmd_buffer());
 
-                unsafe {
+        if !self.first_frame {
+            let acquire_from_graphics = vk::BufferMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                .src_access_mask(vk::AccessFlags2::NONE)
+                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_access_mask(vk::AccessFlags2::SHADER_WRITE | vk::AccessFlags2::SHADER_READ)
+                .src_queue_family_index(vk_core.graphics_queue_family_index())
+                .dst_queue_family_index(vk_core.compute_queue_family_index())
+                .buffer(buffers.positions_buffer.current().vk_buffer())
+                .size(vk::WHOLE_SIZE);
 
-                    if !self.first_frame {
-                        let acquire_from_graphics = vk::BufferMemoryBarrier2::default()
-                            .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
-                            .src_access_mask(vk::AccessFlags2::NONE)
-                            .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                            .dst_access_mask(vk::AccessFlags2::SHADER_WRITE | vk::AccessFlags2::SHADER_READ)
-                            .src_queue_family_index(vk_core.graphics_queue_family_index())
-                            .dst_queue_family_index(vk_core.compute_queue_family_index())
-                            .buffer(buffers.positions_buffer.vk_buffer())
-                            .size(vk::WHOLE_SIZE);
+            command_buffer.pipeline_barrier2(device, &vk::DependencyInfo::default()
+                .buffer_memory_barriers(std::slice::from_ref(&acquire_from_graphics)));
+        }
+        else {
+            self.first_frame = false;
+        }
 
-                        command_buffer.pipeline_barrier2(device, &vk::DependencyInfo::default()
-                            .buffer_memory_barriers(std::slice::from_ref(&acquire_from_graphics)));
-                    }
-                    else {
-                        self.first_frame = false;
-                    }
+        // Describe the buffers we want to bind
+        let positions_buffer_info = vk::DescriptorBufferInfo::default()
+            .buffer(buffers.positions_buffer.current().vk_buffer())
+            .offset(0)
+            .range(vk::WHOLE_SIZE);
 
-                    // Describe the buffers we want to bind
-                    let positions_buffer_info = vk::DescriptorBufferInfo::default()
-                        .buffer(buffers.positions_buffer.vk_buffer())
-                        .offset(0)
-                        .range(vk::WHOLE_SIZE);
-
-                    let previous_positions_buffer_info = vk::DescriptorBufferInfo::default()
-                        .buffer(buffers.previous_positions_buffer.vk_buffer())
-                        .offset(0)
-                        .range(vk::WHOLE_SIZE);
+        let previous_positions_buffer_info = vk::DescriptorBufferInfo::default()
+            .buffer(buffers.previous_positions_buffer.current().vk_buffer())
+            .offset(0)
+            .range(vk::WHOLE_SIZE);
 
 
 
-                    let positions_descriptor_write = vk::WriteDescriptorSet::default()
-                        .dst_binding(0)
-                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                        .buffer_info(std::slice::from_ref(&positions_buffer_info));
+        let positions_descriptor_write = vk::WriteDescriptorSet::default()
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(std::slice::from_ref(&positions_buffer_info));
 
-                    let previous_positions_descriptor_write = vk::WriteDescriptorSet::default()
-                        .dst_binding(1) // Binding index 1
-                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                        .buffer_info(std::slice::from_ref(&previous_positions_buffer_info));
+        let previous_positions_descriptor_write = vk::WriteDescriptorSet::default()
+            .dst_binding(1) // Binding index 1
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(std::slice::from_ref(&previous_positions_buffer_info));
 
 
 
 
-                    // Put them in an array
-                    let descriptor_writes = [
-                        positions_descriptor_write,
-                        previous_positions_descriptor_write,
-                    ];
+        // Put them in an array
+        let descriptor_writes = [
+            positions_descriptor_write,
+            previous_positions_descriptor_write,
+        ];
 
-                    // PUSH the descriptor directly
-                    vk_core.push_descriptor().cmd_push_descriptor_set(
-                        command_buffer.vk_cmd_buffer(),
-                        vk::PipelineBindPoint::COMPUTE,
-                        pipeline_layout.vk_pipeline_layout(),
-                        0, // set index
-                        &descriptor_writes,
-                    );
+        unsafe {
+            // PUSH the descriptor directly
+            vk_core.push_descriptor().cmd_push_descriptor_set(
+                command_buffer.vk_cmd_buffer(),
+                vk::PipelineBindPoint::COMPUTE,
+                self.integration_pass.pipeline_layout().vk_pipeline_layout(),
+                0, // set index
+                &descriptor_writes,
+            );
+        }
 
-                    // Set push constants
-                    command_buffer.push_constants(
-                        device,
-                        pipeline_layout.vk_pipeline_layout(),
-                        vk::ShaderStageFlags::COMPUTE,
-                        0,
-                        bytemuck::bytes_of(&push_constants)
-                    );
-
-                    let buffer_barrier = vk::BufferMemoryBarrier2::default()
-                        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                        .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-                        .dst_stage_mask(vk::PipelineStageFlags2::NONE )
-                        .dst_access_mask(vk::AccessFlags2::NONE)
-                        .dst_queue_family_index(vk_core.graphics_queue_family_index())
-                        .src_queue_family_index(vk_core.compute_queue_family_index())
-                        .buffer(buffers.positions_buffer.vk_buffer())
-                        .size(vk::WHOLE_SIZE);
-
-                    let dependency_info = vk::DependencyInfo::default()
-                        .buffer_memory_barriers(std::slice::from_ref(&buffer_barrier));
-
-
-                    command_buffer.pipeline_barrier2(device, &dependency_info);
-
-                }
-            }
+        // Set push constants
+        command_buffer.push_constants(
+            device,
+            self.integration_pass.pipeline_layout().vk_pipeline_layout(),
+            vk::ShaderStageFlags::COMPUTE,
+            0,
+            bytemuck::bytes_of(&push_constants)
         );
+
+
+        
+        
+        let thread_group_counts = [((total_elements + 63) / 64), 1, 1];
+        self.integration_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+
+        let buffer_barrier = vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::NONE )
+            .dst_access_mask(vk::AccessFlags2::NONE)
+            .dst_queue_family_index(vk_core.graphics_queue_family_index())
+            .src_queue_family_index(vk_core.compute_queue_family_index())
+            .buffer(buffers.positions_buffer.current().vk_buffer())
+            .size(vk::WHOLE_SIZE);
+
+        let dependency_info = vk::DependencyInfo::default()
+            .buffer_memory_barriers(std::slice::from_ref(&buffer_barrier));
+
+
+        command_buffer.pipeline_barrier2(device, &dependency_info);
     }
     
-    pub fn compute_finished_semaphore(&self) -> vk::Semaphore {
-        self.integration_pass.compute_finished_semaphore()
-    }
 }

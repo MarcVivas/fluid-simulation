@@ -17,7 +17,7 @@ pub struct World{
     particle_system: Particles
 }
 
-const NUM_PARTICLES: u32 = 4; //8193;
+const NUM_PARTICLES: u32 = 8193; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{

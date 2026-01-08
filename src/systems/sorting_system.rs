@@ -9,6 +9,7 @@ use crate::compute::{ComputeCommandPool, ComputeEngine, ComputePass};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 use crate::vk_utils::vk_buffer::VkBuffer;
+use crate::vk_utils::compute_buffer_barrier;
 
 const BITS_PER_PASS: u32 = 4;
 const BIN_COUNT: u32 = 1 << BITS_PER_PASS;
@@ -385,8 +386,8 @@ impl SortingSystem {
             
             let thread_group_counts = [push_constants.num_thread_groups, 1, 1];
             self.counting_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-
-            barrier(vk_core, command_buffer);
+            
+            barrier_counting_pass(vk_core, command_buffer, self.sorting_data.histogram_buffer.vk_buffer());
 
 
             // Pass 2: Reduce. Group blocks together (e.g 8 blocks = 1 big block) and sum their histograms
@@ -416,7 +417,7 @@ impl SortingSystem {
             let thread_group_counts = [push_constants.num_scan_values, 1, 1];
             self.reduce_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
 
-            barrier(vk_core, command_buffer);
+            barrier_reduce_pass(vk_core, command_buffer, &self.sorting_data);
             
             
             // Pass 3: Scan to know where each bin starts globally
@@ -434,7 +435,7 @@ impl SortingSystem {
             let thread_group_counts = [1, 1, 1];
             self.scan_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
 
-            barrier(vk_core, command_buffer);
+            barrier_scan_pass(vk_core, command_buffer, &self.sorting_data);
             
             
             
@@ -449,8 +450,8 @@ impl SortingSystem {
             }
             
             let thread_group_counts = [push_constants.num_scan_values, 1, 1];
-            self.scan_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-            barrier(vk_core, command_buffer);
+            self.scan_add_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+            barrier_scan_add_pass(vk_core, command_buffer, &self.sorting_data);
 
             
             // Pass 5: Scatter. Read the offsets from the scan and move the keys and payloads to the correct position.
@@ -465,7 +466,13 @@ impl SortingSystem {
                     self.scatter_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
                 );
             }
-            barrier(vk_core, command_buffer);
+            barrier_scatter_pass(
+                vk_core, 
+                command_buffer, 
+                &self.sorting_data,
+                dst_keys.vk_buffer(), 
+                dst_payload.vk_buffer()
+            );
             
         }
     }
@@ -510,17 +517,107 @@ fn calculate_num_blocks(num_keys: u32, block_size: u32) -> u32 {
     (num_keys + block_size - 1) / block_size
 }
 
-fn barrier(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer){
 
+fn barrier_counting_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, histogram: vk::Buffer) {
+    let buffer_memory_barriers = [
+        compute_buffer_barrier(
+            histogram,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE | vk::AccessFlags2::SHADER_STORAGE_READ,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        )
+    ];
     
-    let memory_barrier = vk::MemoryBarrier2::default()
-        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-        .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-        .dst_access_mask(vk::AccessFlags2::SHADER_READ | vk::AccessFlags2::SHADER_WRITE);    
     let dependency_info = vk::DependencyInfo::default()
-        .memory_barriers(std::slice::from_ref(&memory_barrier));
+        .buffer_memory_barriers(&buffer_memory_barriers);
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
+}
+
+fn barrier_reduce_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_data: &SortingData){
+    let reduce_table = sorting_data.reduce_table.vk_buffer();
     
+    let buffer_memory_barriers = [
+        compute_buffer_barrier(
+            reduce_table,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE
+        )
+    ];
+
+    let dependency_info = vk::DependencyInfo::default()
+        .buffer_memory_barriers(&buffer_memory_barriers);
+
     cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
     
+}
+
+fn barrier_scan_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_data: &SortingData){
+    let reduce_table = sorting_data.reduce_table.vk_buffer();
+    
+
+    let buffer_memory_barriers = [
+        compute_buffer_barrier(
+            reduce_table,
+            vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        )
+    ];
+
+
+    let dependency_info = vk::DependencyInfo::default()
+        .buffer_memory_barriers(&buffer_memory_barriers);
+
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
+
+}
+
+fn barrier_scan_add_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_data: &SortingData){
+    let histogram = sorting_data.histogram_buffer.vk_buffer();
+
+    let buffer_memory_barriers = [
+        compute_buffer_barrier(
+            histogram,
+            vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        )
+    ];
+
+    let dependency_info = vk::DependencyInfo::default()
+        .buffer_memory_barriers(&buffer_memory_barriers);
+
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
+
+}
+
+fn barrier_scatter_pass(
+    vk_core: &Arc<VkCore>,
+    cmd_buffer: &CommandBuffer,
+    sorting_data: &SortingData,
+    dst_keys: vk::Buffer,
+    dst_payload: vk::Buffer,
+){
+    let histogram = sorting_data.histogram_buffer.vk_buffer();
+
+    let buffer_memory_barriers = [
+        compute_buffer_barrier(
+            histogram,
+            vk::AccessFlags2::SHADER_STORAGE_READ,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE
+        ),
+        compute_buffer_barrier(
+            dst_keys,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        ),
+        compute_buffer_barrier(
+            dst_payload,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        ),
+    ];
+
+    let dependency_info = vk::DependencyInfo::default()
+        .buffer_memory_barriers(&buffer_memory_barriers);
+
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
+
 }

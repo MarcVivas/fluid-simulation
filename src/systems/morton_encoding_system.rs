@@ -8,6 +8,7 @@ use crate::resources::ParticleData;
 use crate::systems::IntegrationPushConstants;
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vk_utils::compute_buffer_barrier;
 
 /// The system transforms positions into Morton codes (u32) https://en.wikipedia.org/wiki/Z-order_curve 
 pub struct MortonEncodingSystem {
@@ -183,19 +184,27 @@ impl MortonEncodingSystem {
             thread_group_counts
         );
         
-        barrier(vk_core, command_buffer);
+        barrier(vk_core, command_buffer, morton_codes, object_indices);
     }
 }
 
-fn barrier(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer){
+fn barrier(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, morton_codes: vk::Buffer, object_indices: vk::Buffer){
     
-    let memory_barrier = vk::MemoryBarrier2::default()
-        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-        .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-        .dst_access_mask(vk::AccessFlags2::SHADER_READ | vk::AccessFlags2::SHADER_WRITE);
+    let buffer_memory_barriers = [
+        compute_buffer_barrier(
+            morton_codes,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        ),
+        compute_buffer_barrier(
+            object_indices,
+            vk::AccessFlags2::SHADER_STORAGE_WRITE,
+            vk::AccessFlags2::SHADER_STORAGE_READ
+        )
+    ];
+
     let dependency_info = vk::DependencyInfo::default()
-        .memory_barriers(std::slice::from_ref(&memory_barrier));
+        .buffer_memory_barriers(&buffer_memory_barriers);
 
     cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
 

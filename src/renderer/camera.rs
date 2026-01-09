@@ -297,7 +297,7 @@ use winit::keyboard::{KeyCode};
 use crate::renderer::renderer::{MAX_FRAME_LATENCY};
 use crate::vk_core::vk_core::VkCore;
 use crate::vk_utils::{CommandPool};
-use crate::vk_utils::vk_buffer::VkBuffer;
+use crate::vk_utils::VkBuffer;
 
 #[derive(Debug)]
 pub struct CameraController {

@@ -3,6 +3,8 @@ mod morton_encoding_system;
 pub mod particle_drawing_system;
 mod sorting_system;
 mod rearranging_system;
+mod grid_construction_system;
+pub use grid_construction_system::*;
 
 pub use rearranging_system::*;
 

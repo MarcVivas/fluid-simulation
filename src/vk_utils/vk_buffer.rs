@@ -5,6 +5,7 @@ use ash::vk;
 use ash::vk::CommandBufferSubmitInfo;
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
+use crate::utils::PingPong;
 use crate::vk_core::vk_core::VkCore;
 use crate::vk_utils::allocated_buffer::AllocatedBuffer;
 
@@ -266,4 +267,56 @@ impl VkBuffer {
             Ok(result)
         }
     }
+}
+
+
+pub fn create_gpu_only_buffer<T: Copy>(
+    vk_core: &Arc<VkCore>,
+    data: &[T],
+    name: &str,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue
+) -> Result<VkBuffer, Box<dyn Error>> {
+    VkBuffer::new(
+        vk_core,
+        data,
+        vk::BufferCreateInfo::default()
+            .size((data.len() * size_of::<T>()) as vk::DeviceSize)
+            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE),
+        AllocationCreateDesc{
+            name,
+            requirements: vk::MemoryRequirements::default(),
+            location: MemoryLocation::GpuOnly,
+            linear: false,
+            allocation_scheme: AllocationScheme::GpuAllocatorManaged
+        },
+        command_pool,
+        queue
+    )
+}
+
+pub fn create_ping_pong_buffer<T: Copy>(
+    vk_core: &Arc<VkCore>,
+    data: &[T],
+    name: &str,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue
+) -> Result<PingPong<VkBuffer>, Box<dyn Error>> {
+    let ping = create_gpu_only_buffer(
+        vk_core,
+        data,
+        name,
+        command_pool,
+        queue
+    )?;
+
+    let pong = create_gpu_only_buffer(
+        vk_core,
+        data,
+        name,
+        command_pool,
+        queue
+    )?;
+    Ok(PingPong::new(ping, pong))
 }

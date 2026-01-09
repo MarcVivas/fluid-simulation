@@ -1,11 +1,8 @@
 use std::error::Error;
 use std::sync::Arc;
-use ash::prelude::VkResult;
 use ash::vk;
-use ash::vk::{DescriptorSet, DescriptorSetLayoutBinding};
-use glam::{Vec3, Vec4};
-use gpu_allocator::MemoryLocation;
-use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
+use ash::vk::{DescriptorSet};
+use glam::{Vec3};
 use rand::Rng;
 use crate::components::{MortonCodeComponent, PositionComponent};
 use crate::renderer::Drawable;
@@ -13,8 +10,9 @@ use crate::systems::ParticleDrawingSystem;
 use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer};
-use crate::vk_utils::vk_buffer::VkBuffer;
+use crate::vk_utils::VkBuffer;
 use crate::utils::PingPong;
+use crate::vk_utils::{create_gpu_only_buffer, create_ping_pong_buffer};
 
 pub struct Particles {
     particle_system_drawer: ParticleDrawingSystem,
@@ -149,7 +147,7 @@ fn create_particle_data(
         queue
     )?;
 
-    let morton_codes_buffer = create_buffer(
+    let morton_codes_buffer = create_gpu_only_buffer(
         vk_core,
         morton_codes,
         "Particle morton codes buffer",
@@ -157,7 +155,7 @@ fn create_particle_data(
         queue
     )?;
 
-    let object_indices_buffer = create_buffer(
+    let object_indices_buffer = create_gpu_only_buffer(
         vk_core,
         object_indices,
         "Particle object indices buffer",
@@ -175,56 +173,6 @@ fn create_particle_data(
     Ok(particle_system_buffers)
 }
 
-fn create_buffer<T: Copy>(
-    vk_core: &Arc<VkCore>,
-    data: &[T],
-    name: &str,
-    command_pool: vk::CommandPool,
-    queue: vk::Queue
-) -> Result<VkBuffer, Box<dyn Error>> {
-    VkBuffer::new(
-        vk_core,
-        data,
-        vk::BufferCreateInfo::default()
-            .size((data.len() * size_of::<T>()) as vk::DeviceSize)
-            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE),
-        AllocationCreateDesc{
-            name,
-            requirements: vk::MemoryRequirements::default(),
-            location: MemoryLocation::GpuOnly,
-            linear: false,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged
-        },
-        command_pool,
-        queue
-    )
-}
-
-fn create_ping_pong_buffer<T: Copy>(
-    vk_core: &Arc<VkCore>,
-    data: &[T],
-    name: &str,
-    command_pool: vk::CommandPool,
-    queue: vk::Queue
-) -> Result<PingPong<VkBuffer>, Box<dyn Error>> {
-    let ping = create_buffer(
-        vk_core,
-        data,
-        name,
-        command_pool,
-        queue
-    )?;
-
-    let pong = create_buffer(
-        vk_core,
-        data,
-        name,
-        command_pool,
-        queue
-    )?;
-    Ok(PingPong::new(ping, pong))
-}
 
 impl Drawable for Particles {
     fn draw(&self, cmd_buffer: &CommandBuffer) {

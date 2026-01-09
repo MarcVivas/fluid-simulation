@@ -5,10 +5,10 @@ use ash::vk::{DescriptorSetLayoutBinding, PushConstantRange};
 use bytemuck::{Pod, Zeroable};
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
-use crate::compute::{ComputeCommandPool, ComputeEngine, ComputePass};
+use crate::compute::{ComputeCommandPool, ComputePass};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
-use crate::vk_utils::vk_buffer::VkBuffer;
+use crate::vk_utils::VkBuffer;
 use crate::vk_utils::compute_buffer_barrier;
 
 const BITS_PER_PASS: u32 = 4;
@@ -357,7 +357,7 @@ impl SortingSystem {
                 vk::WriteDescriptorSet::default()
                     .dst_binding(0)
                     .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(&descriptor_buffer_infos[0..7]),
+                    .buffer_info(&descriptor_buffer_infos[0..descriptor_buffer_infos.len()]),
             ];
             
             let device = vk_core.device();

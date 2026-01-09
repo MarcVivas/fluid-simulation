@@ -11,7 +11,7 @@ use crate::renderer::renderer::Renderer;
 use crate::vk_core::VkCore;
 use crate::vk_utils::{shader_loader, CommandBuffer, DescriptorSet, PipelineLayout, ShaderModule};
 use crate::vk_utils::pipeline_layout::DescriptorSetLayoutConfig;
-use crate::vk_utils::vk_buffer::VkBuffer;
+use crate::vk_utils::VkBuffer;
 
 pub struct ParticleDrawingSystem {
     vk_core: Arc<VkCore>,

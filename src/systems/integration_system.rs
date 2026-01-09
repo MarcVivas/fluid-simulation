@@ -4,15 +4,14 @@ use ash::vk;
 use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
-use crate::compute::{ComputeCommandPool, ComputePass};
+use crate::compute::{ComputePass};
 use crate::resources::{ParticleData};
 use crate::vk_core::VkCore;
-use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vk_utils::{compute_to_graphics_memory_barrier, CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
 pub struct IntegrationSystem{
     integration_pass: ComputePass,
     integration_shader: ShaderModule,
-    first_frame: bool,
 }
 
 #[repr(C)]
@@ -86,7 +85,7 @@ impl IntegrationSystem{
         );
         
         Ok(
-            Self{integration_pass: compute_system, integration_shader, first_frame: true}
+            Self{integration_pass: compute_system, integration_shader}
         )
     }
     
@@ -101,24 +100,6 @@ impl IntegrationSystem{
         let device = vk_core.device();
         
         self.integration_pass.bind(device, command_buffer.vk_cmd_buffer());
-
-        if !self.first_frame {
-            let acquire_from_graphics = vk::BufferMemoryBarrier2::default()
-                .src_stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
-                .src_access_mask(vk::AccessFlags2::NONE)
-                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                .dst_access_mask(vk::AccessFlags2::SHADER_WRITE | vk::AccessFlags2::SHADER_READ)
-                .src_queue_family_index(vk_core.graphics_queue_family_index())
-                .dst_queue_family_index(vk_core.compute_queue_family_index())
-                .buffer(buffers.positions_buffer.current().vk_buffer())
-                .size(vk::WHOLE_SIZE);
-
-            command_buffer.pipeline_barrier2(device, &vk::DependencyInfo::default()
-                .buffer_memory_barriers(std::slice::from_ref(&acquire_from_graphics)));
-        }
-        else {
-            self.first_frame = false;
-        }
 
         // Describe the buffers we want to bind
         let positions_buffer_info = vk::DescriptorBufferInfo::default()
@@ -142,9 +123,7 @@ impl IntegrationSystem{
             .dst_binding(1) // Binding index 1
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .buffer_info(std::slice::from_ref(&previous_positions_buffer_info));
-
-
-
+        
 
         // Put them in an array
         let descriptor_writes = [
@@ -178,20 +157,19 @@ impl IntegrationSystem{
         let thread_group_counts = [((total_elements + 63) / 64), 1, 1];
         self.integration_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
 
-        let buffer_barrier = vk::BufferMemoryBarrier2::default()
-            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-            .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-            .dst_stage_mask(vk::PipelineStageFlags2::NONE )
-            .dst_access_mask(vk::AccessFlags2::NONE)
-            .dst_queue_family_index(vk_core.graphics_queue_family_index())
-            .src_queue_family_index(vk_core.compute_queue_family_index())
-            .buffer(buffers.positions_buffer.current().vk_buffer())
-            .size(vk::WHOLE_SIZE);
-
+        let buffer_barriers = [
+            compute_to_graphics_memory_barrier(
+                buffers.positions_buffer.current().vk_buffer(),
+                vk_core.compute_queue_family_index(),
+                vk_core.graphics_queue_family_index(),
+                vk::AccessFlags2::SHADER_STORAGE_WRITE,
+                vk::AccessFlags2::SHADER_STORAGE_READ,
+            )
+        ];
+        
         let dependency_info = vk::DependencyInfo::default()
-            .buffer_memory_barriers(std::slice::from_ref(&buffer_barrier));
-
-
+            .buffer_memory_barriers(&buffer_barriers);
+        
         command_buffer.pipeline_barrier2(device, &dependency_info);
     }
     

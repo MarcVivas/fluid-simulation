@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use glam::Vec3;
 use crate::compute::ComputeCommandPool;
-use crate::resources::ParticleData;
+use crate::resources::{ParticleData, SpatialGrid};
 use crate::systems::{IntegrationSystem, MortonEncodingSystem, RearrangingSystem, SortingSystem};
 use crate::vk_core::VkCore;
 use crate::compute::ComputeEngine;
@@ -12,6 +12,7 @@ pub struct PhysicsEngine {
     sorting_system: SortingSystem,
     integration_system: IntegrationSystem,
     rearranging_system: RearrangingSystem,
+    first_frame: bool,
 }
 
 impl PhysicsEngine {
@@ -20,23 +21,49 @@ impl PhysicsEngine {
         let integration_system = IntegrationSystem::new(vk_core)?;
         let sorting_system = SortingSystem::new(vk_core, compute_command_pool, max_objects)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
-        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system })
+        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system, first_frame: true })
     }
     
-    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, buffers: &mut ParticleData, delta_time: f32, world_size: &Vec3, cell_size: f32){
+    pub fn update(
+        &mut self, 
+        vk_core: &Arc<VkCore>, 
+        compute_engine: &ComputeEngine, 
+        buffers: &mut ParticleData, 
+        delta_time: f32, 
+        world_size: &Vec3, 
+        spatial_grid: &SpatialGrid
+    ){
+        
+        let cell_size = spatial_grid.cell_size();
+        
         compute_engine.execute(
             &[],
             | command_buffer| {
+                if !self.first_frame {
+                    let acquire_from_graphics = vk::BufferMemoryBarrier2::default()
+                        .src_stage_mask(vk::PipelineStageFlags2::MESH_SHADER_EXT)
+                        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                        .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+                        .dst_access_mask(vk::AccessFlags2::SHADER_WRITE | vk::AccessFlags2::SHADER_READ)
+                        .src_queue_family_index(vk_core.graphics_queue_family_index())
+                        .dst_queue_family_index(vk_core.compute_queue_family_index())
+                        .buffer(buffers.positions_buffer.current().vk_buffer())
+                        .size(vk::WHOLE_SIZE);
+
+                    command_buffer.pipeline_barrier2(vk_core.device(), &vk::DependencyInfo::default()
+                        .buffer_memory_barriers(std::slice::from_ref(&acquire_from_graphics)));
+                }
+                else {
+                    self.first_frame = false;
+                }
                 self.morton_encoding_system.execute(vk_core, buffers.morton_codes_buffer.len() as u32, cell_size, buffers, command_buffer);
                 self.sorting_system.sort(vk_core, &buffers.morton_codes_buffer, &buffers.object_indices_buffer, command_buffer);
-                self.rearranging_system.execute(vk_core, &[], buffers);
+                self.rearranging_system.execute(vk_core, buffers, command_buffer);
+                buffers.swap();
                 self.integration_system.execute(vk_core, buffers, delta_time, world_size, command_buffer);
             }
         );
-
-        let keys = buffers.morton_codes_buffer.read_back::<u32>(vk_core, compute_engine.command_pool().vk_cmd_pool()).unwrap();
-        let is_sorted = keys.is_sorted();
-        assert!(is_sorted);
+        
     }
     
 }

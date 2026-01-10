@@ -18,7 +18,7 @@ pub struct World{
     spatial_grid: SpatialGrid
 }
 
-const NUM_PARTICLES: u32 = 2819300; //8193;
+const NUM_PARTICLES: u32 = 2800000; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
@@ -52,7 +52,7 @@ impl World{
         self.physics_engine.update(
             vk_core, 
             compute_engine, 
-            self.particle_system.buffers_mut(), 
+            &mut self.particle_system, 
             delta_time, 
             &world_size, 
             &self.spatial_grid

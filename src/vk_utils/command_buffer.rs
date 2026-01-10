@@ -106,4 +106,10 @@ impl CommandBuffer {
             device.cmd_bind_descriptor_sets(self.cmd_buffer, pipeline_bind_point, layout, first_set, descriptor_sets, dynamic_offsets);
         }
     }
+    
+    pub fn fill_buffer(&self, device: &ash::Device, buffer: vk::Buffer, offset: vk::DeviceSize, size: vk::DeviceSize, data: u32){
+        unsafe {
+            device.cmd_fill_buffer(self.cmd_buffer, buffer, offset, size, data);
+        }
+    }
 }

@@ -5,7 +5,7 @@ use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use crate::compute::{ComputePass};
-use crate::resources::{ParticleData};
+use crate::resources::{ParticleData, Particles};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{compute_to_graphics_memory_barrier, CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
@@ -89,11 +89,13 @@ impl IntegrationSystem{
         )
     }
     
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, buffers: &ParticleData, delta_time: f32, world_size: &Vec3, command_buffer: &CommandBuffer) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, particles: &Particles, delta_time: f32, world_size: &Vec3, command_buffer: &CommandBuffer) {
         let push_constants = IntegrationPushConstants {
             delta_time,
             world_size: *world_size
         };
+        
+        let buffers = particles.buffers();
 
         let total_elements = buffers.morton_codes_buffer.len() as u32;
         

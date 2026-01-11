@@ -49,8 +49,38 @@ public func decode_morton_3d(uint code) -> uint3
     );
 }
 
+
+// 2^10 - 1
+// 10 bits per morton code
+static const uint MAX_COORD = 1023;
+
 // Helper to convert World Position float3 -> Grid Coordinate uint3
 public uint3 position_to_grid(float3 pos, float cell_size)
 {
+    uint3 grid_pos = (uint3) floor(pos / cell_size);
+
+    // Valid coordinates [1, 1022]
+    grid_pos = clamp(grid_pos, 1, MAX_COORD - 1);
+
     return (uint3)floor(pos/cell_size);
 }
+
+
+static const uint X_MASK = 0x09249249;
+static const uint Y_MASK = 0x12492492;
+static const uint Z_MASK = 0x24924924;
+
+// Returns the Morton Code of the cell to the RIGHT (X + 1)
+public uint get_neighbor_code_right(const uint code) { return (((code | ~X_MASK) + 1) & X_MASK) | (code & ~X_MASK); }
+// Returns the Morton Code of the cell to the LEFT (X - 1)
+public uint get_neighbor_code_left(const uint code) { return ((code & X_MASK) - 1 & X_MASK) | (code & ~X_MASK); }
+
+// Returns the Morton Code of the cell ABOVE (Y + 1)
+public uint get_neighbor_code_up(const uint code) { return (((code | ~Y_MASK) + 2) & Y_MASK) | (code & ~Y_MASK); }
+// Returns the Morton Code of the cell BELOW (Y - 1)
+public uint get_neighbor_code_down(const uint code) { return ((code & Y_MASK) - 2 & Y_MASK) | (code & ~Y_MASK); }
+
+// Returns the Morton Code of the cell in FRONT (Z + 1)
+public uint get_neighbor_code_front(const uint code) { return (((code | ~Z_MASK) + 4) & Z_MASK) | (code & ~Z_MASK); }
+// Returns the Morton Code of the cell BEHIND (Z - 1)
+public uint get_neighbor_code_back(const uint code) { return ((code & Z_MASK) - 4 & Z_MASK) | (code & ~Z_MASK); }

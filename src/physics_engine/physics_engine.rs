@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use ash::vk;
-use glam::{UVec2, Vec3};
+use glam::{Vec3};
 use crate::compute::ComputeCommandPool;
-use crate::resources::{ParticleData, Particles, SpatialGrid};
-use crate::systems::{GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, RearrangingSystem, SortingSystem};
+use crate::resources::{Particles, SpatialGrid};
+use crate::systems::{ConstraintSolverSystem, GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, RearrangingSystem, SortingSystem};
 use crate::vk_core::VkCore;
 use crate::compute::ComputeEngine;
 
@@ -13,6 +13,7 @@ pub struct PhysicsEngine {
     integration_system: IntegrationSystem,
     rearranging_system: RearrangingSystem,
     grid_construction_system: GridConstructionSystem,
+    constraint_solver_system: ConstraintSolverSystem,
     first_frame: bool,
 }
 
@@ -23,7 +24,8 @@ impl PhysicsEngine {
         let sorting_system = SortingSystem::new(vk_core, compute_command_pool, max_objects)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
         let grid_construction_system = GridConstructionSystem::new(vk_core)?;
-        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, first_frame: true })
+        let constraint_solver_system = ConstraintSolverSystem::new(vk_core)?;
+        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, constraint_solver_system, first_frame: true })
     }
     
     pub fn update(
@@ -63,11 +65,11 @@ impl PhysicsEngine {
                 self.morton_encoding_system.execute(vk_core, particle_data.morton_codes_buffer.len() as u32, cell_size, particle_data, command_buffer);
                 self.sorting_system.sort(vk_core, &particle_data.morton_codes_buffer, &particle_data.object_indices_buffer, command_buffer);
                 self.rearranging_system.execute(vk_core, particle_data, command_buffer);
-                
                 particles.buffers_mut().swap();
-                let particle_data = particles.buffers();
                 self.grid_construction_system.execute(vk_core, command_buffer, spatial_grid, particles);
-                self.integration_system.execute(vk_core, particle_data, delta_time, world_size, command_buffer);
+                self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles);
+                particles.buffers_mut().positions_buffer.swap();
+                self.integration_system.execute(vk_core, particles, delta_time, world_size, command_buffer);
             }
         );
         

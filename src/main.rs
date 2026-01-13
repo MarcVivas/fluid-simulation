@@ -14,7 +14,7 @@ use std::sync::Arc;
 use glam::Vec3;
 use winit::application::ApplicationHandler;
 use winit::dpi;
-use winit::event::{KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
@@ -75,24 +75,27 @@ impl ApplicationHandler for App {
 
         let (vk_core, surface) = init_with_window(&window);
 
+        let world_size = Vec3::new(1000.0, 1000.0, 1000.0);
+        
         self.renderer = Some(
             Renderer::new(
                 vk_core.clone(),
                 &window,
-                surface
+                surface,
+                &world_size
             )
         );
-
+        
       
         self.compute_engine = Some(
             ComputeEngine::new(
                 vk_core.clone()
             ).unwrap()
         );
-        
+
         self.world = Some(World::new(
             &vk_core,
-            Vec3::new(1000.0, 1000.0, 1000.0),
+            &world_size,
             self.renderer.as_ref().unwrap(),
             self.compute_engine.as_ref().unwrap().command_pool()
         ));
@@ -160,6 +163,10 @@ impl App {
     pub fn set_mouse_position(&mut self, position: Option<dpi::PhysicalPosition<f64>>) {
         self.mouse_position = position.unwrap();
         self.renderer.as_mut().unwrap().set_camera_zoom_position(position);
+    }
+    
+    pub fn mouse_click(&mut self, button: &MouseButton, state: &ElementState){
+        self.renderer.as_mut().unwrap().rotate_camera(button, state);
     }
     
 }

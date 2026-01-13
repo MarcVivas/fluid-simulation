@@ -53,7 +53,7 @@ impl Particles {
                 let x = random_number_generator.random_range(0.0..world_dim.x);
                 let y = random_number_generator.random_range(0.0..world_dim.y);
                 let z = random_number_generator.random_range(0.0..world_dim.z);
-                let radius = random_number_generator.random_range(10..50) as f32;
+                let radius = random_number_generator.random_range(1..10) as f32;
                 max_radius = max_radius.max(radius);
                 PositionComponent::new(x, y, z, radius)
             })

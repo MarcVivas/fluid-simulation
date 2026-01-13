@@ -18,10 +18,10 @@ pub struct World{
     spatial_grid: SpatialGrid
 }
 
-const NUM_PARTICLES: u32 = 10; //8193;
+const NUM_PARTICLES: u32 = 1000; //8193;
 
 impl World{
-    pub fn new(vk_core: &Arc<VkCore>, size: Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
+    pub fn new(vk_core: &Arc<VkCore>, size: &Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
 
         let particle_system = Particles::new(
             NUM_PARTICLES as usize,
@@ -37,7 +37,7 @@ impl World{
         Self {
             particle_system,
             physics_engine,
-            size,
+            size: *size,
             spatial_grid
         }
     }

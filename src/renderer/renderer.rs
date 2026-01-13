@@ -2,10 +2,11 @@ use std::sync::Arc;
 use ash::{vk};
 use ash::prelude::VkResult;
 use ash::vk::DescriptorSetLayoutBinding;
+use glam::Vec3;
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
 use winit::dpi::PhysicalPosition;
-use winit::event::MouseScrollDelta;
+use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::KeyCode;
 use winit::window::Window;
 use crate::renderer::camera::{Camera, CameraUniform};
@@ -50,6 +51,7 @@ impl Renderer {
         vk_core: Arc<VkCore>,
         window: &Window,
         surface: Surface,
+        world_size: &Vec3
     ) -> Self 
     {
         
@@ -68,7 +70,7 @@ impl Renderer {
 
         let camera = Camera::new(
             &vk_core,
-            &glam::Vec3::new(100.0, 100.0, 100.0),
+            world_size,
             &window.inner_size(),
             &command_pool,
         ).expect("failed to create camera");
@@ -502,7 +504,10 @@ impl Renderer {
     pub fn zoom_camera(&mut self, mouse_scroll_delta: MouseScrollDelta){
         self.camera.zoom_camera(mouse_scroll_delta);
     }
-
+    
+    pub fn rotate_camera(&mut self, button: &MouseButton, state: &ElementState){
+        self.camera.handle_mouse_input(button, state);
+    }
     pub fn set_camera_zoom_position(&mut self, pos: Option<PhysicalPosition<f64>>) {
         self.camera.set_camera_zoom_position(pos);
     }

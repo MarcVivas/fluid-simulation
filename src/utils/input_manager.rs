@@ -50,6 +50,7 @@ pub fn process_cursor_moved(app: &mut App, position: &PhysicalPosition<f64>){
 
 /// Manages mouse button inputs from the user
 pub fn process_mouse_input(app: &mut App, mouse_state: &ElementState, button: &MouseButton){
+    app.mouse_click(button, mouse_state);
 }
 
 /// Manages mouse wheel inputs from the user

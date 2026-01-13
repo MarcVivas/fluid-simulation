@@ -31,9 +31,13 @@ struct KeyValue{
 
 impl SpatialGridBuffers {
     pub fn new(vk_core: &Arc<VkCore>, max_occupied_cells: u32, command_pool: vk::CommandPool) -> Result<Self, Box<dyn Error>>{
-        let buffer_length = max_occupied_cells * 2;
+        // The math logic index & (capacity - 1) only works as a modulo operator if capacity is 2^n
+        // index & (capacity - 1) == index % capacity
+        let min_size = max_occupied_cells * 2;
+        let capacity = min_size.next_power_of_two();
         
-        let cell_starts_vec = vec![KeyValue{key: 0, value: 0}; buffer_length as usize];
+        
+        let cell_starts_vec = vec![KeyValue{key: 0, value: 0}; capacity as usize];
         let cell_ends_vec = cell_starts_vec.clone();
         
         let cell_starts = create_gpu_only_buffer(

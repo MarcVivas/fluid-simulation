@@ -108,10 +108,9 @@ impl Camera {
 
         // 2. Zoom (Exponential / Multiplicative)
         if zoom_amount != 0.0 {
-            // FIX: Using powf allows smooth zooming regardless of scroll speed.
             // 0.90 base means ~10% zoom per scroll "tick"
             // If zoom_amount is positive (scrolling up), we get closer (multiply by < 1.0)
-            let zoom_factor = 0.90f32.powf(zoom_amount);
+            let zoom_factor = 0.95f32.powf(zoom_amount);
             self.distance = (self.distance * zoom_factor).clamp(0.5, 10000.0);
         }
 
@@ -215,10 +214,6 @@ impl CameraUniform {
     }
 }
 
-// ---------------------------------------------------------------------------
-// IMPROVED CONTROLLER
-// ---------------------------------------------------------------------------
-
 #[derive(Debug)]
 pub struct CameraController {
     // Sensitivities
@@ -273,17 +268,10 @@ impl CameraController {
         }
     }
 
-    pub fn handle_scroll(&mut self, delta: MouseScrollDelta) {
-        match delta {
-            // Standard mouse wheel
-            MouseScrollDelta::LineDelta(_, y) => {
-                self.scroll_accum += y;
-            },
-            // Trackpads
-            MouseScrollDelta::PixelDelta(pos) => {
-                // Scale down pixel delta significantly to match line delta feel
-                self.scroll_accum += pos.y as f32 * 0.05;
-            }
+    pub fn handle_scroll(&mut self, mouse_scroll_delta: MouseScrollDelta) {
+        self.scroll_accum += match mouse_scroll_delta {
+            MouseScrollDelta::LineDelta(_, y) => y,
+            MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
         };
     }
 

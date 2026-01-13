@@ -18,7 +18,7 @@ pub struct World{
     spatial_grid: SpatialGrid
 }
 
-const NUM_PARTICLES: u32 = 1000; //8193;
+const NUM_PARTICLES: u32 = 3000; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: &Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{

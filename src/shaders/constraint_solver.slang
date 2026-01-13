@@ -98,7 +98,7 @@ float3 solve_constraints(const uint begin, const uint end, const float3 pos, con
         }
 
         // Get the other element
-        const float4 other_element = read_positions[begin];
+        const float4 other_element = read_positions[i];
         const float3 other_pos = other_element.xyz;
         const float other_radius = other_element.w;
 

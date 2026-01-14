@@ -1,10 +1,8 @@
 
-import HashMap;
-
 #define GROUP_SIZE 64
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<KeyValue> cell_starts;
-[[vk::binding(1, 0)]] RWStructuredBuffer<KeyValue> cell_ends;
+[[vk::binding(0, 0)]] RWStructuredBuffer<uint> cell_starts;
+[[vk::binding(1, 0)]] RWStructuredBuffer<uint> cell_ends;
 [[vk::binding(2, 0)]] StructuredBuffer<uint> morton_codes;
 
 
@@ -34,17 +32,17 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     if (current_morton_code != prev_morton_code) {
         // Global id is the start of the current morton code
-        insert_to_map(current_morton_code, global_id, cell_starts, push_constants.map_capacity);
+        cell_starts[current_morton_code] = global_id; 
 
         // If it isn't the first element, then global_id is also the end of the previous morton code
         if(global_id > 0){
-            insert_to_map(prev_morton_code, global_id, cell_ends, push_constants.map_capacity);
+            cell_ends[prev_morton_code] = global_id; 
         }
     }
 
     // Special case: The last element is always the end of a cell
     if(global_id == push_constants.num_elements - 1){
-        insert_to_map(current_morton_code, global_id + 1, cell_ends, push_constants.map_capacity);
+        cell_ends[current_morton_code] = global_id + 1; 
     }
 }
 

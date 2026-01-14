@@ -10,7 +10,7 @@ struct IntegrationPushConstants {
 
 [[vk::push_constant]] IntegrationPushConstants push_constants;
 
-static const float3 GRAVITY = float3(0.0, -9.81, 0.0);
+static const float3 GRAVITY = float3(0.0, -4.0, 0.0);
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, 1, 1)]
@@ -36,7 +36,7 @@ void main(uint dispatchThreadId : SV_DispatchThreadID)
         + vel * dt
         + GRAVITY * (dt * dt);
 
-    new_pos = clamp(new_pos, float3(0,0,0), push_constants.world_size);
+    new_pos = clamp(new_pos, float3(1,1,1), push_constants.world_size);
 
     positions[dispatchThreadId] = float4(new_pos, particle_data.w);
 }

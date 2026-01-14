@@ -6,8 +6,8 @@ static const uint GROUP_SIZE = 64;
 [[vk::binding(0, 0)]] RWStructuredBuffer<float4> read_positions;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float4> write_positions;
 [[vk::binding(2, 0)]] StructuredBuffer<uint> morton_codes;
-[[vk::binding(3, 0)]] StructuredBuffer<KeyValue> cell_starts;
-[[vk::binding(4, 0)]] StructuredBuffer<KeyValue> cell_ends;
+[[vk::binding(3, 0)]] StructuredBuffer<uint> cell_starts;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> cell_ends;
 
 struct ConstraintSolverPushConstants {
     uint num_elements;
@@ -67,7 +67,7 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
                 // Check if this neighbor cell has particles inside
 
                 // Get the cell start index
-                let cell_start_index = map_get_value(neighbor_morton_code, cell_starts, push_constants.map_capacity);
+                let cell_start_index = cell_starts[neighbor_morton_code];
 
                 // If the cell is empty
                 if(cell_start_index == EMPTY_KEY_VALUE){
@@ -78,7 +78,7 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
                 // The cell has elements inside, solve constraints
 
                 // Get the cell end index
-                const uint cell_end_index = map_get_value(neighbor_morton_code, cell_ends, push_constants.map_capacity);
+                const uint cell_end_index = cell_ends[neighbor_morton_code];
                 total_displacement += solve_constraints(cell_start_index, cell_end_index, pos, radius, global_id);
             }
         }
@@ -96,7 +96,6 @@ float3 solve_constraints(const uint begin, const uint end, const float3 pos, con
         if(global_id == i){
             continue;
         }
-
         // Get the other element
         const float4 other_element = read_positions[i];
         const float3 other_pos = other_element.xyz;

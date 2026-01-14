@@ -1,13 +1,12 @@
 use std::error::Error;
 use std::sync::Arc;
 use ash::vk;
-use bytemuck::{Pod, Zeroable};
+use glam::{uvec3, Vec3};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{VkBuffer, create_gpu_only_buffer};
 
 pub struct SpatialGrid {
     grid_buffers: SpatialGridBuffers,
-    max_occupied_cells: u32,
     cell_size: f32,
 }
 
@@ -22,22 +21,15 @@ impl SpatialGridBuffers{
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct KeyValue{
-    key: u32,
-    value: u32,
-}
-
 impl SpatialGridBuffers {
-    pub fn new(vk_core: &Arc<VkCore>, max_occupied_cells: u32, command_pool: vk::CommandPool) -> Result<Self, Box<dyn Error>>{
-        // The math logic index & (capacity - 1) only works as a modulo operator if capacity is 2^n
-        // index & (capacity - 1) == index % capacity
-        let min_size = max_occupied_cells * 2;
-        let capacity = min_size.next_power_of_two();
+    pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, grid_size: &glam::UVec3) -> Result<Self, Box<dyn Error>>{
         
         
-        let cell_starts_vec = vec![KeyValue{key: 0, value: 0}; capacity as usize];
+        // The capacity is the total cells in the grid
+        let capacity = (grid_size.x * grid_size.y * grid_size.z);
+        
+        
+        let cell_starts_vec = vec![0; capacity as usize];
         let cell_ends_vec = cell_starts_vec.clone();
         
         let cell_starts = create_gpu_only_buffer(
@@ -62,10 +54,17 @@ impl SpatialGridBuffers {
 }
 
 impl SpatialGrid {
-    pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, max_occupied_cells: u32, max_radius: f32) -> Self {
-        let grid_buffers = SpatialGridBuffers::new(vk_core, max_occupied_cells, command_pool).unwrap();
+    pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, max_radius: f32, world_size: &Vec3) -> Self {
         let cell_size = Self::compute_cell_size(max_radius);
-        Self{grid_buffers, max_occupied_cells, cell_size}
+        
+        assert!(world_size.x == world_size.y && world_size.y == world_size.z);
+        let grid_size = uvec3(
+            ((world_size.x / cell_size).ceil() as u32).next_power_of_two(),
+             ((world_size.y / cell_size).ceil() as u32).next_power_of_two(),
+              ((world_size.z / cell_size).ceil() as u32).next_power_of_two()
+        );
+        let grid_buffers = SpatialGridBuffers::new(vk_core, command_pool, &grid_size).unwrap();
+        Self{grid_buffers, cell_size}
     }
     
     fn compute_cell_size(max_radius: f32) -> f32{

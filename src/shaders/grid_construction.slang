@@ -1,16 +1,16 @@
+import MortonHelpers;
+import SpatialGrid;
+
 
 #define GROUP_SIZE 64
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<uint> cell_starts;
-[[vk::binding(1, 0)]] RWStructuredBuffer<uint> cell_ends;
-[[vk::binding(2, 0)]] StructuredBuffer<uint> morton_codes;
-
+[[vk::binding(0, 0)]] StructuredBuffer<uint> morton_codes;
+[[vk::binding(1, 0)]] RWTexture3D<uint> grid;
 
 [[vk::push_constant]] GridConstructionPushConstants push_constants;
 
 struct GridConstructionPushConstants{
     uint num_elements;
-    uint map_capacity;
 };
 
 groupshared uint shared_morton_codes[GROUP_SIZE + 1];
@@ -32,17 +32,20 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     if (current_morton_code != prev_morton_code) {
         // Global id is the start of the current morton code
-        cell_starts[current_morton_code] = global_id; 
+        const uint3 current_grid_pos = decode_morton_3d(current_morton_code);
+        grid.store_x(current_grid_pos, global_id);
 
         // If it isn't the first element, then global_id is also the end of the previous morton code
         if(global_id > 0){
-            cell_ends[prev_morton_code] = global_id; 
+            const uint3 prev_grid_pos = decode_morton_3d(prev_morton_code);
+            grid.store_y(prev_grid_pos, global_id);
         }
     }
 
     // Special case: The last element is always the end of a cell
     if(global_id == push_constants.num_elements - 1){
-        cell_ends[current_morton_code] = global_id + 1; 
+        const uint3 current_grid_pos = decode_morton_3d(current_morton_code);
+        grid.store_y(current_grid_pos, global_id + 1);
     }
 }
 

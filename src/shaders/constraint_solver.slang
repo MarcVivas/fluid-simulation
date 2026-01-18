@@ -1,18 +1,19 @@
 import HashMap;
 import MortonHelpers;
+import SpatialGrid;
 
 static const uint GROUP_SIZE = 64;
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<float4> read_positions;
+
+[[vk::binding(0, 0)]] StructuredBuffer<float4> read_positions;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float4> write_positions;
 [[vk::binding(2, 0)]] StructuredBuffer<uint> morton_codes;
-[[vk::binding(3, 0)]] StructuredBuffer<uint> cell_starts;
-[[vk::binding(4, 0)]] StructuredBuffer<uint> cell_ends;
+[[vk::binding(3, 0)]] Texture3D<uint> grid;
 
 struct ConstraintSolverPushConstants {
     uint num_elements;
-    uint map_capacity;
-}
+    float cell_size;
+};
 
 [[vk::push_constant]] ConstraintSolverPushConstants push_constants;
 
@@ -24,62 +25,33 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
         return;
     }
 
-
-    const uint morton_code = morton_codes[global_id];
     const float4 p = read_positions[global_id];
     const float3 pos = p.xyz;
     const float radius = p.w;
-    const uint x_morton_left = get_neighbor_code_left(morton_code);
-    const uint x_morton_right = get_neighbor_code_right(morton_code);
 
-    const uint[3] x_codes = {
-        x_morton_left,
-        morton_code,
-        x_morton_right
-    };
+    const uint3 center_grid_cell = position_to_grid(pos, push_constants.cell_size);
 
     float3 total_displacement = float3(0, 0, 0);
 
     // Solve constraints with the surrounding 27 cells
     // For each x (Left, Center, Right)
-    for(uint i = 0; i < 3; i++){
-
-        const uint y_center = x_codes[i];
-        const uint[3] y_codes = {
-            get_neighbor_code_down(y_center),
-            y_center,
-            get_neighbor_code_up(y_center)
-        };
-
+    for(int z = -1; z <= 1; z++){
         // For each y (Down, Center, Up)
-        for(uint j = 0; j < 3; j++){
-            const uint z_center = y_codes[j];
-            const uint[3] z_codes = {
-                get_neighbor_code_back(z_center),
-                z_center,
-                get_neighbor_code_front(z_center),
-            };
-
+        for(int y = -1; y <= 1; y++){
             // For each z (Back, Center, Front)
-            for(uint k = 0; k < 3; k++){
-                const uint neighbor_morton_code = z_codes[k];
+            for(int x = -1; x <= 1; x++){
+                const uint3 neighbor_cell = center_grid_cell + int3(x, y, z);
 
-                // Check if this neighbor cell has particles inside
+                // Get the cell start
+                const uint cell_start = grid.load_x(neighbor_cell);
+                const uint cell_end = grid.load_y(neighbor_cell);
 
-                // Get the cell start index
-                let cell_start_index = cell_starts[neighbor_morton_code];
-
-                // If the cell is empty
-                if(cell_start_index == EMPTY_KEY_VALUE){
-                    // This cell doesn't have elements inside
+                // If the cell is empty continue
+                if(cell_start == EMPTY_KEY_VALUE){
                     continue;
                 }
 
-                // The cell has elements inside, solve constraints
-
-                // Get the cell end index
-                const uint cell_end_index = cell_ends[neighbor_morton_code];
-                total_displacement += solve_constraints(cell_start_index, cell_end_index, pos, radius, global_id);
+                total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id);
             }
         }
     }
@@ -92,10 +64,7 @@ float3 solve_constraints(const uint begin, const uint end, const float3 pos, con
     float3 displacement = float3(0, 0, 0);
 
     for(uint i = begin; i < end; i++){
-        // Prevent self collision
-        if(global_id == i){
-            continue;
-        }
+
         // Get the other element
         const float4 other_element = read_positions[i];
         const float3 other_pos = other_element.xyz;

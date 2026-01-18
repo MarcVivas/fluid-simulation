@@ -288,7 +288,7 @@ pub fn create_gpu_only_buffer<T: Copy>(
             name,
             requirements: vk::MemoryRequirements::default(),
             location: MemoryLocation::GpuOnly,
-            linear: false,
+            linear: true,
             allocation_scheme: AllocationScheme::GpuAllocatorManaged
         },
         command_pool,

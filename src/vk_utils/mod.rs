@@ -16,6 +16,13 @@ pub use self::command_pool::CommandPool;
 mod command_buffer;
 mod shader_module;
 mod barrier;
+mod vk_image;
+pub use vk_image::*;
+mod allocated_image;
+mod image_view;
+pub use image_view::*;
+use allocated_image::*;
+
 pub use barrier::*;
 
 pub use shader_module::ShaderModule;

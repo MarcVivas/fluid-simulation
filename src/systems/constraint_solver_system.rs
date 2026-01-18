@@ -2,6 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
+use glam::{UVec3, UVec4};
 use crate::compute::ComputePass;
 use crate::resources::{Particles, SpatialGrid};
 use crate::vk_core::VkCore;
@@ -16,7 +17,7 @@ pub struct ConstraintSolverSystem {
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 struct ConstraintSolverPushConstants {
     num_elements: u32,
-    map_capacity: u32,
+    cell_size: f32,
 }
 
 impl ConstraintSolverSystem {
@@ -47,16 +48,10 @@ impl ConstraintSolverSystem {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Cell starts
+            // Grid texture
             DescriptorSetLayoutBinding::default()
                 .binding(3)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Cell ends
-            DescriptorSetLayoutBinding::default()
-                .binding(4)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
         ];
@@ -105,17 +100,19 @@ impl ConstraintSolverSystem {
         let num_elements = particles.len() as u32;
 
         let spatial_grid_buffers = spatial_grid.buffers();
-        let cell_starts = spatial_grid_buffers.cell_starts.vk_buffer();
-        let cell_ends = spatial_grid_buffers.cell_ends.vk_buffer();
 
         let particle_buffers = particles.buffers();
         let morton_codes = particle_buffers.morton_codes_buffer.vk_buffer();
         let (read_positions, write_positions) = particle_buffers.positions_buffer.read_write();
         let (read_positions, write_positions) = (read_positions.vk_buffer(), write_positions.vk_buffer());
         
+        
+        let grid_size = spatial_grid.grid_size();
+        
+        
         let push_constants = ConstraintSolverPushConstants {
             num_elements,
-            map_capacity: spatial_grid_buffers.map_capacity() as u32
+            cell_size: spatial_grid.cell_size(),
         };
 
         self.constraint_solver_pass.bind(device, command_buffer.vk_cmd_buffer());
@@ -135,16 +132,23 @@ impl ConstraintSolverSystem {
             vk::DescriptorBufferInfo::default().buffer(read_positions).range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default().buffer(write_positions).range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default().buffer(morton_codes).range(vk::WHOLE_SIZE),
-            vk::DescriptorBufferInfo::default().buffer(cell_starts).range(vk::WHOLE_SIZE),
-            vk::DescriptorBufferInfo::default().buffer(cell_ends).range(vk::WHOLE_SIZE),
+        ];
+        
+        let descriptor_image_infos = [
+            vk::DescriptorImageInfo::default()
+                .image_view(spatial_grid_buffers.grid_texture_view.vk_image_view())
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
         ];
 
         let descriptor_writes = [
-            // Assuming bindings [0-5) are contiguous in the set layout
             vk::WriteDescriptorSet::default()
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .buffer_info(&descriptor_buffer_infos[0..descriptor_buffer_infos.len()]),
+            vk::WriteDescriptorSet::default()
+                .dst_binding(descriptor_buffer_infos.len() as u32)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .image_info(&descriptor_image_infos),
         ];
 
         unsafe {
@@ -172,8 +176,27 @@ impl ConstraintSolverSystem {
             )
         ];
 
+        let range = vk::ImageSubresourceRange::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .level_count(1)
+            .layer_count(1);
+
+        // Barrier from SHADER_READ_ONLY_OPTIMAL to TRANSFER_DST_OPTIMAL layout
+        let image_barrier = [
+            vk::ImageMemoryBarrier2::default()
+                .image(spatial_grid.buffers().grid_texture.vk_image())
+                .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+                .dst_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+                .dst_stage_mask(vk::PipelineStageFlags2::CLEAR)
+                .subresource_range(range)
+        ];
+
         let dependency_info = vk::DependencyInfo::default()
-            .buffer_memory_barriers(&buffer_barriers);
+            .buffer_memory_barriers(&buffer_barriers)
+            .image_memory_barriers(&image_barrier);
 
         command_buffer.pipeline_barrier2(device, &dependency_info);
     }

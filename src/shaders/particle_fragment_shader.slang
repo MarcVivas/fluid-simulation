@@ -17,6 +17,8 @@ struct Camera {
 
 [[vk::binding(0, 0)]] ConstantBuffer<Camera> camera;
 
+static const float3 LIGHT_POS = float3(500, 700, 500);
+
 [shader("fragment")]
 FragmentOutput main(VertexOutput input) {
     FragmentOutput output;
@@ -41,10 +43,19 @@ FragmentOutput main(VertexOutput input) {
     const float3 normal = float3(normal_xy, normal_z);
 
     // Compute lightning
-    const float3 lightDir = normalize(float3(0.5, 0.5, 1.0));
+    // 1. Transform Light World Position to View Position
+    const float3 lightPosView = mul((float3x3)camera.view, normalize(LIGHT_POS));
+
+    // 2. Approximate fragment position in View Space
+    const float3 fragPosView = input.viewPos + float3(normal.xy * input.radius, normal.z * input.radius);
+
+    // 3. Calculate direction from Surface to Light
+    const float3 lightDir = normalize(lightPosView - fragPosView);
+
+    // 4. Calculate Diffuse
     const float diffuse = saturate(dot(normal, lightDir));
     const float3 baseColor = float3(0.0, 0.5, 1.0);
-    const float3 finalColor = baseColor * (0.2 + 0.8 * diffuse);
+    const float3 finalColor = baseColor * (0.2 + 0.85 * diffuse);
     output.color = float4(finalColor, 1.0);
 
     // Compute depth

@@ -45,6 +45,7 @@ pub fn create_instance(entry: &Entry, required_extensions: &[*const c_char]) -> 
     #[cfg(debug_assertions)]
     {
         extension_names.push(debug_utils::NAME.as_ptr());
+        extension_names.push(ash::ext::debug_report::NAME.as_ptr());
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -54,11 +55,23 @@ pub fn create_instance(entry: &Entry, required_extensions: &[*const c_char]) -> 
     }
 
 
-    let instance_create_info = vk::InstanceCreateInfo::default()
+    let mut instance_create_info = vk::InstanceCreateInfo::default()
         .application_info(&app_info)
         .enabled_layer_names(&layers_names_raw)
         .enabled_extension_names(&extension_names)
         .flags(create_flags);
+
+    // This is to enable printf in shaders
+    let enabled_validation_features = [
+        vk::ValidationFeatureEnableEXT::DEBUG_PRINTF,
+    ];
+
+    let mut validation_features = vk::ValidationFeaturesEXT::default()
+        .enabled_validation_features(&enabled_validation_features);
+    
+    if ENABLE_VALIDATION_LAYERS {
+        instance_create_info = instance_create_info.push_next(&mut validation_features);
+    }
 
     let instance: Instance = unsafe {
         entry.create_instance(&instance_create_info, None)

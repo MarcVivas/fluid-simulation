@@ -6,7 +6,7 @@ use crate::renderer::depth_image::DepthImage;
 use crate::renderer::surface::Surface;
 use crate::renderer::swapchain::Swapchain;
 use crate::vk_core::vk_core::VkCore;
-use crate::vk_utils::CommandBuffer;
+use crate::vk_utils::{CommandBuffer, ImageView, VkImage};
 
 pub struct WindowRenderTarget {
     vk_core: Arc<VkCore>,
@@ -132,7 +132,7 @@ impl WindowRenderTarget {
         &self.depth_image
     }
     
-    pub fn image_views(&self) -> &[vk::ImageView] {
+    pub fn image_views(&self) -> &[ImageView] {
         self.swapchain.swapchain_images_view()
     }
     

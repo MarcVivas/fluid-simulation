@@ -333,7 +333,7 @@ impl Renderer {
         let device = self.vk_core.device();
 
         // Access to the specific ImageView for this frame
-        let current_image_view = self.render_target.image_views()[image_index];
+        let current_image_view = self.render_target.image_views()[image_index].vk_image_view();
         // If you have a depth buffer, get its view too
         let depth_image_view = self.render_target.depth_image().image_view();
 

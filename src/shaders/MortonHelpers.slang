@@ -39,6 +39,14 @@ public func encode_morton_3d(float3 coord, float cell_size) -> uint
          | (expand_bits_3d(cell_coord.z) << 2);
 }
 
+/// Encodes 3D integer coordinates (max 1023 per axis) into a 30-bit Morton code.
+public func encode_cell_morton_3d(float3 cell_coord) -> uint
+{
+    return expand_bits_3d(cell_coord.x)
+         | (expand_bits_3d(cell_coord.y) << 1)
+         | (expand_bits_3d(cell_coord.z) << 2);
+}
+
 /// Decodes a 30-bit Morton code back into 3D integer coordinates.
 public func decode_morton_3d(uint code) -> uint3
 {

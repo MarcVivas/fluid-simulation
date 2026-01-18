@@ -32,6 +32,8 @@ pub struct SortingSystem {
 }
 
 struct SortingData {
+    keys_bit_count: u32, // The maximum bits the keys use,
+    num_passes: u32, // Number of passes to sort the keys
     num_keys: u32,
     histogram_buffer: VkBuffer,
     keys_b: VkBuffer,
@@ -41,8 +43,8 @@ struct SortingData {
 }
 
 impl SortingData {
-    pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, max_keys: u32) -> Result<Self, Box<dyn std::error::Error>> {
-
+    pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, max_keys: u32, keys_bit_count: Option<u32>) -> Result<Self, Box<dyn std::error::Error>> {
+        
         let histogram = vec![0u32; Self::calculate_histogram_len(max_keys) as usize];
         let keys_b = vec![0u32; max_keys as usize];
         let payload_b = vec![0u32; max_keys as usize];
@@ -60,7 +62,7 @@ impl SortingData {
                 name: "Histogram buffer",
                 requirements: vk::MemoryRequirements::default(),
                 location: MemoryLocation::GpuOnly,
-                linear: false,
+                linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged
             },
             command_pool,
@@ -78,7 +80,7 @@ impl SortingData {
                 name: "Keys b buffer",
                 requirements: vk::MemoryRequirements::default(),
                 location: MemoryLocation::GpuOnly,
-                linear: false,
+                linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged
             },
             command_pool,
@@ -95,7 +97,7 @@ impl SortingData {
                 name: "Payload b buffer",
                 requirements: vk::MemoryRequirements::default(),
                 location: MemoryLocation::GpuOnly,
-                linear: false,
+                linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged
             },
             command_pool,
@@ -113,7 +115,7 @@ impl SortingData {
                 name: "Reduce table buffer",
                 requirements: vk::MemoryRequirements::default(),
                 location: MemoryLocation::GpuOnly,
-                linear: false,
+                linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged
             },
             command_pool,
@@ -131,15 +133,20 @@ impl SortingData {
                 name: "Reduce table buffer",
                 requirements: vk::MemoryRequirements::default(),
                 location: MemoryLocation::GpuOnly,
-                linear: false,
+                linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged
             },
             command_pool,
             *vk_core.compute_queue()
         )?;
         
+        let keys_bit_count = keys_bit_count.unwrap_or(32);
+        let num_passes = Self::calculate_number_of_passes(keys_bit_count);
+        
         Ok(
-            Self{
+            Self {
+                keys_bit_count,
+                num_passes,
                 num_keys: max_keys,
                 histogram_buffer,
                 keys_b: keys_b_buffer,
@@ -149,6 +156,10 @@ impl SortingData {
             }  
         )
         
+    }
+    
+    fn calculate_number_of_passes(keys_bit_count: u32) -> u32 {
+        keys_bit_count / BITS_PER_PASS
     }
 
     pub fn calculate_histogram_len(num_keys: u32) -> u64 {
@@ -189,8 +200,8 @@ struct SortingPushConstants {
 }
 
 impl SortingSystem {
-    pub fn new(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool, max_keys: u32) -> Result<Self, Box<dyn std::error::Error>> {
-        let sorting_data = SortingData::new(vk_core, compute_command_pool.vk_cmd_pool(), max_keys)?;
+    pub fn new(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool, max_keys: u32, keys_bit_count: Option<u32>) -> Result<Self, Box<dyn std::error::Error>> {
+        let sorting_data = SortingData::new(vk_core, compute_command_pool.vk_cmd_pool(), max_keys, keys_bit_count)?;
 
         let parallel_sort_shader_module = ShaderModule::new(vk_core.clone(), "parallel_sort");
 
@@ -276,11 +287,11 @@ impl SortingSystem {
 
        
         
-        let counting_pass = Self::create_pass(vk_core, compute_command_pool, count_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let scan_pass = Self::create_pass(vk_core, compute_command_pool, scan_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let scatter_pass = Self::create_pass(vk_core, compute_command_pool, scatter_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let reduce_pass = Self::create_pass(vk_core, compute_command_pool, reduce_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let scan_add_pass = Self::create_pass(vk_core, compute_command_pool, scan_add_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
+        let counting_pass = Self::create_pass(vk_core, count_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
+        let scan_pass = Self::create_pass(vk_core, scan_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
+        let scatter_pass = Self::create_pass(vk_core, scatter_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
+        let reduce_pass = Self::create_pass(vk_core, reduce_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
+        let scan_add_pass = Self::create_pass(vk_core, scan_add_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
         
 
         Ok(
@@ -296,7 +307,7 @@ impl SortingSystem {
         )
     }
     
-    fn create_pass(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool, pipeline_info: vk::PipelineShaderStageCreateInfo, descriptor_set_layout_config: &[DescriptorSetLayoutConfig], push_constant_ranges: &[PushConstantRange]) -> VkResult<ComputePass> {
+    fn create_pass(vk_core: &Arc<VkCore>, pipeline_info: vk::PipelineShaderStageCreateInfo, descriptor_set_layout_config: &[DescriptorSetLayoutConfig], push_constant_ranges: &[PushConstantRange]) -> VkResult<ComputePass> {
         let pipeline_layout = PipelineLayout::new(
             vk_core.clone(),
             descriptor_set_layout_config,
@@ -326,8 +337,9 @@ impl SortingSystem {
     }
     
     pub fn sort(&self, vk_core: &Arc<VkCore>, keys: &VkBuffer, payload: &VkBuffer, command_buffer: &CommandBuffer) {
-        
-        for i in 0..NUM_PASSES {
+        let num_passes = self.sorting_data.num_passes;
+
+        for i in 0..num_passes {
             let shift = i * BITS_PER_PASS;
 
             let (src_keys, dst_keys, src_payload, dst_payload) = 

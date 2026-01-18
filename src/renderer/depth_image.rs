@@ -2,15 +2,13 @@ use std::sync::Arc;
 use ash::{vk};
 use ash::vk::{Extent2D};
 use gpu_allocator::MemoryLocation;
-use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme};
-use crate::vk_utils::{allocation};
+use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
+use crate::vk_utils::{ImageView, VkImage};
 use crate::vk_core::vk_core::VkCore;
 
 pub struct DepthImage {
-    vk_core: Arc<VkCore>,
-    image: vk::Image,
-    allocation: Option<Allocation>,
-    view: vk::ImageView,
+    image: VkImage,
+    view: ImageView,
 }
 
 
@@ -31,36 +29,20 @@ impl DepthImage {
             .usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
-
-        let depth_image = unsafe {
-            vk_core.device().create_image(&depth_image_create_info, None)
-        }.expect("failed to create depth image");
-
-        let depth_image_memory_requirements = unsafe {
-            vk_core.device().get_image_memory_requirements(depth_image.clone())
+        let allocation_desc = AllocationCreateDesc {
+            name: "Depth image",
+            requirements: vk::MemoryRequirements::default(),
+            location: MemoryLocation::GpuOnly,
+            linear: false,
+            allocation_scheme: AllocationScheme::GpuAllocatorManaged
         };
-
-
-        let allocation = allocation::allocate(
+        
+        let depth_image = VkImage::new(
             &vk_core,
-            &AllocationCreateDesc{
-                name: "Depth image",
-                requirements: depth_image_memory_requirements,
-                location: MemoryLocation::GpuOnly,
-                linear: false,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            }
-        ).expect("failed to allocate depth image memory");
+            &depth_image_create_info,
+            &allocation_desc
+        ).unwrap();
 
-        unsafe{
-            vk_core.device()
-                .bind_image_memory(
-                    depth_image.clone(),
-                    allocation.memory(),
-                    allocation.offset()
-                )
-                .expect("failed to bind depth image memory");
-        };
 
         let depth_image_view_info = vk::ImageViewCreateInfo::default()
             .subresource_range(
@@ -69,45 +51,27 @@ impl DepthImage {
                     .level_count(1)
                     .layer_count(1)
             )
-            .image(depth_image.clone())
+            .image(depth_image.vk_image().clone())
             .view_type(vk::ImageViewType::TYPE_2D)
             .format(depth_image_create_info.format);
-
-        let depth_image_view = unsafe {
-            vk_core.device().create_image_view(&depth_image_view_info, None)
-        }.expect("failed to create depth image view");
+        
+        let depth_image_view = ImageView::new(
+            vk_core.clone(),
+            &depth_image_view_info
+        ).unwrap();
 
         Self {
-            vk_core,
             view: depth_image_view,
             image: depth_image,
-            allocation: Some(allocation),
         }
     }
 
-
-    
     pub fn format(&self) -> vk::Format {
         FORMAT
     }
     
     pub fn image_view(&self) -> vk::ImageView {
-        self.view
+        self.view.vk_image_view()
     }
 
-}
-
-impl Drop for DepthImage {
-    fn drop(&mut self) {
-        let device = self.vk_core.device();
-        unsafe {
-            device.destroy_image_view(self.view, None);
-            device.destroy_image(self.image, None);
-        }
-
-        if let Some(allocation) = self.allocation.take() {
-            allocation::deallocate(&self.vk_core, allocation)
-                .expect("failed to deallocate depth image");
-        }
-    }
 }

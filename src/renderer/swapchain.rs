@@ -6,13 +6,14 @@ use ash::vk::{ComponentMapping, Extent2D};
 use crate::renderer::renderer::MAX_FRAME_LATENCY;
 use crate::vk_core::vk_core::VkCore;
 use crate::renderer::surface::Surface;
+use crate::vk_utils::{ImageView};
 
 pub struct Swapchain {
     vk_core: Arc<VkCore>,
     swapchain_loader: ash::khr::swapchain::Device,
     swapchain: vk::SwapchainKHR,
-    swapchain_images_view: Vec<vk::ImageView>,
-    swapchain_images: Vec<vk::Image>,
+    swapchain_images_view: Vec<ImageView>,
+    swapchain_images: Vec<vk::Image>, // Use raw handle here (exception) 
 }
 
 impl Swapchain {
@@ -93,12 +94,15 @@ impl Swapchain {
         let swapchain = unsafe {
             swapchain_loader.create_swapchain(&swapchain_create_info, None)
         }.expect("failed to create swapchain");
+        
+        
 
         let swapchain_images: Vec<vk::Image> = unsafe {
             swapchain_loader.get_swapchain_images(swapchain.clone())
         }.expect("failed to get swapchain images");
+        
 
-        let swapchain_images_view: Vec<vk::ImageView> = swapchain_images
+        let swapchain_images_view: Vec<ImageView> = swapchain_images
             .iter()
             .map(|image| {
                 let create_view_info = vk::ImageViewCreateInfo::default()
@@ -118,9 +122,8 @@ impl Swapchain {
                         layer_count: 1,
                     })
                     .image(*image);
-                unsafe {
-                    vk_core.device().create_image_view(&create_view_info, None)
-                }.expect("failed to create image view")
+                
+                ImageView::new(vk_core.clone(), &create_view_info).unwrap()
             }).collect();
 
         Self {
@@ -145,7 +148,7 @@ impl Swapchain {
 
 
 
-    pub fn swapchain_images_view(&self) -> &Vec<vk::ImageView> {
+    pub fn swapchain_images_view(&self) -> &Vec<ImageView> {
         &self.swapchain_images_view
     }
 
@@ -159,7 +162,7 @@ impl Swapchain {
         }
     }
     
-    pub fn images(&self) -> &Vec<vk::Image> {
+    pub fn images(&self) -> &[vk::Image] {
         &self.swapchain_images
     }
 
@@ -167,14 +170,6 @@ impl Swapchain {
 
 impl Drop for Swapchain {
     fn drop(&mut self) {
-        let device = self.vk_core.device();
-
-        for &image_view in &self.swapchain_images_view {
-            unsafe {
-                device.destroy_image_view(image_view, None);
-            }
-        }
-
         unsafe {
             self.swapchain_loader
                 .destroy_swapchain(self.swapchain, None);

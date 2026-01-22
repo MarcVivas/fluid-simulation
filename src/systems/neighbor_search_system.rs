@@ -3,28 +3,27 @@ use ash::vk;
 use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
 use crate::compute::ComputePass;
-use crate::resources::{Particles, SpatialGrid, EMPTY_CELL};
+use crate::resources::{Particles, SpatialGrid};
 use crate::vk_core::VkCore;
-use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule, compute_buffer_barrier, transfer_to_compute_barrier};
+use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
-pub struct GridConstructionSystem {
-    grid_construction_pass: ComputePass,
-    grid_construction_shader: ShaderModule,
+pub struct NeighborSearchSystem {
+    neighbor_search_pass: ComputePass,
+    neighbor_search_shader: ShaderModule,
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct GridConstructionPushConstants{
-    num_elements: u32,
+#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+pub struct NeighborSearchPushConstants {
+    num_elements: u32
 }
 
-
-impl GridConstructionSystem {
+impl NeighborSearchSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let grid_construction_shader = ShaderModule::new(vk_core.clone(), "grid_construction");
+        let neighbor_search_shader = ShaderModule::new(vk_core.clone(), "neighbor_search");
 
         let shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(grid_construction_shader.vk_shader_module())
+            .module(neighbor_search_shader.vk_shader_module())
             .name(c"main")
             .stage(vk::ShaderStageFlags::COMPUTE);
 
@@ -51,7 +50,7 @@ impl GridConstructionSystem {
         let push_constant_ranges = [vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::COMPUTE)
             .offset(0)
-            .size(size_of::<GridConstructionPushConstants>() as u32)];
+            .size(size_of::<NeighborSearchPushConstants>() as u32)];
 
 
         let pipeline_layout = PipelineLayout::new(
@@ -73,13 +72,13 @@ impl GridConstructionSystem {
             ).expect("Failed to create compute pipeline")[0]
         };
 
-        let grid_construction_pass = ComputePass::new(
+        let neighbor_search_pass = ComputePass::new(
             vk_core.clone(),
             pipeline,
             pipeline_layout,
         );
 
-        Ok(Self { grid_construction_pass, grid_construction_shader })
+        Ok(Self { neighbor_search_pass, neighbor_search_shader })
     }
 
     pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles) {
@@ -91,19 +90,16 @@ impl GridConstructionSystem {
         let particle_buffers = particles.buffers();
         let morton_codes = particle_buffers.morton_codes_buffer.vk_buffer();
 
-        let push_constants = GridConstructionPushConstants{
+        let push_constants = NeighborSearchPushConstants {
             num_elements,
         };
 
-        self.grid_construction_pass.bind(device, command_buffer.vk_cmd_buffer());
+        self.neighbor_search_pass.bind(device, command_buffer.vk_cmd_buffer());
 
-        // First, clear before building
-        Self::clear_grid_texture(device, command_buffer, spatial_grid_buffers.grid_texture.vk_image(), spatial_grid);
-        
         // Set the push constants
         command_buffer.push_constants(
             device,
-            self.grid_construction_pass.pipeline_layout().vk_pipeline_layout(),
+            self.neighbor_search_pass.pipeline_layout().vk_pipeline_layout(),
             vk::ShaderStageFlags::COMPUTE,
             0,
             bytemuck::bytes_of(&push_constants)
@@ -113,7 +109,7 @@ impl GridConstructionSystem {
         let descriptor_buffer_infos = [
             vk::DescriptorBufferInfo::default().buffer(morton_codes).range(vk::WHOLE_SIZE),
         ];
-        
+
         let descriptor_image_infos = [
             vk::DescriptorImageInfo::default()
                 .image_view(spatial_grid_buffers.grid_texture_view.vk_image_view())
@@ -134,29 +130,29 @@ impl GridConstructionSystem {
         unsafe {
             vk_core.push_descriptor().cmd_push_descriptor_set(
                 command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                self.grid_construction_pass.pipeline_layout().vk_pipeline_layout(),
+                self.neighbor_search_pass.pipeline_layout().vk_pipeline_layout(),
                 0,
                 &descriptor_writes
             );
         }
 
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
-        self.grid_construction_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-        
+        self.neighbor_search_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+
 
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)
             .layer_count(1);
-        
-        // Barrier from GENERAL to GENERAL layout
+
+        // Barrier from GENERAL to SHADER_READ_ONLY_OPTIMAL layout
         let image_barrier = [
             vk::ImageMemoryBarrier2::default()
                 .image(spatial_grid.buffers().grid_texture.vk_image())
                 .old_layout(vk::ImageLayout::GENERAL)
-                .new_layout(vk::ImageLayout::GENERAL)
-                .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
-                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)
+                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)
+                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
                 .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
                 .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
                 .subresource_range(range)
@@ -165,54 +161,11 @@ impl GridConstructionSystem {
 
         let dependency_info = vk::DependencyInfo::default()
             .image_memory_barriers(&image_barrier);
-        
-        command_buffer.pipeline_barrier2(device, &dependency_info);
-    }
-
-    fn clear_grid_texture(
-        device: &ash::Device,
-        command_buffer: &CommandBuffer,
-        image: vk::Image,
-        spatial_grid: &SpatialGrid,
-    ){
-        let range = vk::ImageSubresourceRange::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .level_count(1)
-            .layer_count(1);
-
-        let clear_color = vk::ClearColorValue {
-            uint32: [EMPTY_CELL, 0, 0, 0],
-        };
-
-        unsafe {
-            // NOTE: Image must be in TRANSFER_DST_OPTIMAL or GENERAL layout
-            device.cmd_clear_color_image(
-                command_buffer.vk_cmd_buffer(),
-                image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &clear_color,
-                &[range],
-            );
-        }
-
-        // Barrier from TRANSFER_DST_OPTIMAL to GENERAL layout
-        let image_barrier = [
-            vk::ImageMemoryBarrier2::default()
-                .image(spatial_grid.buffers().grid_texture.vk_image())
-                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .new_layout(vk::ImageLayout::GENERAL)
-                .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
-                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
-                .src_stage_mask(vk::PipelineStageFlags2::CLEAR)
-                .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                .subresource_range(range)
-        ];
-
-        let dependency_info = vk::DependencyInfo::default()
-            .image_memory_barriers(&image_barrier);
 
         command_buffer.pipeline_barrier2(device, &dependency_info);
     }
+    
 }
+
 
 

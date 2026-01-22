@@ -8,7 +8,7 @@ static const uint GROUP_SIZE = 64;
 [[vk::binding(0, 0)]] StructuredBuffer<float4> read_positions;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float4> write_positions;
 [[vk::binding(2, 0)]] StructuredBuffer<uint> morton_codes;
-[[vk::binding(3, 0)]] Texture3D<uint> grid;
+[[vk::binding(3, 0)]] SpatialGrid grid;
 
 struct ConstraintSolverPushConstants {
     uint num_elements;
@@ -16,6 +16,21 @@ struct ConstraintSolverPushConstants {
 };
 
 [[vk::push_constant]] ConstraintSolverPushConstants push_constants;
+
+
+static const int3 OFFSETS[27] = {
+    int3(-1,-1,-1), int3(0,-1,-1), int3(1,-1,-1),
+    int3(-1, 0,-1), int3(0, 0,-1), int3(1, 0,-1),
+    int3(-1, 1,-1), int3(0, 1,-1), int3(1, 1,-1),
+
+    int3(-1,-1, 0), int3(0,-1, 0), int3(1,-1, 0),
+    int3(-1, 0, 0), int3(0, 0, 0), int3(1, 0, 0),
+    int3(-1, 1, 0), int3(0, 1, 0), int3(1, 1, 0),
+
+    int3(-1,-1, 1), int3(0,-1, 1), int3(1,-1, 1),
+    int3(-1, 0, 1), int3(0, 0, 1), int3(1, 0, 1),
+    int3(-1, 1, 1), int3(0, 1, 1), int3(1, 1, 1),
+};
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, 1, 1)]
@@ -31,36 +46,33 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     const uint3 center_grid_cell = position_to_grid(pos, push_constants.cell_size);
 
+    uint neighbor_bits = grid.get_neighbor_bits(center_grid_cell);
+
     float3 total_displacement = float3(0, 0, 0);
 
-    // Solve constraints with the surrounding 27 cells
-    // For each x (Left, Center, Right)
-    for(int z = -1; z <= 1; z++){
-        // For each y (Down, Center, Up)
-        for(int y = -1; y <= 1; y++){
-            // For each z (Back, Center, Front)
-            for(int x = -1; x <= 1; x++){
-                const uint3 neighbor_cell = center_grid_cell + int3(x, y, z);
+    uint num_contacts = 0;
+    while(neighbor_bits != 0){
+        // Get the position of the first active bit
+        const uint bit = firstbitlow(neighbor_bits);
+        // Remove the bit from the neighbor bits
+        neighbor_bits = neighbor_bits & (neighbor_bits - 1);
 
-                // Get the cell start
-                const uint cell_start = grid.load_x(neighbor_cell);
-                const uint cell_end = grid.load_y(neighbor_cell);
+        const uint3 neighbor_cell = center_grid_cell + OFFSETS[bit];
 
-                // If the cell is empty continue
-                if(cell_start == EMPTY_KEY_VALUE){
-                    continue;
-                }
-
-                total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id);
-            }
-        }
+        // Get the cell start
+        const uint cell_start = grid.get_start_index(neighbor_cell);
+        const uint cell_end = grid.get_end_index(neighbor_cell);
+        total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id, num_contacts);
     }
 
+    if(global_id == 0){
+        printf("%u", num_contacts);
+    }
     write_positions[global_id] = float4(pos + total_displacement, radius);
 
 }
 
-float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id){
+float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id, inout uint num_contacts){
     float3 displacement = float3(0, 0, 0);
 
     for(uint i = begin; i < end; i++){
@@ -87,6 +99,9 @@ float3 solve_constraints(const uint begin, const uint end, const float3 pos, con
             // Optional: If you have different masses, weight = invMass / (invMass + otherInvMass)
 
             displacement += dir * (penetration * weight);
+
+            // Count the contact
+            num_contacts++;
         }
     }
 

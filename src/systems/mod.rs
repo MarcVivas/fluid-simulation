@@ -5,6 +5,7 @@ mod sorting_system;
 mod rearranging_system;
 mod grid_construction_system;
 mod constraint_solver_system;
+mod neighbor_search_system;
 
 pub use constraint_solver_system::*;
 
@@ -12,6 +13,7 @@ pub use grid_construction_system::*;
 
 
 pub use rearranging_system::*;
+pub use neighbor_search_system::*;
 
 pub use sorting_system::*;
 

@@ -14,13 +14,16 @@ pub struct SpatialGridBuffers {
     pub grid_texture_view: ImageView,
 }
 
+pub const EMPTY_CELL: u32 = 0xFFFFFFFF;
 
+// If you change this, you have to change it as well in the SpatialGrid.slang shader
+const NUM_VARIABLES_PER_CELL: u32 = 3;
 impl SpatialGridBuffers {
     pub fn new(vk_core: &Arc<VkCore>, grid_size: &UVec3) -> Result<Self, Box<dyn Error>>{
         
         let extent = vk::Extent3D {
-            // The width is multiplied by 2 because we need to store cell starts and ends in the same buffer
-            width: grid_size.x * 2,
+            // The width is multiplied by 3 because we need to store cell starts, ends and neighbors bits in the same buffer
+            width: grid_size.x * NUM_VARIABLES_PER_CELL,
             height: grid_size.y,
             depth: grid_size.z,
         };

@@ -6,6 +6,9 @@ mod rearranging_system;
 mod grid_construction_system;
 mod constraint_solver_system;
 mod neighbor_search_system;
+mod update_velocities_system;
+
+pub use update_velocities_system::*;
 
 pub use constraint_solver_system::*;
 

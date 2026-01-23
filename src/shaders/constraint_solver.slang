@@ -50,7 +50,6 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     float3 total_displacement = float3(0, 0, 0);
 
-    uint num_contacts = 0;
     while(neighbor_bits != 0){
         // Get the position of the first active bit
         const uint bit = firstbitlow(neighbor_bits);
@@ -62,17 +61,14 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
         // Get the cell start
         const uint cell_start = grid.get_start_index(neighbor_cell);
         const uint cell_end = grid.get_end_index(neighbor_cell);
-        total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id, num_contacts);
+        total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id);
     }
 
-    if(global_id == 0){
-        printf("%u", num_contacts);
-    }
     write_positions[global_id] = float4(pos + total_displacement, radius);
 
 }
 
-float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id, inout uint num_contacts){
+float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id){
     float3 displacement = float3(0, 0, 0);
 
     for(uint i = begin; i < end; i++){
@@ -99,9 +95,6 @@ float3 solve_constraints(const uint begin, const uint end, const float3 pos, con
             // Optional: If you have different masses, weight = invMass / (invMass + otherInvMass)
 
             displacement += dir * (penetration * weight);
-
-            // Count the contact
-            num_contacts++;
         }
     }
 

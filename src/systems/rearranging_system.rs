@@ -53,9 +53,21 @@ impl RearrangingSystem {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Object indices
+            // Src Velocities
             DescriptorSetLayoutBinding::default()
                 .binding(4)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            // Dst Velocities
+            DescriptorSetLayoutBinding::default()
+                .binding(5)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            // Object indices
+            DescriptorSetLayoutBinding::default()
+                .binding(6)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
@@ -105,12 +117,15 @@ impl RearrangingSystem {
         
         let (src_positions, dst_positions) = buffers.positions_buffer.read_write();
         let (src_previous_positions, dst_previous_positions) = buffers.previous_positions_buffer.read_write();
+        let (src_velocities, dst_velocities) = buffers.velocities.read_write();
         
         let descriptor_buffer_infos = [
             vk::DescriptorBufferInfo::default().buffer(src_positions.vk_buffer()).range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default().buffer(dst_positions.vk_buffer()).range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default().buffer(src_previous_positions.vk_buffer()).range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default().buffer(dst_previous_positions.vk_buffer()).range(vk::WHOLE_SIZE),
+            vk::DescriptorBufferInfo::default().buffer(src_velocities.vk_buffer()).range(vk::WHOLE_SIZE),
+            vk::DescriptorBufferInfo::default().buffer(dst_velocities.vk_buffer()).range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default().buffer(buffers.object_indices_buffer.vk_buffer()).range(vk::WHOLE_SIZE),
         ];
         
@@ -158,6 +173,11 @@ impl RearrangingSystem {
             ),
             compute_buffer_barrier(
                 buffers.previous_positions_buffer.next().vk_buffer(),
+                vk::AccessFlags2::SHADER_STORAGE_WRITE,
+                vk::AccessFlags2::SHADER_STORAGE_READ,
+            ),
+            compute_buffer_barrier(
+                buffers.velocities.next().vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             ),

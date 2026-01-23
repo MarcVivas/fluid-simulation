@@ -107,9 +107,6 @@ impl ConstraintSolverSystem {
         let (read_positions, write_positions) = (read_positions.vk_buffer(), write_positions.vk_buffer());
         
         
-        let grid_size = spatial_grid.grid_size();
-        
-        
         let push_constants = ConstraintSolverPushConstants {
             num_elements,
             cell_size: spatial_grid.cell_size(),

@@ -3,7 +3,7 @@ use ash::vk;
 use glam::{Vec3, Vec4};
 use crate::compute::ComputeCommandPool;
 use crate::resources::{Particles, SpatialGrid};
-use crate::systems::{ConstraintSolverSystem, GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, NeighborSearchSystem, RearrangingSystem, SortingSystem};
+use crate::systems::{ConstraintSolverSystem, GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, NeighborSearchSystem, RearrangingSystem, SortingSystem, UpdateVelocitiesSystem};
 use crate::vk_core::VkCore;
 use crate::compute::ComputeEngine;
 
@@ -15,7 +15,9 @@ pub struct PhysicsEngine {
     grid_construction_system: GridConstructionSystem,
     neighbor_search_system: NeighborSearchSystem,
     constraint_solver_system: ConstraintSolverSystem,
+    update_velocities_system: UpdateVelocitiesSystem,
     first_frame: bool,
+    
 }
 
 impl PhysicsEngine {
@@ -27,7 +29,8 @@ impl PhysicsEngine {
         let grid_construction_system = GridConstructionSystem::new(vk_core)?;
         let neighbor_search_system = NeighborSearchSystem::new(vk_core)?;
         let constraint_solver_system = ConstraintSolverSystem::new(vk_core)?;
-        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, constraint_solver_system, neighbor_search_system, first_frame: true })
+        let update_velocities_system = UpdateVelocitiesSystem::new(vk_core)?;
+        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, constraint_solver_system, neighbor_search_system, update_velocities_system, first_frame: true })
     }
     
     pub fn update(
@@ -91,6 +94,7 @@ impl PhysicsEngine {
                     );
                 }
                 let particle_data = particles.buffers();
+                self.integration_system.execute(vk_core, particles, delta_time, world_size, command_buffer);
                 self.morton_encoding_system.execute(vk_core, particle_data.morton_codes_buffer.len() as u32, cell_size, particle_data, command_buffer);
                 self.sorting_system.sort(vk_core, &particle_data.morton_codes_buffer, &particle_data.object_indices_buffer, command_buffer);
                 self.rearranging_system.execute(vk_core, particle_data, command_buffer);
@@ -99,7 +103,7 @@ impl PhysicsEngine {
                 self.neighbor_search_system.execute(vk_core, command_buffer, spatial_grid, particles);
                 self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles);
                 particles.buffers_mut().positions_buffer.swap();
-                self.integration_system.execute(vk_core, particles, delta_time, world_size, command_buffer);
+                self.update_velocities_system.execute(vk_core, particles, delta_time, command_buffer);
             }
         );
     }

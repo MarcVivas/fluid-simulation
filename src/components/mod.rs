@@ -1,4 +1,7 @@
-mod position_component;
-mod morton_code_component;
-pub use morton_code_component::*;
-pub use position_component::*;
+mod position;
+mod morton_code;
+mod velocity;
+
+pub use velocity::*;
+pub use morton_code::*;
+pub use position::*;

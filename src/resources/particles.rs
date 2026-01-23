@@ -4,7 +4,7 @@ use ash::vk;
 use ash::vk::{DescriptorSet};
 use glam::{Vec3};
 use rand::Rng;
-use crate::components::{MortonCodeComponent, PositionComponent};
+use crate::components::{MortonCode, Position, Velocity};
 use crate::renderer::Drawable;
 use crate::systems::ParticleDrawingSystem;
 use crate::renderer::renderer::Renderer;
@@ -25,6 +25,7 @@ pub struct Particles {
 pub struct ParticleData {
     pub positions_buffer: PingPong<VkBuffer>,
     pub previous_positions_buffer: PingPong<VkBuffer>,
+    pub velocities: PingPong<VkBuffer>,
     pub morton_codes_buffer: VkBuffer,
     pub object_indices_buffer: VkBuffer,
 }
@@ -33,6 +34,7 @@ impl ParticleData {
     pub fn swap(&mut self) {
         self.positions_buffer.swap();
         self.previous_positions_buffer.swap();
+        self.velocities.swap();
     }
 }
 
@@ -46,34 +48,33 @@ impl Particles {
         let mut random_number_generator = rand::rng(); 
         
         let mut max_radius :f32  = 0.0;
+
+        let mut positions: Vec<Position> = Vec::with_capacity(num_particles);
+        let mut previous_positions: Vec<Position> = Vec::with_capacity(num_particles);
+        let mut velocities: Vec<Velocity> = Vec::with_capacity(num_particles);
         
+        (0..num_particles).for_each(|_| {
+            
+            // Generate a random position
+            let x_pos = random_number_generator.random_range(0.0..world_dim.x);
+            let y_pos = random_number_generator.random_range(0.0..world_dim.y);
+            let z_pos = random_number_generator.random_range(0.0..world_dim.z);
+            let radius = random_number_generator.random_range(2..4) as f32;
+            max_radius = max_radius.max(radius);
+            let position = Position::new(x_pos, y_pos, z_pos, radius);
+            positions.push(position);
+            previous_positions.push(position);
+            
+            // Generate a random velocity
+            static MAX_VELOCITY: f32 = 5.0;
+            let x = random_number_generator.random_range(0.0..MAX_VELOCITY);
+            let y = random_number_generator.random_range(0.0..MAX_VELOCITY);
+            let z = random_number_generator.random_range(0.0..MAX_VELOCITY);
+            let velocity = Velocity::new(x, y, z, 0.0);
+            velocities.push(velocity);
+        });
         
-        let positions: Vec<PositionComponent> = (0..num_particles)
-            .map(|_|{
-                let x = random_number_generator.random_range(0.0..world_dim.x);
-                let y = random_number_generator.random_range(0.0..world_dim.y);
-                let z = random_number_generator.random_range(0.0..world_dim.z);
-                let radius = random_number_generator.random_range(2..4) as f32;
-                max_radius = max_radius.max(radius);
-                PositionComponent::new(x, y, z, radius)
-            })
-            .collect();
-        
-        
-        
-        let previous_positions: Vec<PositionComponent> = positions.iter().map(|p|
-            {
-                let max_velocity = 5.0;
-                let x = random_number_generator.random_range(0.0..max_velocity);
-                let y = random_number_generator.random_range(0.0..max_velocity);
-                let z = random_number_generator.random_range(0.0..max_velocity);
-                let velocity = PositionComponent::new(x, y, z, 0.0);
-                let previous_position = p - velocity * 1.0 / 60.0;
-                previous_position
-            }
-        ).collect();
-        
-        let morton_codes: Vec<MortonCodeComponent> = vec![0; positions.len()];
+        let morton_codes: Vec<MortonCode> = vec![0; positions.len()];
         let object_indices: Vec<u32> = vec![0; positions.len()];
         
         let particle_system_drawer = ParticleDrawingSystem::new(
@@ -87,6 +88,7 @@ impl Particles {
             *vk_core.graphics_queue(),
             &positions, 
             &previous_positions, 
+            &velocities,
             &morton_codes, 
             &object_indices
         )?;
@@ -126,9 +128,10 @@ fn create_particle_data(
     vk_core: &Arc<VkCore>,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
-    positions: &[PositionComponent],
-    previous_positions: &[PositionComponent],
-    morton_codes: &[MortonCodeComponent],
+    positions: &[Position],
+    previous_positions: &[Position],
+    velocities: &[Velocity],
+    morton_codes: &[MortonCode],
     object_indices: &[u32],
 ) -> Result<ParticleData, Box<dyn Error>> {
     let positions_buffer = create_ping_pong_buffer(
@@ -143,6 +146,14 @@ fn create_particle_data(
         vk_core,
         previous_positions,
         "Particle previous positions buffer",
+        command_pool,
+        queue
+    )?;
+    
+    let velocities = create_ping_pong_buffer(
+        vk_core,
+        velocities,
+        "Particle velocities buffer",
         command_pool,
         queue
     )?;
@@ -166,6 +177,7 @@ fn create_particle_data(
     let particle_system_buffers = ParticleData {
         positions_buffer,
         previous_positions_buffer,
+        velocities,
         morton_codes_buffer,
         object_indices_buffer,
     };

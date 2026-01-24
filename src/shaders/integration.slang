@@ -7,6 +7,7 @@
 struct IntegrationPushConstants {
     float3 world_size;
     float delta_time;
+    uint num_elements;
 };
 
 [[vk::push_constant]] IntegrationPushConstants push_constants;
@@ -17,10 +18,7 @@ static const float3 GRAVITY = float3(0.0, -9.8, 0.0);
 [numthreads(GROUP_SIZE, 1, 1)]
 void main(const uint global_id : SV_DispatchThreadID)
 {
-    uint num_elements, stride;
-    positions.GetDimensions(num_elements, stride);
-
-    if (global_id >= num_elements){
+    if (global_id >= push_constants.num_elements){
         // Out of bounds
         return;
     }

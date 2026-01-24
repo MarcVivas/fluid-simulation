@@ -4,7 +4,7 @@ use ash::vk;
 use ash::vk::{DescriptorSet};
 use glam::{Vec3};
 use rand::Rng;
-use crate::components::{MortonCode, Position, Velocity};
+use crate::components::{DensityConstraint, MortonCode, Position, Velocity};
 use crate::renderer::Drawable;
 use crate::systems::ParticleDrawingSystem;
 use crate::renderer::renderer::Renderer;
@@ -26,6 +26,7 @@ pub struct ParticleData {
     pub positions_buffer: PingPong<VkBuffer>,
     pub previous_positions_buffer: PingPong<VkBuffer>,
     pub velocities: PingPong<VkBuffer>,
+    pub density_constraints: VkBuffer,
     pub morton_codes_buffer: VkBuffer,
     pub object_indices_buffer: VkBuffer,
 }
@@ -52,6 +53,7 @@ impl Particles {
         let mut positions: Vec<Position> = Vec::with_capacity(num_particles);
         let mut previous_positions: Vec<Position> = Vec::with_capacity(num_particles);
         let mut velocities: Vec<Velocity> = Vec::with_capacity(num_particles);
+        let density_constraints: Vec<f32> = vec![0.0; num_particles];
         
         (0..num_particles).for_each(|_| {
             
@@ -89,6 +91,7 @@ impl Particles {
             &positions, 
             &previous_positions, 
             &velocities,
+            &density_constraints,
             &morton_codes, 
             &object_indices
         )?;
@@ -131,6 +134,7 @@ fn create_particle_data(
     positions: &[Position],
     previous_positions: &[Position],
     velocities: &[Velocity],
+    density_constraints: &[DensityConstraint],
     morton_codes: &[MortonCode],
     object_indices: &[u32],
 ) -> Result<ParticleData, Box<dyn Error>> {
@@ -157,6 +161,14 @@ fn create_particle_data(
         command_pool,
         queue
     )?;
+    
+    let density_constraints = create_gpu_only_buffer(
+        vk_core,
+        density_constraints,
+        "Particle density constraints buffer",
+        command_pool,
+        queue
+    )?;
 
     let morton_codes_buffer = create_gpu_only_buffer(
         vk_core,
@@ -178,6 +190,7 @@ fn create_particle_data(
         positions_buffer,
         previous_positions_buffer,
         velocities,
+        density_constraints,
         morton_codes_buffer,
         object_indices_buffer,
     };

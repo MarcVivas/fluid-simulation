@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use ash::vk;
-use glam::{Vec3, Vec4};
+use glam::{Vec3};
 use crate::compute::ComputeCommandPool;
 use crate::resources::{Particles, SpatialGrid};
 use crate::systems::{ConstraintSolverSystem, GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, NeighborSearchSystem, RearrangingSystem, SortingSystem, UpdateVelocitiesSystem};

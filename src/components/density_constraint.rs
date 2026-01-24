@@ -1,0 +1,1 @@
+pub type DensityConstraint = f32;

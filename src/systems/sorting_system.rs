@@ -5,7 +5,7 @@ use ash::vk::{DescriptorSetLayoutBinding, PushConstantRange};
 use bytemuck::{Pod, Zeroable};
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
-use crate::compute::{ComputeCommandPool, ComputePass};
+use crate::compute::{ComputeSystemBuilder, ComputeCommandPool, ComputePass};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 use crate::vk_utils::VkBuffer;
@@ -201,102 +201,39 @@ struct SortingPushConstants {
 
 impl SortingSystem {
     pub fn new(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool, max_keys: u32, keys_bit_count: Option<u32>) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut sorting_resources = ComputeSystemBuilder::new(vk_core.clone(), "parallel_sort")
+            .entry_points(&["count", "scan_reduce_table", "scatter", "reduce", "scan_add"])
+            .push_constants::<SortingPushConstants>()
+            // Read keys
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            // Write keys
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            // Read payload
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            // Write payload
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            // Scratch buffer for histogram
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            // Scratch buffer reduce table
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            // Scan scratch buffer
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            .build_with_multiple_passes()?;
+            
+        
         let sorting_data = SortingData::new(vk_core, compute_command_pool.vk_cmd_pool(), max_keys, keys_bit_count)?;
 
-        let parallel_sort_shader_module = ShaderModule::new(vk_core.clone(), "parallel_sort");
+        sorting_resources.compute_passes.reverse();
 
-        let count_shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(parallel_sort_shader_module.vk_shader_module())
-            .name(c"count")
-            .stage(vk::ShaderStageFlags::COMPUTE);
+        let counting_pass = sorting_resources.compute_passes.pop().unwrap();
+        let scan_pass = sorting_resources.compute_passes.pop().unwrap();
+        let scatter_pass = sorting_resources.compute_passes.pop().unwrap();
+        let reduce_pass = sorting_resources.compute_passes.pop().unwrap();
+        let scan_add_pass = sorting_resources.compute_passes.pop().unwrap();
         
-        let scan_shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(parallel_sort_shader_module.vk_shader_module())
-            .name(c"scan_reduce_table")
-            .stage(vk::ShaderStageFlags::COMPUTE);
-        
-        let scatter_shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(parallel_sort_shader_module.vk_shader_module())
-            .name(c"scatter")
-            .stage(vk::ShaderStageFlags::COMPUTE);
-        
-        let reduce_shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(parallel_sort_shader_module.vk_shader_module())
-            .name(c"reduce")
-            .stage(vk::ShaderStageFlags::COMPUTE);
-        
-        let scan_add_shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(parallel_sort_shader_module.vk_shader_module())
-            .name(c"scan_add")
-            .stage(vk::ShaderStageFlags::COMPUTE);
-        
-        let bindings = [
-            // Source key
-            DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Destination key
-            DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Source payload
-            DescriptorSetLayoutBinding::default()
-                .binding(2)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Destination payload
-            DescriptorSetLayoutBinding::default()
-                .binding(3)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Scratch buffer for histogram
-            DescriptorSetLayoutBinding::default()
-                .binding(4)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Scratch buffer reduce table
-            DescriptorSetLayoutBinding::default()
-                .binding(5)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-            // Scan scratch buffer
-            DescriptorSetLayoutBinding::default()
-                .binding(6)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-        ];
-
-        let descriptor_set_layout_config = [DescriptorSetLayoutConfig{
-            bindings: &bindings,
-            flags: Some(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
-        }];
-
-        let push_constant_ranges = [vk::PushConstantRange::default()
-            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-            .offset(0)
-            .size(size_of::<SortingPushConstants>() as u32)];
-
-       
-        
-        let counting_pass = Self::create_pass(vk_core, count_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let scan_pass = Self::create_pass(vk_core, scan_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let scatter_pass = Self::create_pass(vk_core, scatter_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let reduce_pass = Self::create_pass(vk_core, reduce_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        let scan_add_pass = Self::create_pass(vk_core, scan_add_shader_stage_create_infos, &descriptor_set_layout_config, &push_constant_ranges)?;
-        
-
         Ok(
             Self {
-                sorting_shader: parallel_sort_shader_module,
+                sorting_shader: sorting_resources.shader,
                 counting_pass,
                 scan_pass,
                 scatter_pass,
@@ -353,131 +290,83 @@ impl SortingSystem {
             // Calculate dispatch info
             let push_constants = get_dispatch_data(self.sorting_data.num_keys, shift);
             let push_constants_bytes = bytemuck::bytes_of(&push_constants);
-            
-            let descriptor_buffer_infos = [
-                vk::DescriptorBufferInfo::default().buffer(src_keys.vk_buffer()).range(vk::WHOLE_SIZE),
-                vk::DescriptorBufferInfo::default().buffer(dst_keys.vk_buffer()).range(vk::WHOLE_SIZE),
-                vk::DescriptorBufferInfo::default().buffer(src_payload.vk_buffer()).range(vk::WHOLE_SIZE),
-                vk::DescriptorBufferInfo::default().buffer(dst_payload.vk_buffer()).range(vk::WHOLE_SIZE),
-                vk::DescriptorBufferInfo::default().buffer(self.sorting_data.histogram_buffer.vk_buffer()).range(vk::WHOLE_SIZE),
-                vk::DescriptorBufferInfo::default().buffer(self.sorting_data.reduce_table.vk_buffer()).range(vk::WHOLE_SIZE),
-                vk::DescriptorBufferInfo::default().buffer(self.sorting_data.scan_scratch.vk_buffer()).range(vk::WHOLE_SIZE),
+            let buffers = [
+                src_keys.vk_buffer(),
+                dst_keys.vk_buffer(),
+                src_payload.vk_buffer(),
+                dst_payload.vk_buffer(),
+                self.sorting_data.histogram_buffer.vk_buffer(),
+                self.sorting_data.reduce_table.vk_buffer(),
+                self.sorting_data.scan_scratch.vk_buffer(),
             ];
-
-            let descriptor_writes = [
-                // Assuming bindings 0-6 are contiguous in the set layout
-                vk::WriteDescriptorSet::default()
-                    .dst_binding(0)
-                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(&descriptor_buffer_infos[0..descriptor_buffer_infos.len()]),
-            ];
-            
-            let device = vk_core.device();
             
             // Pass 1: Count bits. Generates the histogram of every block
             // 4 bits per pass -> 2^4=16 possible bins, binary numbers
-            self.counting_pass.bind(device, command_buffer.vk_cmd_buffer());
-            command_buffer.push_constants(
-                device,
-                self.counting_pass.pipeline_layout().vk_pipeline_layout(),
-                vk::ShaderStageFlags::COMPUTE,
-                0,
+            let thread_group_counts = [push_constants.num_thread_groups, 1, 1];
+            self.counting_pass.dispatch_compute(
+                vk_core,
+                command_buffer,
+                thread_group_counts,
+                &buffers,
+                &[],
                 push_constants_bytes
             );
-
-            // PUSH the descriptor directly
-            unsafe {
-                vk_core.push_descriptor().cmd_push_descriptor_set(
-                    command_buffer.vk_cmd_buffer(),
-                    vk::PipelineBindPoint::COMPUTE,
-                    self.counting_pass.pipeline_layout().vk_pipeline_layout(),
-                    0,
-                    &descriptor_writes,
-                );
-            }
-            
-            let thread_group_counts = [push_constants.num_thread_groups, 1, 1];
-            self.counting_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-            
             barrier_counting_pass(vk_core, command_buffer, self.sorting_data.histogram_buffer.vk_buffer());
 
 
             // Pass 2: Reduce. Group blocks together (e.g 8 blocks = 1 big block) and sum their histograms
             // This reads the large SumTable and creates a smaller "ReduceTable"
-            self.reduce_pass.bind(vk_core.device(), command_buffer.vk_cmd_buffer());
-
-            // Set push Constants 
-            command_buffer.push_constants(
-                device,
-                self.reduce_pass.pipeline_layout().vk_pipeline_layout(),
-                vk::ShaderStageFlags::COMPUTE,
-                0,
+            let thread_group_counts = [push_constants.num_scan_values, 1, 1];
+            self.reduce_pass.dispatch_compute(
+                vk_core,
+                command_buffer,
+                thread_group_counts,
+                &buffers,
+                &[],
                 push_constants_bytes
             );
-
-            // Set push Descriptors
-            unsafe {
-                vk_core.push_descriptor().cmd_push_descriptor_set(
-                    command_buffer.vk_cmd_buffer(),
-                    vk::PipelineBindPoint::COMPUTE,
-                    self.reduce_pass.pipeline_layout().vk_pipeline_layout(),
-                    0,
-                    &descriptor_writes,
-                );
-            }
-            
-            let thread_group_counts = [push_constants.num_scan_values, 1, 1];
-            self.reduce_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-
             barrier_reduce_pass(vk_core, command_buffer, &self.sorting_data);
             
             
             // Pass 3: Scan to know where each bin starts globally
             // Scans the ReduceTable.
-            self.scan_pass.bind(device, command_buffer.vk_cmd_buffer());
-
-            command_buffer.push_constants(device, self.scan_pass.pipeline_layout().vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
-            unsafe {
-                vk_core.push_descriptor().cmd_push_descriptor_set(
-                    command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                    self.scan_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
-                );
-            }
-            
             let thread_group_counts = [1, 1, 1];
-            self.scan_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-
+            self.scan_pass.dispatch_compute(
+                vk_core,
+                command_buffer,
+                thread_group_counts,
+                &buffers,
+                &[],
+                push_constants_bytes
+            );
             barrier_scan_pass(vk_core, command_buffer, &self.sorting_data);
             
             
             
             // Pass 4: Scan and add. Convert the big block offsets back to the smaller blocks
-            self.scan_add_pass.bind(device, command_buffer.vk_cmd_buffer());
-            command_buffer.push_constants(device, self.scan_add_pass.pipeline_layout().vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
-            unsafe {
-                vk_core.push_descriptor().cmd_push_descriptor_set(
-                    command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                    self.scan_add_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
-                );
-            }
             
             let thread_group_counts = [push_constants.num_scan_values, 1, 1];
-            self.scan_add_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
+            self.scan_add_pass.dispatch_compute(
+                vk_core,
+                command_buffer,
+                thread_group_counts,
+                &buffers,
+                &[],
+                push_constants_bytes
+            );
             barrier_scan_add_pass(vk_core, command_buffer, &self.sorting_data);
 
             
             // Pass 5: Scatter. Read the offsets from the scan and move the keys and payloads to the correct position.
-            self.scatter_pass.bind(device, command_buffer.vk_cmd_buffer());
-            
             let thread_group_counts = [push_constants.num_thread_groups, 1, 1];
-            self.scatter_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-            command_buffer.push_constants(device, self.scatter_pass.pipeline_layout().vk_pipeline_layout(), vk::ShaderStageFlags::COMPUTE, 0, push_constants_bytes);
-            unsafe {
-                vk_core.push_descriptor().cmd_push_descriptor_set(
-                    command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                    self.scatter_pass.pipeline_layout().vk_pipeline_layout(), 0, &descriptor_writes
-                );
-            }
+            self.scatter_pass.dispatch_compute(
+                vk_core,
+                command_buffer,
+                thread_group_counts,
+                &buffers,
+                &[],
+                push_constants_bytes
+            );
             barrier_scatter_pass(
                 vk_core, 
                 command_buffer, 

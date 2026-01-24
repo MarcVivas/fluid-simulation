@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
-use crate::compute::ComputePass;
+use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
 use crate::resources::{Particles, SpatialGrid};
 use crate::vk_core::VkCore;
 use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
@@ -14,69 +14,20 @@ pub struct NeighborSearchSystem {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod)]
-pub struct NeighborSearchPushConstants {
+struct NeighborSearchPushConstants {
     num_elements: u32
 }
 
 impl NeighborSearchSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let neighbor_search_shader = ShaderModule::new(vk_core.clone(), "neighbor_search");
-
-        let shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
-            .module(neighbor_search_shader.vk_shader_module())
-            .name(c"main")
-            .stage(vk::ShaderStageFlags::COMPUTE);
-
-        let bindings = [
+        let (neighbor_search_pass, neighbor_search_shader) = ComputeSystemBuilder::new(vk_core.clone(), "neighbor_search")
+            .entry_points(&["main"])
+            .push_constants::<NeighborSearchPushConstants>()
             // Morton codes
-            DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             // Grid texture
-            DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE),
-        ];
-
-        let descriptor_set_layout_config = [DescriptorSetLayoutConfig{
-            bindings: &bindings,
-            flags: Some(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
-        }];
-
-        let push_constant_ranges = [vk::PushConstantRange::default()
-            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-            .offset(0)
-            .size(size_of::<NeighborSearchPushConstants>() as u32)];
-
-
-        let pipeline_layout = PipelineLayout::new(
-            vk_core.clone(),
-            &descriptor_set_layout_config,
-            &push_constant_ranges
-        )?;
-
-
-        let pipeline_info = vk::ComputePipelineCreateInfo::default()
-            .stage(shader_stage_create_infos)
-            .layout(pipeline_layout.vk_pipeline_layout());
-
-        let pipeline = unsafe {
-            vk_core.device().create_compute_pipelines(
-                vk::PipelineCache::null(),
-                &[pipeline_info],
-                None
-            ).expect("Failed to create compute pipeline")[0]
-        };
-
-        let neighbor_search_pass = ComputePass::new(
-            vk_core.clone(),
-            pipeline,
-            pipeline_layout,
-        );
+            .add_buffer_binding(vk::DescriptorType::STORAGE_IMAGE)
+            .build_with_single_pass()?;
 
         Ok(Self { neighbor_search_pass, neighbor_search_shader })
     }
@@ -93,53 +44,26 @@ impl NeighborSearchSystem {
         let push_constants = NeighborSearchPushConstants {
             num_elements,
         };
-
-        self.neighbor_search_pass.bind(device, command_buffer.vk_cmd_buffer());
-
-        // Set the push constants
-        command_buffer.push_constants(
-            device,
-            self.neighbor_search_pass.pipeline_layout().vk_pipeline_layout(),
-            vk::ShaderStageFlags::COMPUTE,
-            0,
-            bytemuck::bytes_of(&push_constants)
-        );
-
-        // Push the descriptors
-        let descriptor_buffer_infos = [
-            vk::DescriptorBufferInfo::default().buffer(morton_codes).range(vk::WHOLE_SIZE),
+        
+        let buffers = [morton_codes];
+        let images = [
+            ImageDescriptor {
+                image_view: spatial_grid_buffers.grid_texture_view.vk_image_view(),
+                image_layout: vk::ImageLayout::GENERAL,
+                descriptor_type: vk::DescriptorType::STORAGE_IMAGE
+            }
         ];
-
-        let descriptor_image_infos = [
-            vk::DescriptorImageInfo::default()
-                .image_view(spatial_grid_buffers.grid_texture_view.vk_image_view())
-                .image_layout(vk::ImageLayout::GENERAL)
-        ];
-
-        let descriptor_writes = [
-            vk::WriteDescriptorSet::default()
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&descriptor_buffer_infos[0..descriptor_buffer_infos.len()]),
-            vk::WriteDescriptorSet::default()
-                .dst_binding(descriptor_buffer_infos.len() as u32)
-                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                .image_info(&descriptor_image_infos),
-        ];
-
-        unsafe {
-            vk_core.push_descriptor().cmd_push_descriptor_set(
-                command_buffer.vk_cmd_buffer(), vk::PipelineBindPoint::COMPUTE,
-                self.neighbor_search_pass.pipeline_layout().vk_pipeline_layout(),
-                0,
-                &descriptor_writes
-            );
-        }
 
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
-        self.neighbor_search_pass.dispatch(device, command_buffer.vk_cmd_buffer(), thread_group_counts);
-
-
+        self.neighbor_search_pass.dispatch_compute(
+            vk_core,
+            command_buffer,
+            thread_group_counts,
+            &buffers,
+            &images,
+            bytemuck::bytes_of(&push_constants)
+        );
+        
         let range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::COLOR)
             .level_count(1)

@@ -7,6 +7,7 @@ mod grid_construction_system;
 mod constraint_solver_system;
 mod neighbor_search_system;
 mod update_velocities_system;
+mod density_compute_system;
 
 pub use update_velocities_system::*;
 

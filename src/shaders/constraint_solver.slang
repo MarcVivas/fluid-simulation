@@ -1,36 +1,32 @@
 import HashMap;
 import MortonHelpers;
 import SpatialGrid;
+import SmoothedParticleHydrodynamics;
 
 static const uint GROUP_SIZE = 64;
 
 
 [[vk::binding(0, 0)]] StructuredBuffer<float4> read_positions;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float4> write_positions;
-[[vk::binding(2, 0)]] StructuredBuffer<uint> morton_codes;
-[[vk::binding(3, 0)]] SpatialGrid grid;
+[[vk::binding(2, 0)]] StructuredBuffer<float> densities;
+[[vk::binding(3, 0)]] StructuredBuffer<float> lambdas;
+[[vk::binding(4, 0)]] SpatialGrid grid;
 
 struct ConstraintSolverPushConstants {
     uint num_elements;
     float cell_size;
+    float rest_density;
+    float reversed_rest_density;
+    float poly6_constant;
+    float kernel_radius_2;
+    float spiky_constant;
+    float k;
+    float delta_q_squared;
+    uint n;
 };
 
 [[vk::push_constant]] ConstraintSolverPushConstants push_constants;
 
-
-static const int3 OFFSETS[27] = {
-    int3(-1,-1,-1), int3(0,-1,-1), int3(1,-1,-1),
-    int3(-1, 0,-1), int3(0, 0,-1), int3(1, 0,-1),
-    int3(-1, 1,-1), int3(0, 1,-1), int3(1, 1,-1),
-
-    int3(-1,-1, 0), int3(0,-1, 0), int3(1,-1, 0),
-    int3(-1, 0, 0), int3(0, 0, 0), int3(1, 0, 0),
-    int3(-1, 1, 0), int3(0, 1, 0), int3(1, 1, 0),
-
-    int3(-1,-1, 1), int3(0,-1, 1), int3(1,-1, 1),
-    int3(-1, 0, 1), int3(0, 0, 1), int3(1, 0, 1),
-    int3(-1, 1, 1), int3(0, 1, 1), int3(1, 1, 1),
-};
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, 1, 1)]
@@ -48,6 +44,15 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     uint neighbor_bits = grid.get_neighbor_bits(center_grid_cell);
 
+    const float lambda_i = lambdas[global_id];
+    const float rest_density = push_constants.rest_density;
+    const float k = push_constants.k;
+    const uint n = push_constants.n;
+
+    // Pre-compute W(Δq, h) once
+    const float delta_q_sq = push_constants.delta_q_squared;
+    const float w_delta_q = poly6_kernel(push_constants.poly6_constant, delta_q_sq, push_constants.kernel_radius_2);
+
     float3 total_displacement = float3(0, 0, 0);
 
     while(neighbor_bits != 0){
@@ -56,20 +61,54 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
         // Remove the bit from the neighbor bits
         neighbor_bits = neighbor_bits & (neighbor_bits - 1);
 
-        const uint3 neighbor_cell = center_grid_cell + OFFSETS[bit];
+        const uint3 neighbor_cell = center_grid_cell + CELL_OFFSETS[bit];
 
         // Get the cell start
         const uint cell_start = grid.get_start_index(neighbor_cell);
         const uint cell_end = grid.get_end_index(neighbor_cell);
-        total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id);
+
+
+        for(uint j = cell_start; j < cell_end; j++){
+            const float4 neighbor_j = read_positions[j];
+            const float3 vec = pos - neighbor_j.xyz;
+            const float dist_squared = dot(vec, vec);
+            
+            // Compute W(r_ij, h)
+            const float w_r = poly6_kernel(push_constants.poly6_constant, dist_squared, push_constants.kernel_radius_2);
+
+            // Compute s_corr (Equation 13)
+            const float s_corr = -k * pow(w_r / w_delta_q, n);
+            
+            // Compute lambda sum
+            const float lambda_j = lambdas[j];
+            const float lambda_sum = lambda_i + lambda_j + s_corr;
+
+            const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
+
+            float neighbor_radius = neighbor_j.w;
+            float neighbor_mass = push_constants.rest_density * 91.125;
+            total_displacement += lambda_sum * gradient_vec * neighbor_mass;
+        }
+
+        //total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id);
     }
 
-    write_positions[global_id] = float4(pos + total_displacement, radius);
+
+    total_displacement *= push_constants.reversed_rest_density;
+
+    float3 new_pos = pos+total_displacement;
+
+    if(global_id<5){
+        printf("Delta p: %f", length(total_displacement));
+    }
+
+    write_positions[global_id] = float4(new_pos, radius);
 
 }
 
 float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id){
     float3 displacement = float3(0, 0, 0);
+
 
     for(uint i = begin; i < end; i++){
 

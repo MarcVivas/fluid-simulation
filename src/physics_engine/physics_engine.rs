@@ -3,34 +3,48 @@ use ash::vk;
 use glam::{Vec3};
 use crate::compute::ComputeCommandPool;
 use crate::resources::{Particles, SpatialGrid};
-use crate::systems::{ConstraintSolverSystem, GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, NeighborSearchSystem, RearrangingSystem, SortingSystem, UpdateVelocitiesSystem};
+use crate::systems::{ConstraintSolverSystem, DensityComputeSystem, GridConstructionSystem, IntegrationSystem, MortonEncodingSystem, NeighborSearchSystem, RearrangingSystem, SortingSystem, UpdateVelocitiesSystem, VelocityRefiningSystem, VorticityForceComputeSystem};
 use crate::vk_core::VkCore;
 use crate::compute::ComputeEngine;
+use crate::physics_engine::PhysicsConfig;
 
 pub struct PhysicsEngine {
+    physics_config: PhysicsConfig,
     morton_encoding_system: MortonEncodingSystem,
     sorting_system: SortingSystem,
     integration_system: IntegrationSystem,
     rearranging_system: RearrangingSystem,
     grid_construction_system: GridConstructionSystem,
     neighbor_search_system: NeighborSearchSystem,
+    density_compute_system: DensityComputeSystem,
     constraint_solver_system: ConstraintSolverSystem,
     update_velocities_system: UpdateVelocitiesSystem,
+    velocity_refining_system: VelocityRefiningSystem,
+    vorticity_force_compute_system: VorticityForceComputeSystem,
     first_frame: bool,
     
 }
 
 impl PhysicsEngine {
-    pub fn new(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool, max_objects: u32, max_morton_bits: Option<u32>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VkCore>, compute_command_pool: &ComputeCommandPool, particles: &Particles, spatial_grid: &SpatialGrid) -> Result<Self, Box<dyn std::error::Error>> {
+        let max_objects: u32 = particles.len() as u32;
+        let max_morton_bits = Some(spatial_grid.num_bits_needed_for_morton_codes());
         let morton_encoding_system = MortonEncodingSystem::new(vk_core)?;
         let integration_system = IntegrationSystem::new(vk_core)?;
         let sorting_system = SortingSystem::new(vk_core, compute_command_pool, max_objects, max_morton_bits)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
         let grid_construction_system = GridConstructionSystem::new(vk_core)?;
         let neighbor_search_system = NeighborSearchSystem::new(vk_core)?;
+        let density_compute_system = DensityComputeSystem::new(vk_core)?;
         let constraint_solver_system = ConstraintSolverSystem::new(vk_core)?;
         let update_velocities_system = UpdateVelocitiesSystem::new(vk_core)?;
-        Ok(Self { integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, constraint_solver_system, neighbor_search_system, update_velocities_system, first_frame: true })
+        let velocity_refining_system = VelocityRefiningSystem::new(vk_core)?;
+        let vorticity_force_compute_system = VorticityForceComputeSystem::new(vk_core)?;
+        
+        let physics_config = PhysicsConfig::new(
+            spatial_grid.cell_size(),
+        );
+        Ok(Self { physics_config, integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, constraint_solver_system, neighbor_search_system, update_velocities_system, density_compute_system, velocity_refining_system, vorticity_force_compute_system, first_frame: true })
     }
     
     pub fn update(
@@ -38,12 +52,12 @@ impl PhysicsEngine {
         vk_core: &Arc<VkCore>, 
         compute_engine: &ComputeEngine, 
         particles: &mut Particles, 
-        delta_time: f32, 
         world_size: &Vec3, 
         spatial_grid: &SpatialGrid
     ){
         
         let cell_size = spatial_grid.cell_size();
+        let delta_time = self.physics_config.time_step;
         
         compute_engine.execute(
             &[],
@@ -62,8 +76,8 @@ impl PhysicsEngine {
 
                     command_buffer.pipeline_barrier2(
                         vk_core.device(), 
-                        &vk::DependencyInfo::default()
-                            .buffer_memory_barriers(&acquire_from_graphics)
+                        &acquire_from_graphics,
+                        &[]
                     );
 
                 }
@@ -89,8 +103,8 @@ impl PhysicsEngine {
                     ];
                     command_buffer.pipeline_barrier2(
                         vk_core.device(),
-                        &vk::DependencyInfo::default()
-                            .image_memory_barriers(&image_barrier),
+                        &[],
+                        &image_barrier
                     );
                 }
                 let particle_data = particles.buffers();
@@ -101,9 +115,16 @@ impl PhysicsEngine {
                 particles.buffers_mut().swap();
                 self.grid_construction_system.execute(vk_core, command_buffer, spatial_grid, particles);
                 self.neighbor_search_system.execute(vk_core, command_buffer, spatial_grid, particles);
-                self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles);
-                particles.buffers_mut().positions_buffer.swap();
-                self.update_velocities_system.execute(vk_core, particles, delta_time, command_buffer);
+                for _ in 0..self.physics_config.solver_iterations {
+                    self.density_compute_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config);
+                    self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config);
+                    particles.buffers_mut().positions_buffer.swap();
+                }
+
+                self.update_velocities_system.execute(vk_core, command_buffer, particles, delta_time);
+                self.velocity_refining_system.execute(vk_core, command_buffer, particles, spatial_grid, &self.physics_config);
+                particles.buffers_mut().velocities.swap();
+                self.vorticity_force_compute_system.execute(vk_core, command_buffer, particles, spatial_grid, &self.physics_config);
             }
         );
     }

@@ -1,1 +1,1 @@
-pub type DensityConstraint = f32;
+pub type FluidLambda = f32;

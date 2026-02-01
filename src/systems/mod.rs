@@ -8,7 +8,11 @@ mod constraint_solver_system;
 mod neighbor_search_system;
 mod update_velocities_system;
 mod density_compute_system;
-
+mod velocity_refining_system;
+mod vorticity_force_compute_system;
+pub use vorticity_force_compute_system::*;
+pub use velocity_refining_system::*;
+pub use density_compute_system::*;
 pub use update_velocities_system::*;
 
 pub use constraint_solver_system::*;

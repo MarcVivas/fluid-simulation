@@ -1,4 +1,5 @@
 module MortonHelpers;
+import SpatialGrid;
 
 // We can only use 10 bits per axis because 3 * 10 = 30 bits < 32 bits.
 // Range of coordinates: [0, 1023]
@@ -47,22 +48,6 @@ public func decode_morton_3d(uint code) -> uint3
         compact_bits_3d(code >> 1),
         compact_bits_3d(code >> 2)
     );
-}
-
-
-// 2^10 - 1
-// 10 bits per morton code
-static const uint MAX_COORD = 1023;
-
-// Helper to convert World Position float3 -> Grid Coordinate uint3
-public uint3 position_to_grid(float3 pos, float cell_size)
-{
-    uint3 grid_pos = (uint3) floor(pos / cell_size);
-
-    // Valid coordinates [1, 1022]
-    grid_pos = clamp(grid_pos, 1, MAX_COORD - 1);
-
-    return (uint3)floor(pos/cell_size);
 }
 
 

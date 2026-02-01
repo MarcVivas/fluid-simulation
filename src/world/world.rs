@@ -18,7 +18,7 @@ pub struct World{
     spatial_grid: SpatialGrid
 }
 
-const NUM_PARTICLES: u32 = 3000000; //8193;
+const NUM_PARTICLES: u32 = 100000; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: &Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
@@ -31,10 +31,7 @@ impl World{
         ).expect("Failed to create particle system");
         
         let spatial_grid = SpatialGrid::new(vk_core, compute_command_pool.vk_cmd_pool(), particle_system.max_radius(), size);
-
-        let max_morton_bits = Some(spatial_grid.num_bits_needed_for_morton_codes());
-        
-        let physics_engine = PhysicsEngine::new(vk_core, compute_command_pool, NUM_PARTICLES, max_morton_bits).unwrap();
+        let physics_engine = PhysicsEngine::new(vk_core, compute_command_pool, &particle_system, &spatial_grid).unwrap();
         
         Self {
             particle_system,
@@ -55,7 +52,6 @@ impl World{
             vk_core, 
             compute_engine, 
             &mut self.particle_system, 
-            delta_time, 
             &world_size, 
             &self.spatial_grid
         );

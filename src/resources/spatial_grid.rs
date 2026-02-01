@@ -100,7 +100,7 @@ impl SpatialGrid {
     }
     
     fn compute_cell_size(max_radius: f32) -> f32{
-        max_radius * 2.2
+        max_radius * 2.0
     }
     
     pub fn cell_size(&self) -> f32{

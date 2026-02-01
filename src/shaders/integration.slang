@@ -33,15 +33,12 @@ void main(const uint global_id : SV_DispatchThreadID)
     previous_positions[global_id] = particle_data;
 
     // Compute external forces
-    // This is formula to compute the volume of a sphere
-    const float mass = (4.0/3.0) * 3.14159 * radius * radius * radius;
-    const float3 gravitational_force = GRAVITY * mass;
-    const float3 external_forces = gravitational_force;
+    const float3 external_forces = GRAVITY;
 
     const float dt = push_constants.delta_time;
 
     // Apply external forces to velocity
-    float3 acceleration = external_forces / mass;
+    float3 acceleration = external_forces;
     velocity += dt * acceleration;
 
     // Compute the new position

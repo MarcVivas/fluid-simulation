@@ -55,7 +55,12 @@ impl CommandBuffer {
         }
     }
     
-    pub fn pipeline_barrier2(&self, device: &ash::Device, dependency_info: &vk::DependencyInfoKHR) {
+    pub fn pipeline_barrier2(&self, device: &ash::Device, buffer_barriers: &[vk::BufferMemoryBarrier2], image_barriers: &[vk::ImageMemoryBarrier2]) {
+
+        let dependency_info = vk::DependencyInfo::default()
+            .buffer_memory_barriers(buffer_barriers)
+            .image_memory_barriers(image_barriers);
+        
         unsafe{
             device.cmd_pipeline_barrier2(self.cmd_buffer, &dependency_info);
         }

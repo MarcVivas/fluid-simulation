@@ -81,12 +81,7 @@ impl NeighborSearchSystem {
                 .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
                 .subresource_range(range)
         ];
-
-
-        let dependency_info = vk::DependencyInfo::default()
-            .image_memory_barriers(&image_barrier);
-
-        command_buffer.pipeline_barrier2(device, &dependency_info);
+        command_buffer.pipeline_barrier2(device, &[], &image_barrier);
     }
     
 }

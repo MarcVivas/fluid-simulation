@@ -167,11 +167,8 @@ impl WindowRenderTarget {
                 base_array_layer: 0,
                 layer_count: 1,
             })];
-        
-        let dependency_info = vk::DependencyInfo::default()
-            .image_memory_barriers(&image_barrier);
-        
-        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &dependency_info);
+
+        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &[], &image_barrier);
     }
 }
 

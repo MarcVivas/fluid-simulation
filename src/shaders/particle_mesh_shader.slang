@@ -12,6 +12,7 @@ struct Camera {
 
 // Set 1
 [[vk::binding(0, 1)]] StructuredBuffer<float4> positions;
+[[vk::binding(1, 1)]] StructuredBuffer<float> densities;
 
 // Must match the Task Shader struct
 struct MeshPayload {
@@ -24,6 +25,7 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
     float3 viewPos : TEXCOORD1;
     nointerpolation float radius : PSIZE;
+    nointerpolation float density : TEXCOORD3;
 };
 
 static const float2 quadVertices[VERTICES_PER_PARTICLE] = {
@@ -72,6 +74,8 @@ void main(
     const float radius = particle_data.w;
     const float diameter = radius * 2.0;
 
+    const float particle_density = densities[particle_index];
+
     // Convert particle position to view space
     float4 centerView = mul(camera.view, float4(particle_position, 1.0));
 
@@ -97,6 +101,7 @@ void main(
         output.uv = quadVertex;
         output.radius = radius;
         output.viewPos = vertexPos;
+        output.density = particle_density;
 
         vertices[verticesBaseIndex + i] = output;
     }

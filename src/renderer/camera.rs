@@ -21,7 +21,7 @@ pub struct Camera {
     pub distance: f32,
     camera_controller: CameraController,
     camera_uniform: CameraUniform,
-    camera_buffers: Vec<VkBuffer>,
+    camera_buffers: Vec<VkBuffer<CameraUniform>>,
     aspect_ratio: f32,
 }
 
@@ -195,7 +195,7 @@ impl Camera {
         (view, correction * projection)
     }
     pub fn get_uniform(&self) -> &CameraUniform { &self.camera_uniform }
-    pub fn buffer(&self, frame_index: usize) -> &VkBuffer { &self.camera_buffers[frame_index] }
+    pub fn buffer(&self, frame_index: usize) -> &VkBuffer<CameraUniform> { &self.camera_buffers[frame_index] }
 }
 
 #[repr(C)]

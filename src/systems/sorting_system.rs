@@ -1,13 +1,10 @@
 use std::sync::Arc;
-use ash::prelude::VkResult;
 use ash::vk;
-use ash::vk::{DescriptorSetLayoutBinding, PushConstantRange};
 use bytemuck::{Pod, Zeroable};
-use gpu_allocator::MemoryLocation;
-use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
+use crate::components::MortonCode;
 use crate::compute::{ComputeSystemBuilder, ComputeCommandPool, ComputePass};
 use crate::vk_core::VkCore;
-use crate::vk_utils::{CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vk_utils::{CommandBuffer, ShaderModule};
 use crate::vk_utils::VkBuffer;
 use crate::vk_utils::compute_buffer_barrier;
 
@@ -15,8 +12,6 @@ const BITS_PER_PASS: u32 = 4;
 const BIN_COUNT: u32 = 1 << BITS_PER_PASS;
 const ELEMENTS_PER_THREAD: u32 = 4;
 const THREADS_PER_GROUP: u32 = 128;
-const NUM_PASSES: u32 = 32 / BITS_PER_PASS; // 8 passes
-
 const BLOCK_SIZE: u32 = THREADS_PER_GROUP * ELEMENTS_PER_THREAD;
 
 const MAX_THREAD_GROUPS: u32 = 800;
@@ -27,117 +22,54 @@ pub struct SortingSystem {
     scatter_pass: ComputePass,
     reduce_pass: ComputePass,
     scan_add_pass: ComputePass,
+    #[allow(unused)]
     sorting_shader: ShaderModule,
     sorting_data: SortingData
 }
 
 struct SortingData {
+    #[allow(unused)]
     keys_bit_count: u32, // The maximum bits the keys use,
     num_passes: u32, // Number of passes to sort the keys
     num_keys: u32,
-    histogram_buffer: VkBuffer,
-    keys_b: VkBuffer,
-    payload_b: VkBuffer,
-    reduce_table: VkBuffer,
-    scan_scratch: VkBuffer,
+    histogram_buffer: VkBuffer<u32>,
+    keys_b: VkBuffer<MortonCode>,
+    payload_b: VkBuffer<u32>,
+    reduce_table: VkBuffer<u32>,
+    scan_scratch: VkBuffer<u32>,
 }
 
 impl SortingData {
     pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, max_keys: u32, keys_bit_count: Option<u32>) -> Result<Self, Box<dyn std::error::Error>> {
         
-        let histogram = vec![0u32; Self::calculate_histogram_len(max_keys) as usize];
-        let keys_b = vec![0u32; max_keys as usize];
-        let payload_b = vec![0u32; max_keys as usize];
-        let reduce_table = vec![0u32; Self::calculate_reduce_table_len(max_keys) as usize];
-        let scan_scratch = vec![0u32; Self::calculate_scan_scratch_len(max_keys) as usize];
-        
-        let histogram_buffer = VkBuffer::new(
+        let histogram_buffer = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
-            &histogram,
-            vk::BufferCreateInfo::default()
-                .size((size_of::<u32>() * histogram.len()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE),
-            AllocationCreateDesc{
-                name: "Histogram buffer",
-                requirements: vk::MemoryRequirements::default(),
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            },
-            command_pool,
-            *vk_core.compute_queue()
+            Self::calculate_histogram_len(max_keys) as usize,
+            "Histogram buffer",
         )?;
         
-        let keys_b_buffer = VkBuffer::new(
+        let keys_b_buffer = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
-            &keys_b,
-            vk::BufferCreateInfo::default()
-                .size((size_of::<u32>() * keys_b.len()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE),
-            AllocationCreateDesc{
-                name: "Keys b buffer",
-                requirements: vk::MemoryRequirements::default(),
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            },
-            command_pool,
-            *vk_core.compute_queue()
-        )?;
-        let payload_b_buffer = VkBuffer::new(
-            vk_core,
-            &payload_b,
-            vk::BufferCreateInfo::default()
-                .size((size_of::<u32>() * payload_b.len()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE),
-            AllocationCreateDesc{
-                name: "Payload b buffer",
-                requirements: vk::MemoryRequirements::default(),
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            },
-            command_pool,
-            *vk_core.compute_queue()
+            max_keys as usize,
+            "Keys b buffer",
         )?;
         
-        let reduce_table_buffer = VkBuffer::new(
+        let payload_b_buffer = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
-            &reduce_table,
-            vk::BufferCreateInfo::default()
-                .size((size_of::<u32>() * reduce_table.len()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE),
-            AllocationCreateDesc{
-                name: "Reduce table buffer",
-                requirements: vk::MemoryRequirements::default(),
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            },
-            command_pool,
-            *vk_core.compute_queue()
+            max_keys as usize,
+            "Payload b buffer",
         )?;
-
-        let scan_scratch_buffer = VkBuffer::new(
+        
+        let reduce_table_buffer = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
-            &scan_scratch,
-            vk::BufferCreateInfo::default()
-                .size((size_of::<u32>() * scan_scratch.len()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE),
-            AllocationCreateDesc{
-                name: "Reduce table buffer",
-                requirements: vk::MemoryRequirements::default(),
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            },
-            command_pool,
-            *vk_core.compute_queue()
+            Self::calculate_reduce_table_len(max_keys) as usize,
+            "Reduce table buffer",
+        )?;
+        
+        let scan_scratch_buffer = VkBuffer::new_gpu_only_uninitialized(
+            vk_core,
+            Self::calculate_scan_scratch_len(max_keys) as usize,
+            "Scan scratch buffer",
         )?;
         
         let keys_bit_count = keys_bit_count.unwrap_or(32);
@@ -244,41 +176,13 @@ impl SortingSystem {
         )
     }
     
-    fn create_pass(vk_core: &Arc<VkCore>, pipeline_info: vk::PipelineShaderStageCreateInfo, descriptor_set_layout_config: &[DescriptorSetLayoutConfig], push_constant_ranges: &[PushConstantRange]) -> VkResult<ComputePass> {
-        let pipeline_layout = PipelineLayout::new(
-            vk_core.clone(),
-            descriptor_set_layout_config,
-            push_constant_ranges
-        )?;
-        
-        let compute_pipeline_info = vk::ComputePipelineCreateInfo::default()
-            .stage(pipeline_info)
-            .layout(pipeline_layout.vk_pipeline_layout());
-        
-        let count_pipeline = unsafe {
-            vk_core.device().create_compute_pipelines(
-                vk::PipelineCache::null(),
-                &[compute_pipeline_info],
-                None
-            ).expect("Failed to create compute pipeline")[0]
-        };
-
-        let compute_pass = ComputePass::new(
-            vk_core.clone(),
-            count_pipeline,
-            pipeline_layout,
-        );
-        
-        Ok(compute_pass)
-        
-    }
-    
-    pub fn sort(&self, vk_core: &Arc<VkCore>, keys: &VkBuffer, payload: &VkBuffer, command_buffer: &CommandBuffer) {
+    pub fn sort(&self, vk_core: &Arc<VkCore>, keys: &VkBuffer<MortonCode>, payload: &VkBuffer<u32>, command_buffer: &CommandBuffer) {
         let num_passes = self.sorting_data.num_passes;
 
         for i in 0..num_passes {
             let shift = i * BITS_PER_PASS;
-
+            
+            // Swap the buffers in every pass
             let (src_keys, dst_keys, src_payload, dst_payload) = 
                 if i % 2 == 0 {
                     (keys, &self.sorting_data.keys_b, payload, &self.sorting_data.payload_b)
@@ -314,7 +218,7 @@ impl SortingSystem {
             barrier_counting_pass(vk_core, command_buffer, self.sorting_data.histogram_buffer.vk_buffer());
 
 
-            // Pass 2: Reduce. Group blocks together (e.g 8 blocks = 1 big block) and sum their histograms
+            // Pass 2: Reduce. Group blocks together (e.g., 8 blocks = 1 big block) and sum their histograms
             // This reads the large SumTable and creates a smaller "ReduceTable"
             let thread_group_counts = [push_constants.num_scan_values, 1, 1];
             self.reduce_pass.dispatch_compute(
@@ -341,10 +245,7 @@ impl SortingSystem {
             );
             barrier_scan_pass(vk_core, command_buffer, &self.sorting_data);
             
-            
-            
             // Pass 4: Scan and add. Convert the big block offsets back to the smaller blocks
-            
             let thread_group_counts = [push_constants.num_scan_values, 1, 1];
             self.scan_add_pass.dispatch_compute(
                 vk_core,
@@ -367,14 +268,8 @@ impl SortingSystem {
                 &[],
                 push_constants_bytes
             );
-            barrier_scatter_pass(
-                vk_core, 
-                command_buffer, 
-                &self.sorting_data,
-                dst_keys.vk_buffer(), 
-                dst_payload.vk_buffer()
-            );
             
+            barrier_scatter_pass(vk_core, command_buffer, &self.sorting_data, dst_keys.vk_buffer(), dst_payload.vk_buffer());
         }
     }
 }
@@ -428,9 +323,7 @@ fn barrier_counting_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, hist
         )
     ];
     
-    let dependency_info = vk::DependencyInfo::default()
-        .buffer_memory_barriers(&buffer_memory_barriers);
-    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
 }
 
 fn barrier_reduce_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_data: &SortingData){
@@ -444,17 +337,13 @@ fn barrier_reduce_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sortin
         )
     ];
 
-    let dependency_info = vk::DependencyInfo::default()
-        .buffer_memory_barriers(&buffer_memory_barriers);
-
-    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
     
 }
 
 fn barrier_scan_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_data: &SortingData){
     let reduce_table = sorting_data.reduce_table.vk_buffer();
     
-
     let buffer_memory_barriers = [
         compute_buffer_barrier(
             reduce_table,
@@ -462,13 +351,8 @@ fn barrier_scan_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_
             vk::AccessFlags2::SHADER_STORAGE_READ
         )
     ];
-
-
-    let dependency_info = vk::DependencyInfo::default()
-        .buffer_memory_barriers(&buffer_memory_barriers);
-
-    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
-
+    
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
 }
 
 fn barrier_scan_add_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sorting_data: &SortingData){
@@ -481,12 +365,7 @@ fn barrier_scan_add_pass(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, sort
             vk::AccessFlags2::SHADER_STORAGE_READ
         )
     ];
-
-    let dependency_info = vk::DependencyInfo::default()
-        .buffer_memory_barriers(&buffer_memory_barriers);
-
-    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
-
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
 }
 
 fn barrier_scatter_pass(
@@ -515,10 +394,5 @@ fn barrier_scatter_pass(
             vk::AccessFlags2::SHADER_STORAGE_READ
         ),
     ];
-
-    let dependency_info = vk::DependencyInfo::default()
-        .buffer_memory_barriers(&buffer_memory_barriers);
-
-    cmd_buffer.pipeline_barrier2(vk_core.device(), &dependency_info);
-
+    cmd_buffer.pipeline_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
 }

@@ -1,6 +1,6 @@
 static const uint GROUP_SIZE = 64;
 static const float DAMPING = 0.995;
-static const float MAX_VELOCITY = 500.0;
+static const float MAX_VELOCITY = 5000.0;
 
 struct UpdateVelocitiesPushConstants{
     float delta_time;

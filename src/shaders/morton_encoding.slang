@@ -16,15 +16,15 @@ struct MortonEncodingPushConstants {
 [shader("compute")]
 [numthreads(GROUP_SIZE, 1, 1)]
 void main(
-    uint dispatch_id : SV_DispatchThreadID
+    const uint global_id : SV_DispatchThreadID
 ){
     uint num_elements, stride;
     positions.GetDimensions(num_elements, stride);
 
-    if (dispatch_id >= num_elements) {
+    if (global_id >= num_elements) {
         return;
     }
 
-    morton_codes[dispatch_id] = encode_morton_3d(positions[dispatch_id].xyz, push_constants.cell_size);
-    object_ids[dispatch_id] = dispatch_id;
+    morton_codes[global_id] = encode_morton_3d(positions[global_id].xyz, push_constants.cell_size);
+    object_ids[global_id] = global_id;
 }

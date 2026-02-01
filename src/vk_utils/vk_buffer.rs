@@ -1,21 +1,22 @@
 use std::error::Error;
+use std::marker::PhantomData;
 use std::ptr;
 use std::sync::Arc;
 use ash::vk;
-use ash::vk::CommandBufferSubmitInfo;
 use gpu_allocator::MemoryLocation;
 use gpu_allocator::vulkan::{AllocationCreateDesc, AllocationScheme};
 use crate::utils::PingPong;
 use crate::vk_core::vk_core::VkCore;
 use crate::vk_utils::allocated_buffer::AllocatedBuffer;
 
-pub struct VkBuffer {
+pub struct VkBuffer<T: Copy> {
     buffer: AllocatedBuffer,
-    len: usize
+    len: usize,
+    _phantom_data: PhantomData<T>,
 }
 
-impl VkBuffer {
-    pub fn new<T: Copy>(
+impl<T: Copy> VkBuffer<T> {
+    pub fn new(
         vk_core: &Arc<VkCore>,
         data: &[T],
         buffer_create_info: vk::BufferCreateInfo,
@@ -100,7 +101,7 @@ impl VkBuffer {
             device.end_command_buffer(command_buffer)?;
 
             let command_buffer_submit_infos = [
-                CommandBufferSubmitInfo::default()
+                vk::CommandBufferSubmitInfo::default()
                     .command_buffer(command_buffer)
             ];
 
@@ -126,8 +127,83 @@ impl VkBuffer {
             Self
             {
                 buffer: allocated_buffer,
-                len
+                len,
+                _phantom_data: PhantomData,
             }
+        )
+    }
+    
+    /// To create buffers with uninitialized data.
+    pub fn new_uninitialized(
+        vk_core: &Arc<VkCore>,
+        len: usize,
+        buffer_create_info: vk::BufferCreateInfo,
+        allocation_create_desc: AllocationCreateDesc,
+    ) -> Result<Self, Box<dyn Error>>{
+        // Create the gpu buffer
+        let buffer_create_info = vk::BufferCreateInfo {
+            usage: buffer_create_info.usage | vk::BufferUsageFlags::TRANSFER_DST,
+            ..buffer_create_info
+        };
+        
+        let allocated_buffer = AllocatedBuffer::new(
+            vk_core.clone(),
+            &buffer_create_info,
+            &allocation_create_desc
+        )?;
+        
+        Ok(
+            Self{
+                buffer: allocated_buffer,
+                len,
+                _phantom_data: PhantomData,
+            }
+        )
+    }
+    
+    /// Creates a buffer with uninitialized data that can be used for GPU only operations.
+    pub fn new_gpu_only_uninitialized(vk_core: &Arc<VkCore>, len: usize, name: &str) -> Result<Self, Box<dyn Error>>
+    {
+        let buffer_create_info = vk::BufferCreateInfo::default()
+            .size((len * size_of::<T>()) as vk::DeviceSize)
+            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        
+        let allocation_create_desc = AllocationCreateDesc{
+            name,
+            requirements: vk::MemoryRequirements::default(),
+            location: MemoryLocation::GpuOnly,
+            linear: true,
+            allocation_scheme: AllocationScheme::GpuAllocatorManaged
+        };
+        
+        Self::new_uninitialized(vk_core, len, buffer_create_info, allocation_create_desc)
+    }
+    
+    /// Creates a buffer with the given data that can be used for GPU only operations.
+    pub fn new_gpu_only(
+        vk_core: &Arc<VkCore>,
+        data: &[T],
+        name: &str,
+        command_pool: vk::CommandPool,
+        queue: vk::Queue
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::new(
+            vk_core,
+            data,
+            vk::BufferCreateInfo::default()
+                .size((data.len() * size_of::<T>()) as vk::DeviceSize)
+                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+                .sharing_mode(vk::SharingMode::EXCLUSIVE),
+            AllocationCreateDesc{
+                name,
+                requirements: vk::MemoryRequirements::default(),
+                location: MemoryLocation::GpuOnly,
+                linear: true,
+                allocation_scheme: AllocationScheme::GpuAllocatorManaged
+            },
+            command_pool,
+            queue
         )
     }
 
@@ -166,7 +242,7 @@ impl VkBuffer {
 
     /// Efficiently writes data to the mapped memory.
     /// The buffer must have been created with MemoryLocation::CpuToGpu
-    pub fn update<T: Copy>(&self, data: &T) {
+    pub fn update(&self, data: &T) {
         let allocation = self.buffer.allocation();
 
         // CpuToGpu is usually persistently mapped. 
@@ -182,7 +258,8 @@ impl VkBuffer {
     }
 
 
-    pub fn read_back<T: Copy>(
+    #[allow(unused)]
+    pub fn read_back(
         &self,
         vk_core: &Arc<VkCore>,
         command_pool: vk::CommandPool,
@@ -270,31 +347,7 @@ impl VkBuffer {
 }
 
 
-pub fn create_gpu_only_buffer<T: Copy>(
-    vk_core: &Arc<VkCore>,
-    data: &[T],
-    name: &str,
-    command_pool: vk::CommandPool,
-    queue: vk::Queue
-) -> Result<VkBuffer, Box<dyn Error>> {
-    VkBuffer::new(
-        vk_core,
-        data,
-        vk::BufferCreateInfo::default()
-            .size((data.len() * size_of::<T>()) as vk::DeviceSize)
-            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE),
-        AllocationCreateDesc{
-            name,
-            requirements: vk::MemoryRequirements::default(),
-            location: MemoryLocation::GpuOnly,
-            linear: true,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged
-        },
-        command_pool,
-        queue
-    )
-}
+
 
 pub fn create_ping_pong_buffer<T: Copy>(
     vk_core: &Arc<VkCore>,
@@ -302,8 +355,8 @@ pub fn create_ping_pong_buffer<T: Copy>(
     name: &str,
     command_pool: vk::CommandPool,
     queue: vk::Queue
-) -> Result<PingPong<VkBuffer>, Box<dyn Error>> {
-    let ping = create_gpu_only_buffer(
+) -> Result<PingPong<VkBuffer<T>>, Box<dyn Error>> {
+    let ping = VkBuffer::new_gpu_only(
         vk_core,
         data,
         name,
@@ -311,7 +364,7 @@ pub fn create_ping_pong_buffer<T: Copy>(
         queue
     )?;
 
-    let pong = create_gpu_only_buffer(
+    let pong = VkBuffer::new_gpu_only(
         vk_core,
         data,
         name,

@@ -3,6 +3,7 @@ struct VertexOutput{
     float2 uv: TEXCOORD0;
     float3 viewPos: TEXCOORD1;
     nointerpolation float radius: PSIZE;
+    nointerpolation float density : TEXCOORD3;
 };
 
 struct FragmentOutput {
@@ -54,7 +55,32 @@ FragmentOutput main(VertexOutput input) {
 
     // 4. Calculate Diffuse
     const float diffuse = saturate(dot(normal, lightDir));
-    const float3 baseColor = float3(0.0, 0.5, 1.0);
+       // 1. Define your simulation's Rest Density (e.g., 1000.0 or 1.0)
+        // It is best to pass this via PushConstants, but for debug hardcoding is fine.
+        const float REST_DENSITY = 1;
+
+        // 2. Calculate the ratio
+        float error = input.density / REST_DENSITY;
+
+        // 3. Determine Color
+        float3 baseColor;
+
+        if(error > 1.05) {
+            // COMPRESSION (Too dense) -> Turn RED
+            // Shows where particles are piling up (instability or lack of stiffness)
+            float t = saturate((error - 1.05) * 5.0); // * 5.0 makes the gradient sharp
+            baseColor = lerp(float3(0, 0, 1), float3(1, 0, 0), t);
+        }
+        else if (error < 0.95) {
+            // EXPANSION (Too sparse) -> Turn WHITE
+            // Shows surface, foam, or particles separating (tensile instability)
+            float t = saturate((0.95 - error) * 5.0);
+            baseColor = lerp(float3(0, 0, 1), float3(1, 1, 1), t);
+        }
+        else {
+            // IDEAL STATE -> Blue
+            baseColor = float3(0.0, 0.1, 1.0);
+        }
     const float3 finalColor = baseColor * (0.2 + 0.85 * diffuse);
     output.color = float4(finalColor, 1.0);
 

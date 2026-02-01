@@ -354,8 +354,7 @@ impl Renderer {
             .buffer(shared_buffer)
             .size(vk::WHOLE_SIZE)];
 
-        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &vk::DependencyInfo::default()
-            .buffer_memory_barriers(&acquire_from_compute));
+        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &acquire_from_compute, &[]);
         
         // TRANSITION TO RENDER TARGET
         // Transition Swapchain Image: Undefined/Present -> Color Attachment Optimal
@@ -414,18 +413,19 @@ impl Renderer {
         );
 
 
-        let release_to_compute = vk::BufferMemoryBarrier2::default()
-            .src_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
-            .src_access_mask(vk::AccessFlags2::SHADER_READ)
-            .dst_stage_mask(vk::PipelineStageFlags2::NONE)
-            .dst_access_mask(vk::AccessFlags2::NONE)
-            .src_queue_family_index(self.vk_core.graphics_queue_family_index())
-            .dst_queue_family_index(self.vk_core.compute_queue_family_index())
-            .buffer(shared_buffer)
-            .size(vk::WHOLE_SIZE);
+        let release_to_compute = [
+            vk::BufferMemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
+                .src_access_mask(vk::AccessFlags2::SHADER_READ)
+                .dst_stage_mask(vk::PipelineStageFlags2::NONE)
+                .dst_access_mask(vk::AccessFlags2::NONE)
+                .src_queue_family_index(self.vk_core.graphics_queue_family_index())
+                .dst_queue_family_index(self.vk_core.compute_queue_family_index())
+                .buffer(shared_buffer)
+                .size(vk::WHOLE_SIZE)
+        ];
 
-        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &vk::DependencyInfo::default()
-            .buffer_memory_barriers(std::slice::from_ref(&release_to_compute)));
+        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &release_to_compute, &[]);
 
         // Finished recording commands
         cmd_buffer.end_command_buffer(device).expect("failed to record command buffer");

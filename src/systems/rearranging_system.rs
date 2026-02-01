@@ -72,7 +72,7 @@ impl RearrangingSystem {
             thread_group_counts,
             &buffers,
             &[],
-            bytemuck::cast_slice(&[push_constants]),
+            bytemuck::bytes_of(&push_constants),
         );
         
         let buffer_memory_barriers = [
@@ -92,11 +92,7 @@ impl RearrangingSystem {
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             ),
         ];
-        
-        let dependency_info = vk::DependencyInfo::default()
-            .buffer_memory_barriers(&buffer_memory_barriers);
-        
-        command_buffer.pipeline_barrier2(device, &dependency_info);
+        command_buffer.pipeline_barrier2(device, &buffer_memory_barriers, &[]);
         
     }
 }

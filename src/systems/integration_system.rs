@@ -7,7 +7,7 @@ use crate::compute::{ComputePass};
 use crate::resources::{Particles};
 use crate::compute::ComputeSystemBuilder;
 use crate::vk_core::VkCore;
-use crate::vk_utils::{compute_buffer_barrier, CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};
 
 pub struct IntegrationSystem{
     integration_pass: ComputePass,
@@ -99,10 +99,7 @@ impl IntegrationSystem{
             )
         ];
         
-        let dependency_info = vk::DependencyInfo::default()
-            .buffer_memory_barriers(&buffer_barriers);
-        
-        command_buffer.pipeline_barrier2(device, &dependency_info);
+        command_buffer.pipeline_barrier2(device, &buffer_barriers, &[]);
     }
     
 }

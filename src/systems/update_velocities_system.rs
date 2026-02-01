@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use ash::vk;
-use crate::compute::{ComputeSystemBuilder, ComputePass};
-use crate::resources::Particles;
+use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
+use crate::resources::{Particles, SpatialGrid};
 use crate::vk_core::VkCore;
-use crate::vk_utils::{compute_to_graphics_memory_barrier, CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vk_utils::{compute_buffer_barrier, compute_to_graphics_memory_barrier, CommandBuffer, DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
 pub struct UpdateVelocitiesSystem {
     update_velocities_pass: ComputePass,
@@ -34,7 +34,7 @@ impl UpdateVelocitiesSystem {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, particles: &Particles, delta_time: f32, command_buffer: &CommandBuffer) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, delta_time: f32) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
@@ -52,7 +52,7 @@ impl UpdateVelocitiesSystem {
         let velocities = particle_data.velocities.current().vk_buffer();
         
         let buffers = [positions, previous_positions, velocities];
-
+        
         let thread_group_counts = [((num_elements + 63) / 64), 1, 1];
         self.update_velocities_pass.dispatch_compute(
             vk_core,
@@ -64,18 +64,12 @@ impl UpdateVelocitiesSystem {
         );
 
         let buffer_barriers = [
-            compute_to_graphics_memory_barrier(
-                particle_data.positions_buffer.current().vk_buffer(),
-                vk_core.compute_queue_family_index(),
-                vk_core.graphics_queue_family_index(),
+            compute_buffer_barrier(
+                particle_data.velocities.current().vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             )
         ];
-
-        let dependency_info = vk::DependencyInfo::default()
-            .buffer_memory_barriers(&buffer_barriers);
-
-        command_buffer.pipeline_barrier2(device, &dependency_info);
+        command_buffer.pipeline_barrier2(device, &buffer_barriers, &[]);
     }
 }

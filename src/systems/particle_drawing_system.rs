@@ -19,22 +19,8 @@ pub struct ParticleDrawingSystem {
     task_shader_module: ShaderModule,
     mesh_shader_module: ShaderModule,
     fragment_shader_module: ShaderModule,
-    quad_vertex_buffer: VkBuffer,
-    quad_index_buffer: VkBuffer,
 }
 
-const QUAD_VERTICES: [Vec2; 4] = [
-    // Top left
-    Vec2{x: -0.5, y: -0.5},
-    // Top right
-    Vec2{x: 0.5, y: -0.5 },
-    // Bottom right
-    Vec2{x: 0.5, y: 0.5},
-    // Bottom left
-    Vec2{x: -0.5, y: 0.5}
-];
-
-const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 impl ParticleDrawingSystem {
     pub fn new(
@@ -75,8 +61,15 @@ impl ParticleDrawingSystem {
 
         // Set 1: Particle data buffer
         let particle_descriptor_set_layout_binding = [
+            // Packed positions
             DescriptorSetLayoutBinding::default()
                 .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT),
+            // Densities
+            DescriptorSetLayoutBinding::default()
+                .binding(1)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT),
@@ -108,25 +101,9 @@ impl ParticleDrawingSystem {
             pipeline_layout,
         );
 
-        // Create the quad buffers
-        let quad_vertex_buffer = Self::create_buffer_from_slice(
-            &vk_core,
-            &QUAD_VERTICES,
-            renderer.command_pool(),
-            vk::BufferUsageFlags::VERTEX_BUFFER
-        );
-        
-        let quad_index_buffer = Self::create_buffer_from_slice(
-            &vk_core,
-            &QUAD_INDICES,
-            renderer.command_pool(),
-            vk::BufferUsageFlags::INDEX_BUFFER
-        );
 
         Self {
             vk_core,
-            quad_index_buffer,
-            quad_vertex_buffer,
             graphics_pipeline,
             task_shader_module,
             mesh_shader_module,
@@ -134,37 +111,6 @@ impl ParticleDrawingSystem {
         }
     }
     
-
-    fn create_buffer_from_slice<T: Copy>(vk_core: &Arc<VkCore>, data: &[T], command_pool: vk::CommandPool, usage: vk::BufferUsageFlags) -> VkBuffer {
-        let buffer_size = (data.len() * size_of::<T>()) as vk::DeviceSize;
-
-        let index_buffer_create_info = vk::BufferCreateInfo {
-            size: buffer_size,
-            usage,
-            sharing_mode: vk::SharingMode::EXCLUSIVE,
-            ..vk::BufferCreateInfo::default()
-        };
-
-        let allocation_create_desc = AllocationCreateDesc{
-            name: "Mesh buffer",
-            requirements: vk::MemoryRequirements::default(),
-            location: MemoryLocation::GpuOnly,
-            linear: false,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged
-        };
-
-        let index_buffer = VkBuffer::new(
-            vk_core,
-            data,
-            index_buffer_create_info,
-            allocation_create_desc,
-            command_pool,
-            *vk_core.graphics_queue()
-        ).expect("Failed to create index buffer");
-
-        index_buffer
-    }
-
     pub fn graphics_pipeline(&self) -> &GraphicsPipeline {
         &self.graphics_pipeline
     }
@@ -204,18 +150,25 @@ impl ParticleDrawingSystem {
             &[]
         );
 
-        // Push the Particle Buffer (Set 1)
-        let positions_buffer_info = [vk::DescriptorBufferInfo::default()
-            .buffer(buffers.positions_buffer.current().vk_buffer())
-            .offset(0)
-            .range(vk::WHOLE_SIZE)];
+        // Push the Buffers (Set 1)
+        let desc_buffer_infos = [
+            vk::DescriptorBufferInfo::default()
+                .buffer(buffers.positions_buffer.current().vk_buffer())
+                .offset(0)
+                .range(vk::WHOLE_SIZE),
+            vk::DescriptorBufferInfo::default()
+                .buffer(buffers.densities.vk_buffer())
+                .offset(0)
+                .range(vk::WHOLE_SIZE)
+        ];
         
-        let positions_descriptor_write = vk::WriteDescriptorSet::default()
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-            .buffer_info(&positions_buffer_info);
         
-        let descriptor_writes = [positions_descriptor_write];
+        let descriptor_writes = [
+            vk::WriteDescriptorSet::default()
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&desc_buffer_infos[0..desc_buffer_infos.len()]),
+        ];
         
         // Pushing Set 1
         unsafe {

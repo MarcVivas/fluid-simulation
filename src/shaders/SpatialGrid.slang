@@ -6,6 +6,36 @@ module SpatialGrid;
 // Storing [cell_start, cell_end, neighbors_mask]
 static const uint NUM_VARIABLES_PER_CELL = 3;
 
+public static const int3 CELL_OFFSETS[27] = {
+    int3(-1,-1,-1), int3(0,-1,-1), int3(1,-1,-1),
+    int3(-1, 0,-1), int3(0, 0,-1), int3(1, 0,-1),
+    int3(-1, 1,-1), int3(0, 1,-1), int3(1, 1,-1),
+
+    int3(-1,-1, 0), int3(0,-1, 0), int3(1,-1, 0),
+    int3(-1, 0, 0), int3(0, 0, 0), int3(1, 0, 0),
+    int3(-1, 1, 0), int3(0, 1, 0), int3(1, 1, 0),
+
+    int3(-1,-1, 1), int3(0,-1, 1), int3(1,-1, 1),
+    int3(-1, 0, 1), int3(0, 0, 1), int3(1, 0, 1),
+    int3(-1, 1, 1), int3(0, 1, 1), int3(1, 1, 1),
+};
+
+// 2^10 - 1
+// 10 bits per morton code
+static const uint MAX_COORD = 1023;
+
+// Helper to convert World Position float3 -> Grid Coordinate uint3
+public uint3 position_to_grid(float3 pos, float cell_size)
+{
+    uint3 grid_pos = (uint3) floor(pos / cell_size);
+
+    // Valid coordinates [1, 1022]
+    grid_pos = clamp(grid_pos, 1, MAX_COORD - 1);
+
+    return (uint3)floor(pos/cell_size);
+}
+
+
 public interface ISpatialGrid
 {
     func get_start_index(const uint3 coord) -> uint;

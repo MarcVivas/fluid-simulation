@@ -75,7 +75,7 @@ impl ApplicationHandler for App {
 
         let (vk_core, surface) = init_with_window(&window);
 
-        let world_size = Vec3::new(1000.0, 1000.0, 1000.0);
+        let world_size = Vec3::new(256.0, 256.0, 256.0);
         
         self.renderer = Some(
             Renderer::new(

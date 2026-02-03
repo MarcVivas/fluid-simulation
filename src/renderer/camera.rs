@@ -37,11 +37,11 @@ impl Camera {
 
         // Isometric-ish setup
         let pitch = 60.0f32.to_radians();
-        let yaw = 45.0f32.to_radians();
+        let yaw = 60.0f32.to_radians();
 
         // Distance calc
         let fov = 45.0f32.to_radians();
-        let bounding_radius = (world_size.length() / 2.0) * 1.2;
+        let bounding_radius = (world_size.length() / 2.0) *0.25;
         let distance = bounding_radius / (fov / 2.0).tan();
 
         // Initial position
@@ -85,10 +85,6 @@ impl Camera {
                 pitch,
                 yaw,
                 aspect_ratio,
-                // CHANGED: 
-                // Zoom Speed: 1.0 (Standard multiplier)
-                // Orbit Speed: 0.005 (Radians per pixel)
-                // Pan Speed: 0.002 (World units per pixel factor)
                 camera_controller: CameraController::new(1.0, 0.005, 0.002),
                 camera_uniform,
             }

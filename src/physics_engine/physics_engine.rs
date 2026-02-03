@@ -40,10 +40,9 @@ impl PhysicsEngine {
         let update_velocities_system = UpdateVelocitiesSystem::new(vk_core)?;
         let velocity_refining_system = VelocityRefiningSystem::new(vk_core)?;
         let vorticity_force_compute_system = VorticityForceComputeSystem::new(vk_core)?;
-        
-        let physics_config = PhysicsConfig::new(
-            spatial_grid.cell_size(),
-        );
+
+        let physics_config = PhysicsConfig::new(spatial_grid.cell_size());
+
         Ok(Self { physics_config, integration_system, morton_encoding_system, sorting_system, rearranging_system, grid_construction_system, constraint_solver_system, neighbor_search_system, update_velocities_system, density_compute_system, velocity_refining_system, vorticity_force_compute_system, first_frame: true })
     }
     
@@ -115,6 +114,7 @@ impl PhysicsEngine {
                 particles.buffers_mut().swap();
                 self.grid_construction_system.execute(vk_core, command_buffer, spatial_grid, particles);
                 self.neighbor_search_system.execute(vk_core, command_buffer, spatial_grid, particles);
+
                 for _ in 0..self.physics_config.solver_iterations {
                     self.density_compute_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config);
                     self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config);
@@ -122,10 +122,13 @@ impl PhysicsEngine {
                 }
 
                 self.update_velocities_system.execute(vk_core, command_buffer, particles, delta_time);
+                
                 self.velocity_refining_system.execute(vk_core, command_buffer, particles, spatial_grid, &self.physics_config);
                 particles.buffers_mut().velocities.swap();
                 self.vorticity_force_compute_system.execute(vk_core, command_buffer, particles, spatial_grid, &self.physics_config);
+                
             }
+
         );
     }
     

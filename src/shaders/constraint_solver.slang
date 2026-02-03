@@ -85,8 +85,7 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
             const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
 
-            float neighbor_radius = neighbor_j.w;
-            float neighbor_mass = push_constants.rest_density * 91.125;
+            const float neighbor_mass = 1;
             total_displacement += lambda_sum * gradient_vec * neighbor_mass;
         }
 
@@ -97,10 +96,6 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
     total_displacement *= push_constants.reversed_rest_density;
 
     float3 new_pos = pos+total_displacement;
-
-    if(global_id<5){
-        printf("Delta p: %f", length(total_displacement));
-    }
 
     write_positions[global_id] = float4(new_pos, radius);
 

@@ -18,19 +18,20 @@ pub struct World{
     spatial_grid: SpatialGrid
 }
 
-const NUM_PARTICLES: u32 = 100000; //8193;
+const NUM_PARTICLES: usize = 400000; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, size: &Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
 
         let particle_system = Particles::new(
-            NUM_PARTICLES as usize,
+            NUM_PARTICLES,
             &size,
             &vk_core,
             renderer,
         ).expect("Failed to create particle system");
         
-        let spatial_grid = SpatialGrid::new(vk_core, compute_command_pool.vk_cmd_pool(), particle_system.max_radius(), size);
+        let cell_size = 1.8f32;
+        let spatial_grid = SpatialGrid::new(vk_core, cell_size, size);
         let physics_engine = PhysicsEngine::new(vk_core, compute_command_pool, &particle_system, &spatial_grid).unwrap();
         
         Self {

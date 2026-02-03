@@ -40,7 +40,6 @@ func main(const uint global_id: SV_DispatchThreadID){
     const uint3 center_grid_cell = position_to_grid(pos, push_constants.cell_size);
     uint neighbor_bits = grid.get_neighbor_bits(center_grid_cell);
 
-    const float mass = (4.0/3.0) * 3.14159 * radius * radius * radius;
     const float kernel_radius = push_constants.cell_size;
 
     // For equation 15 omega i accumulator
@@ -69,14 +68,11 @@ func main(const uint global_id: SV_DispatchThreadID){
             const float distance_squared = dot(vec, vec);
             const float3 vel_i_j = read_velocities[i].xyz - vel;
 
-            const float other_mass = 91.125;
-            const float mass_over_density = other_mass / densities[i];
-
             const float3 vel_gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
 
-            vorticity_at_particle_pos += cross(vel_i_j, vel_gradient_vec) * mass_over_density;
+            vorticity_at_particle_pos += cross(vel_i_j, vel_gradient_vec);
 
-            viscosity_sum += mass_over_density * vel_i_j * poly6_kernel(push_constants.poly6_constant, distance_squared, push_constants.kernel_radius_2);
+            viscosity_sum += vel_i_j * poly6_kernel(push_constants.poly6_constant, distance_squared, push_constants.kernel_radius_2);
         }
 
 

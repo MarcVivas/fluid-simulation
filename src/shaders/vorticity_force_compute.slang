@@ -31,12 +31,10 @@ func main(const uint global_id: SV_DispatchThreadID){
 
     const float4 particle = packed_positions[global_id];
     const float3 pos = particle.xyz;
-    const float radius = particle.w;
 
     const uint3 center_grid_cell = position_to_grid(pos, push_constants.cell_size);
     uint neighbor_bits = grid.get_neighbor_bits(center_grid_cell);
 
-    const float mass = 1;
     const float kernel_radius = push_constants.cell_size;
 
     // For equation 16 (Gradient of the magnitude of the vorticity field)
@@ -64,11 +62,7 @@ func main(const uint global_id: SV_DispatchThreadID){
             const float3 vec = pos - other_pos;
             const float distance_squared = dot(vec, vec);
             const float other_vorticity_magnitude = read_vorticity[i].w;
-
-            const float other_mass = 91.125;
-            const float mass_over_density = other_mass / densities[i];
-
-            vorticity_magnitude_gradient += mass_over_density * (other_vorticity_magnitude - vorticity_magnitude) * spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
+            vorticity_magnitude_gradient += (other_vorticity_magnitude - vorticity_magnitude) * spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
         }
 
 

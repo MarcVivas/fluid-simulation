@@ -86,8 +86,8 @@ pub struct SpatialGrid {
 }
 
 impl SpatialGrid {
-    pub fn new(vk_core: &Arc<VkCore>, command_pool: vk::CommandPool, max_radius: f32, world_size: &Vec3) -> Self {
-        let cell_size = Self::compute_cell_size(max_radius);
+    pub fn new(vk_core: &Arc<VkCore>, cell_size: f32, world_size: &Vec3) -> Self {
+        let cell_size = cell_size;
         
         assert!(world_size.x == world_size.y && world_size.y == world_size.z);
         let grid_size = uvec3(

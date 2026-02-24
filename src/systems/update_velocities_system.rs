@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use ash::vk;
+use glam::Vec3;
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
 use crate::resources::{Particles, SpatialGrid};
 use crate::vk_core::VkCore;
@@ -13,6 +14,7 @@ pub struct UpdateVelocitiesSystem {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct UpdateVelocitiesPushConstants{
+    world_size: Vec3, 
     delta_time: f32,
     num_elements: u32,
 }
@@ -34,12 +36,13 @@ impl UpdateVelocitiesSystem {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, delta_time: f32) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, delta_time: f32, world_size: &Vec3) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
 
         let push_constants = UpdateVelocitiesPushConstants {
+            world_size: *world_size,
             delta_time,
             num_elements
         };
@@ -66,6 +69,11 @@ impl UpdateVelocitiesSystem {
         let buffer_barriers = [
             compute_buffer_barrier(
                 particle_data.velocities.current().vk_buffer(),
+                vk::AccessFlags2::SHADER_STORAGE_WRITE,
+                vk::AccessFlags2::SHADER_STORAGE_READ,
+            ),
+            compute_buffer_barrier(
+                particle_data.positions_buffer.current().vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             )

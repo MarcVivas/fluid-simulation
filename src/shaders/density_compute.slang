@@ -19,11 +19,8 @@ struct DensityPushConstants {
     float kernel_radius_2;
     float spiky_constant;
     float lambda_epsilon;
-    // kernel_radius_2
-    // kernel_radius_6
-    // kernel_radius_9
-    // spiky_gradient_constant
-    // poly6_constant
+    float3 world_size;
+
 }
 
 [[vk::push_constant]] DensityPushConstants push_constants;
@@ -60,7 +57,6 @@ func main(const uint global_id: SV_DispatchThreadID){
     // This if for when k = j (Neighbors)
     float sum_gradient_squared = 0;
 
-    uint count = 0;
     // Iterate all particle neighbors
     while(neighbor_bits != 0){
         // Get the position of the first active bit
@@ -79,10 +75,9 @@ func main(const uint global_id: SV_DispatchThreadID){
             const float3 vec = pos - other_pos;
             const float distance_squared = dot(vec, vec);
 
-if (distance_squared > push_constants.kernel_radius_2)
-    continue;
+            if (distance_squared > push_constants.kernel_radius_2)
+                continue;
 
-count++;
             // Equation 2
             particle_density += other_mass * poly6_kernel(push_constants.poly6_constant, distance_squared, push_constants.kernel_radius_2);
 
@@ -98,6 +93,7 @@ count++;
         }
     }
 
+
     const float denominator = dot(gradient, gradient) + sum_gradient_squared;
 
     // Equation 1
@@ -107,15 +103,6 @@ count++;
 
     //Density constraint should be 0.0
     //Lambda should be negative and big enough to move things in the world
-    if(global_id == 0 || global_id == 1000 || global_id == 10000 || global_id == 100000){
-        printf("Density constraint: %f, Lambda: %f, neighbor count: %d", density_constraint, lambda, count);
-        printf("rho=%f C=%f denom=%f lambda=%f",
-               particle_density, density_constraint, denominator, lambda);
-    }
-    if(global_id < 1){
-        printf("Raw Density: %f, Rest Density: %f, CEll: %f", particle_density, particle_rest_density, push_constants.cell_size);
-    }
-
 
     // Write results back to global memory
     densities[global_id] = particle_density;

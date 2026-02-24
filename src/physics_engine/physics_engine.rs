@@ -116,12 +116,12 @@ impl PhysicsEngine {
                 self.neighbor_search_system.execute(vk_core, command_buffer, spatial_grid, particles);
 
                 for _ in 0..self.physics_config.solver_iterations {
-                    self.density_compute_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config);
-                    self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config);
+                    self.density_compute_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config, world_size);
+                    self.constraint_solver_system.execute(vk_core, command_buffer, spatial_grid, particles, &self.physics_config, world_size);
                     particles.buffers_mut().positions_buffer.swap();
                 }
 
-                self.update_velocities_system.execute(vk_core, command_buffer, particles, delta_time);
+                self.update_velocities_system.execute(vk_core, command_buffer, particles, delta_time, world_size);
                 
                 self.velocity_refining_system.execute(vk_core, command_buffer, particles, spatial_grid, &self.physics_config);
                 particles.buffers_mut().velocities.swap();

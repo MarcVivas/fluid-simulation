@@ -3,7 +3,7 @@ struct VertexOutput{
     float2 uv: TEXCOORD0;
     float3 viewPos: TEXCOORD1;
     nointerpolation float radius: PSIZE;
-    nointerpolation float density : TEXCOORD3;
+    nointerpolation float3 base_color : TEXCOORD3;
 };
 
 struct FragmentOutput {
@@ -55,8 +55,21 @@ FragmentOutput main(VertexOutput input) {
 
     // 4. Calculate Diffuse
     const float diffuse = saturate(dot(normal, lightDir));
-       // 1. Define your simulation's Rest Density (e.g., 1000.0 or 1.0)
-        // It is best to pass this via PushConstants, but for debug hardcoding is fine.
+    const float3 finalColor = input.base_color * (0.2 + 0.85 * diffuse);
+    output.color = float4(finalColor, 1.0);
+
+    // Compute depth
+    float3 sphereSurfaceView = input.viewPos;
+    sphereSurfaceView.z += normal_z * input.radius;
+    const float4 clipPos = mul(camera.proj, float4(sphereSurfaceView, 1.0));
+    const float newDepth = clipPos.z / clipPos.w;
+    output.depth = newDepth;
+
+    return output;
+}
+
+
+/**
         const float REST_DENSITY = 1;
 
         // 2. Calculate the ratio
@@ -81,15 +94,4 @@ FragmentOutput main(VertexOutput input) {
             // IDEAL STATE -> Blue
             baseColor = float3(0.0, 0.1, 1.0);
         }
-    const float3 finalColor = baseColor * (0.2 + 0.85 * diffuse);
-    output.color = float4(finalColor, 1.0);
-
-    // Compute depth
-    float3 sphereSurfaceView = input.viewPos;
-    sphereSurfaceView.z += normal_z * input.radius;
-    const float4 clipPos = mul(camera.proj, float4(sphereSurfaceView, 1.0));
-    const float newDepth = clipPos.z / clipPos.w;
-    output.depth = newDepth;
-
-    return output;
-}
+**/

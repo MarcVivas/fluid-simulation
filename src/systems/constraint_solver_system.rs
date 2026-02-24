@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
-use glam::{UVec3, UVec4};
+use glam::{Vec3, Vec4};
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
 use crate::resources::{Particles, SpatialGrid};
@@ -27,6 +27,8 @@ struct ConstraintSolverPushConstants {
     k: f32,
     delta_q_squared: f32,
     n: u32,
+    _pad: [u32; 2],
+    world_size: Vec3
 }
 
 impl ConstraintSolverSystem {
@@ -49,7 +51,7 @@ impl ConstraintSolverSystem {
         Ok(Self { constraint_solver_pass, constraint_solver_shader })
     }
 
-    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles, physics_config: &PhysicsConfig, world_size: &Vec3) {
         let device = vk_core.device();
         let num_elements = particles.len() as u32;
 
@@ -71,7 +73,9 @@ impl ConstraintSolverSystem {
             spiky_constant: physics_config.kernel_spiky_grad,
             k: physics_config.k,
             delta_q_squared: physics_config.delta_q_squared,
-            n: physics_config.n
+            n: physics_config.n,
+            _pad: [0; 2],
+            world_size: *world_size
         };
         
         let buffers = [read_positions, write_positions, densities, lambdas];

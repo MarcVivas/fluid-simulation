@@ -195,7 +195,7 @@ impl Renderer {
     }
 
     
-    pub fn draw_world(&mut self, window: &Window, world: &World, compute_finished_semaphore: vk::Semaphore){
+    pub fn draw_world(&mut self, window: &Window, world: &World, compute_finished_semaphore: Option<vk::Semaphore>){
         
         self.handle_resize(window);
 
@@ -244,7 +244,8 @@ impl Renderer {
 
         let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
         
-        self.record_commands(cmd_buffer, image_index as usize, world);
+        let compute_paused = compute_finished_semaphore.is_none();
+        self.record_commands(cmd_buffer, image_index as usize, world, compute_paused);
         
         self.submit_commands_to_the_queue(
             cmd_buffer, 
@@ -307,8 +308,8 @@ impl Renderer {
         self.camera.buffer(current_frame_idx).update(uniform_data);
     }
     
-    fn record_commands(&self, cmd_buffer: &CommandBuffer, image_index: usize, world: &World) {
-        self.begin_render_pass(cmd_buffer, image_index, world.get_positions());
+    fn record_commands(&self, cmd_buffer: &CommandBuffer, image_index: usize, world: &World, compute_paused: bool) {
+        self.begin_render_pass(cmd_buffer, image_index, world.get_positions(), compute_paused);
         self.render_drawables(cmd_buffer, image_index, world);
         self.end_render_pass(cmd_buffer, image_index, world.get_positions());
     }
@@ -329,7 +330,7 @@ impl Renderer {
         
     }
     
-    fn begin_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize, shared_buffer: vk::Buffer) {
+    fn begin_render_pass(&self, cmd_buffer: &CommandBuffer, image_index: usize, shared_buffer: vk::Buffer, compute_paused: bool) {
         let device = self.vk_core.device();
 
         // Access to the specific ImageView for this frame
@@ -343,18 +344,25 @@ impl Renderer {
             device,
             &vk::CommandBufferBeginInfo::default().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
         ).expect("failed to begin recording command buffer");
+        
+        if !compute_paused {
+            // Compute is active.
+            // We need to transition the queue family indices
+            let acquire_from_compute = [
+                vk::BufferMemoryBarrier2::default()
+                    .src_stage_mask(vk::PipelineStageFlags2::NONE)
+                    .src_access_mask(vk::AccessFlags2::NONE)
+                    .dst_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT) // Valid on Graphics Queue
+                    .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+                    .src_queue_family_index(self.vk_core.compute_queue_family_index())
+                    .dst_queue_family_index(self.vk_core.graphics_queue_family_index())
+                    .buffer(shared_buffer)
+                    .size(vk::WHOLE_SIZE)
+            ];
 
-        let acquire_from_compute = [vk::BufferMemoryBarrier2::default()
-            .src_stage_mask(vk::PipelineStageFlags2::NONE)
-            .src_access_mask(vk::AccessFlags2::NONE)
-            .dst_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT) // Valid on Graphics Queue
-            .dst_access_mask(vk::AccessFlags2::SHADER_READ)
-            .src_queue_family_index(self.vk_core.compute_queue_family_index())
-            .dst_queue_family_index(self.vk_core.graphics_queue_family_index())
-            .buffer(shared_buffer)
-            .size(vk::WHOLE_SIZE)];
-
-        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &acquire_from_compute, &[]);
+            cmd_buffer.pipeline_barrier2(self.vk_core.device(), &acquire_from_compute, &[]);
+        }
+        
         
         // TRANSITION TO RENDER TARGET
         // Transition Swapchain Image: Undefined/Present -> Color Attachment Optimal
@@ -436,21 +444,35 @@ impl Renderer {
                                     cmd_buffer: &CommandBuffer, 
                                     present_complete_semaphore: vk::Semaphore, 
                                     rendering_complete_semaphore: vk::Semaphore,
-                                    compute_finished_semaphore: vk::Semaphore,
+                                    compute_finished_semaphore: Option<vk::Semaphore>,
                                     draw_fence: vk::Fence) {
         unsafe {
-            let wait_sem_info = [
-                vk::SemaphoreSubmitInfo::default()
-                    .semaphore(present_complete_semaphore)
-                    .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT),
-                vk::SemaphoreSubmitInfo::default()
-                    .semaphore(compute_finished_semaphore)
-                    .stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
-            ];
+            
+            
+            let wait_sem_info: Vec<vk::SemaphoreSubmitInfo> = if let Some(compute_finished_semaphore) = compute_finished_semaphore {
+                vec![
+                    vk::SemaphoreSubmitInfo::default()
+                        .semaphore(present_complete_semaphore)
+                        .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT),
+                    vk::SemaphoreSubmitInfo::default()
+                        .semaphore(compute_finished_semaphore)
+                        .stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
+                ]
+            }
+            else {
+                vec![
+                    vk::SemaphoreSubmitInfo::default()
+                        .semaphore(present_complete_semaphore)
+                        .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT),
+                ]
+            };
+            
 
-            let signal_sem_info = [vk::SemaphoreSubmitInfo::default()
-                .semaphore(rendering_complete_semaphore)
-                .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
+            let signal_sem_info = [
+                vk::SemaphoreSubmitInfo::default()
+                    .semaphore(rendering_complete_semaphore)
+                    .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+            ];
 
             let cmd_info = [
                 vk::CommandBufferSubmitInfo::default()

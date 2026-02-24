@@ -3,6 +3,7 @@ use ash::prelude::VkResult;
 use ash::vk;
 use ash::vk::DescriptorSetLayoutBinding;
 use bytemuck::{Pod, Zeroable};
+use glam::Vec3;
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
 use crate::resources::{ParticleData, Particles, SpatialGrid};
@@ -25,6 +26,7 @@ struct DensityComputePushConstants {
     kernel_radius_2: f32,
     spiky_constant: f32,
     epsilon: f32,
+    world_size: Vec3
 }
 
 impl DensityComputeSystem{
@@ -53,7 +55,7 @@ impl DensityComputeSystem{
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles, physics_config: &PhysicsConfig, world_size: &Vec3) {
         let device = vk_core.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
@@ -67,6 +69,7 @@ impl DensityComputeSystem{
             kernel_radius_2: physics_config.kernel_radius_2,
             spiky_constant: physics_config.kernel_spiky_grad,
             epsilon: physics_config.lambda_density_epsilon,
+            world_size: *world_size
         };
 
         // Describe the buffers we want to bind

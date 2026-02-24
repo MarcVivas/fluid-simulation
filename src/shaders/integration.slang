@@ -43,7 +43,6 @@ void main(const uint global_id : SV_DispatchThreadID)
 
     // Compute the new position
     float3 new_pos = pos + dt * velocity;
-    new_pos = clamp(new_pos, float3(1,1,1), push_constants.world_size);
 
     // Write the predicted position and new velocity to global memory
     positions[global_id] = float4(new_pos, radius);

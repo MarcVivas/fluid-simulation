@@ -9,7 +9,7 @@ pub fn process_keyboard_input(app: &mut App, event_loop: &ActiveEventLoop, code:
     match (code, key_state.is_pressed()) {
         (KeyCode::Escape, true) => event_loop.exit(),
         (KeyCode::KeyP, true) => {
-            
+            app.toggle_paused();
         },
         (KeyCode::KeyG, true) => {
             

@@ -67,7 +67,7 @@ impl ParticleDrawingSystem {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT),
-            // Densities
+            // Velocities
             DescriptorSetLayoutBinding::default()
                 .binding(1)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -157,7 +157,7 @@ impl ParticleDrawingSystem {
                 .offset(0)
                 .range(vk::WHOLE_SIZE),
             vk::DescriptorBufferInfo::default()
-                .buffer(buffers.densities.vk_buffer())
+                .buffer(buffers.velocities.current().vk_buffer())
                 .offset(0)
                 .range(vk::WHOLE_SIZE)
         ];

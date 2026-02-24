@@ -1517,7 +1517,6 @@ dependencies = [
  "bytemuck",
  "glam",
  "gpu-allocator",
- "log",
  "rand",
  "shader-slang",
  "winit",

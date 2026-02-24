@@ -103,8 +103,11 @@ impl ComputeEngine {
         &self.compute_command_pool
     }
     
-    pub fn compute_finished_semaphore(&self) -> vk::Semaphore {
-        self.semaphore
+    pub fn compute_finished_semaphore(&self, paused: bool) -> Option<vk::Semaphore> {
+        if !paused {
+            return Some(self.semaphore);
+        }
+        None
     }
 }
 

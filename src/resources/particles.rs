@@ -61,8 +61,8 @@ impl Particles {
             // Generate a random position
             let x_pos = random_number_generator.random_range(0.0..world_dim.x);
             let y_pos = random_number_generator.random_range(0.0..world_dim.y/2.0);
-            let z_pos = random_number_generator.random_range(0.0..world_dim.z/8.0);
-            let radius = random_number_generator.random_range(0.25..=0.25) as f32;
+            let z_pos = random_number_generator.random_range(0.0..=world_dim.z/8.0);
+            let radius = random_number_generator.random_range(0.35..=0.35) as f32;
             max_radius = max_radius.max(radius);
             let position = Position::new(x_pos, y_pos, z_pos, radius);
             positions.push(position);
@@ -82,8 +82,8 @@ impl Particles {
             // Generate a random position
             let x_pos = random_number_generator.random_range(0.0..world_dim.x);
             let y_pos = random_number_generator.random_range(0.0..world_dim.y/2.0);
-            let z_pos = random_number_generator.random_range(world_dim.z/2.0..world_dim.z);
-            let radius = random_number_generator.random_range(0.25..=0.25) as f32;
+            let z_pos = random_number_generator.random_range(world_dim.z/2.0..=world_dim.z);
+            let radius = random_number_generator.random_range(0.35..=0.35) as f32;
             max_radius = max_radius.max(radius);
             let position = Position::new(x_pos, y_pos, z_pos, radius);
             positions.push(position);

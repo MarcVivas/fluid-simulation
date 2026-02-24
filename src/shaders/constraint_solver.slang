@@ -23,6 +23,7 @@ struct ConstraintSolverPushConstants {
     float k;
     float delta_q_squared;
     uint n;
+    float3 world_size;
 };
 
 [[vk::push_constant]] ConstraintSolverPushConstants push_constants;
@@ -95,10 +96,10 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     total_displacement *= push_constants.reversed_rest_density;
 
-    float3 new_pos = pos+total_displacement;
+    // Compute new pos
+    const float3 new_pos = pos + total_displacement;
 
     write_positions[global_id] = float4(new_pos, radius);
-
 }
 
 float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id){

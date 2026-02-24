@@ -21,34 +21,34 @@ pub struct World{
 const NUM_PARTICLES: usize = 400000; //8193;
 
 impl World{
-    pub fn new(vk_core: &Arc<VkCore>, size: &Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
+    pub fn new(vk_core: &Arc<VkCore>, world_size: &Vec3, renderer: &Renderer, compute_command_pool: &ComputeCommandPool) -> Self{
 
         let particle_system = Particles::new(
             NUM_PARTICLES,
-            &size,
+            &world_size,
             &vk_core,
             renderer,
         ).expect("Failed to create particle system");
         
         let cell_size = 1.8f32;
-        let spatial_grid = SpatialGrid::new(vk_core, cell_size, size);
+        let spatial_grid = SpatialGrid::new(vk_core, cell_size, world_size);
         let physics_engine = PhysicsEngine::new(vk_core, compute_command_pool, &particle_system, &spatial_grid).unwrap();
         
         Self {
             particle_system,
             physics_engine,
-            size: *size,
+            size: *world_size,
             spatial_grid
         }
     }
 
-    pub fn size(&self) -> Vec3{
+    pub fn world_size(&self) -> Vec3{
         self.size
     }
     
     /// Updates the world 
-    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, delta_time: f32){
-        let world_size = self.size();
+    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine){
+        let world_size = self.world_size();
         self.physics_engine.update(
             vk_core, 
             compute_engine, 

@@ -40,6 +40,7 @@ struct App {
     renderer: Option<Renderer>,
     window: Option<Window>,
     window_resized: bool,
+    paused: bool,
     world: Option<World>,
     compute_engine: Option<ComputeEngine>,
     mouse_position: dpi::PhysicalPosition<f64>,
@@ -54,6 +55,7 @@ impl App {
             renderer: None,
             world: None,
             window_resized: false,
+            paused: true,
             mouse_position: dpi::PhysicalPosition::default(),
             compute_engine: None,
         }
@@ -121,16 +123,18 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::RedrawRequested => {
-                self.world.as_mut().unwrap().update(
-                    self.vk_core.as_ref().unwrap(),
-                    self.compute_engine.as_ref().unwrap(),
-                    1.0 / 60.0
-                );
+                if !self.paused{
+                    self.world.as_mut().unwrap().update(
+                        self.vk_core.as_ref().unwrap(),
+                        self.compute_engine.as_ref().unwrap(),
+                    );
+                }
+                
                 self.window.as_ref().unwrap().request_redraw();
                 self.renderer.as_mut().unwrap().draw_world(
                     self.window.as_ref().unwrap(),
                     self.world.as_ref().unwrap(),
-                    self.compute_engine.as_ref().unwrap().compute_finished_semaphore()
+                    self.compute_engine.as_ref().unwrap().compute_finished_semaphore(self.paused)
                 );
             },
             WindowEvent::KeyboardInput {
@@ -167,6 +171,10 @@ impl App {
     
     pub fn mouse_click(&mut self, button: &MouseButton, state: &ElementState){
         self.renderer.as_mut().unwrap().rotate_camera(button, state);
+    }
+    
+    pub fn toggle_paused(&mut self){
+        self.paused = !self.paused;
     }
     
 }

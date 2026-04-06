@@ -9,8 +9,8 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::KeyCode;
 
 use crate::renderer::renderer::MAX_FRAME_LATENCY;
-use crate::vk_core::vk_core::VkCore;
-use crate::vk_utils::{CommandPool, VkBuffer};
+use crate::vulkan::vk_core::VkCore;
+use crate::vulkan::vk_utils::{CommandPool, VkBuffer};
 
 pub struct Camera {
     pub position: Vec3,
@@ -161,6 +161,7 @@ impl Camera {
     pub fn set_camera_zoom_position(&mut self, pos: Option<PhysicalPosition<f64>>) {
         if let Some(p) = pos { self.update_mouse_position(p); }
     }
+    #[allow(unused)]
     pub fn screen_to_world(&self, screen_size: &Vec2, screen_pos: &Vec2) -> Option<Vec2> {
         let (view, proj) = self.get_matrices_for_calculation(screen_size);
         let view_proj_inv = (proj * view).inverse();

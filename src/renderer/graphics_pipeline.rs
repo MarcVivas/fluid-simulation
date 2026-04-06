@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use ash::vk;
-use crate::renderer::renderer::Renderer;
-use crate::vk_core::vk_core::VkCore;
-use crate::vk_utils::PipelineLayout;
+use crate::renderer::WindowRenderTarget;
+use crate::vulkan::vk_core::VkCore;
+use crate::vulkan::vk_utils::PipelineLayout;
 
 pub struct GraphicsPipeline {
     vk_core: Arc<VkCore>,
@@ -13,7 +13,7 @@ pub struct GraphicsPipeline {
 impl GraphicsPipeline {
     pub fn new(
         vk_core: Arc<VkCore>, 
-        renderer: &Renderer,
+        render_target: &WindowRenderTarget,
         topology: Option<vk::PrimitiveTopology>,
         vertex_input_state_info: Option<vk::PipelineVertexInputStateCreateInfo>,
         shader_stage_create_infos: Vec<vk::PipelineShaderStageCreateInfo>,
@@ -61,9 +61,7 @@ impl GraphicsPipeline {
         let dynamic_state = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
         let dynamic_state_info = vk::PipelineDynamicStateCreateInfo::default()
             .dynamic_states(&dynamic_state);
-        
-        let render_target = renderer.render_target();
-        
+                
         let viewport_state_info = render_target.viewport_state_info();
         
         let topology = topology.unwrap_or_default();

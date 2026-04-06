@@ -1,10 +1,11 @@
-use std::ffi::{CStr, CString};
+use std::ffi::{CString};
 use std::sync::Arc;
 use ash::vk;
 use ash::vk::PushConstantRange;
 use crate::compute::ComputePass;
-use crate::vk_core::VkCore;
-use crate::vk_utils::{DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
+use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_core::VkCore;
+use crate::vulkan::vk_utils::{DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
 /// A builder that helps create gpu compute systems.
 pub struct ComputeSystemBuilder {
@@ -12,7 +13,8 @@ pub struct ComputeSystemBuilder {
     shader_name: String,
     entry_points: Vec<&'static str>,
     bindings: Vec<vk::DescriptorSetLayoutBinding<'static>>,
-    push_constant_size: Option<u32>
+    push_constant_size: Option<u32>,
+    compile_time_constants: ShaderCompileTimeConstants
 }
 
 pub struct ComputeSystemResources {
@@ -21,13 +23,14 @@ pub struct ComputeSystemResources {
 }
 
 impl ComputeSystemBuilder {
-    pub fn new(vk_core: Arc<VkCore>, shader_name: impl Into<String>) -> ComputeSystemBuilder {
+    pub fn new(vk_core: Arc<VkCore>, shader_name: impl Into<String>, compile_time_constants: ShaderCompileTimeConstants) -> ComputeSystemBuilder {
         Self {
             vk_core,
             shader_name: shader_name.into(),
             entry_points: vec![],
             bindings: vec![],
-            push_constant_size: None
+            push_constant_size: None,
+            compile_time_constants: compile_time_constants
         }
     }
 
@@ -75,7 +78,7 @@ impl ComputeSystemBuilder {
             return Err("ComputeSystemBuilder::build() failed".into());
         }
         
-        let shader = ShaderModule::new(self.vk_core.clone(), &self.shader_name);
+        let shader = ShaderModule::new(self.vk_core.clone(), &self.shader_name, &self.compile_time_constants);
 
         let descriptor_config = [
             DescriptorSetLayoutConfig {

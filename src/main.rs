@@ -1,30 +1,26 @@
-mod vk_core;
-mod vk_utils;
-mod renderer;
-mod resources;
-mod world;
-mod compute;
-mod utils;
 mod components;
-mod systems;
+mod compute;
 mod physics_engine;
+mod renderer;
+mod utils;
+mod vulkan;
+mod world;
 
+use crate::compute::ComputeEngine;
+use crate::renderer::renderer::Renderer;
+use crate::utils::input_manager;
+use crate::vulkan::vk_core::init_with_window;
+use crate::vulkan::vk_core::VkCore;
+use crate::world::World;
+use glam::Vec3;
 use std::default::Default;
 use std::sync::Arc;
-use glam::Vec3;
 use winit::application::ApplicationHandler;
 use winit::dpi;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
-use crate::compute::{ComputeCommandPool, ComputeEngine};
-use crate::resources::Particles;
-use crate::renderer::renderer::Renderer;
-use crate::utils::input_manager;
-use crate::vk_core::init_with_window;
-use crate::vk_core::vk_core::VkCore;
-use crate::world::World;
 
 #[allow(unused)]
 fn main() {
@@ -33,7 +29,6 @@ fn main() {
     let mut app = App::new();
     event_loop.run_app(&mut app);
 }
-
 
 struct App {
     vk_core: Option<Arc<VkCore>>,
@@ -48,7 +43,6 @@ struct App {
 
 impl App {
     pub fn new() -> Self {
-
         Self {
             window: None,
             vk_core: None,
@@ -63,48 +57,42 @@ impl App {
 }
 
 impl ApplicationHandler for App {
-
     /// This creates the window and the engine before the event loop starts.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = {
             let window_attributes = WindowAttributes::default()
                 .with_title("Vulkan")
                 .with_inner_size(dpi::LogicalSize::new(1280.0, 720.0));
-            event_loop.create_window(window_attributes)
+            event_loop
+                .create_window(window_attributes)
                 .expect("Failed to create window")
         };
-
 
         let (vk_core, surface) = init_with_window(&window);
 
         let world_size = Vec3::new(256.0, 256.0, 256.0);
-        
-        self.renderer = Some(
-            Renderer::new(
-                vk_core.clone(),
-                &window,
-                surface,
-                &world_size
-            )
-        );
-        
-      
+
+        self.renderer = Some(Renderer::new(
+            vk_core.clone(),
+            &window,
+            surface,
+            &world_size,
+        ));
+
+        let frames_in_flight = Renderer::frames_in_flight();
         self.compute_engine = Some(
-            ComputeEngine::new(
-                vk_core.clone()
-            ).unwrap()
+            ComputeEngine::new(vk_core.clone(), frames_in_flight)
+                .unwrap()
         );
 
         self.world = Some(World::new(
             &vk_core,
             &world_size,
             self.renderer.as_ref().unwrap(),
-            self.compute_engine.as_ref().unwrap().command_pool()
         ));
 
         self.vk_core = Some(vk_core);
         self.window = Some(window);
-        
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -112,69 +100,130 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => {
                 println!("The close button was pressed; stopping");
                 unsafe {
-                    self.vk_core.as_ref().unwrap().device().device_wait_idle()
+                    self.vk_core
+                        .as_ref()
+                        .unwrap()
+                        .device()
+                        .device_wait_idle()
                         .unwrap();
                 }
                 event_loop.exit();
-            },
+            }
             WindowEvent::Resized(_logical_size) => {
                 self.window_resized = true;
-                self.renderer.as_mut().unwrap().resize_window(self.window.as_ref().unwrap());
+                self.renderer
+                    .as_mut()
+                    .unwrap()
+                    .resize_window(self.window.as_ref().unwrap());
             }
 
             WindowEvent::RedrawRequested => {
-                if !self.paused{
-                    self.world.as_mut().unwrap().update(
-                        self.vk_core.as_ref().unwrap(),
-                        self.compute_engine.as_ref().unwrap(),
-                    );
-                }
-                
-                self.window.as_ref().unwrap().request_redraw();
-                self.renderer.as_mut().unwrap().draw_world(
-                    self.window.as_ref().unwrap(),
-                    self.world.as_ref().unwrap(),
-                    self.compute_engine.as_ref().unwrap().compute_finished_semaphore(self.paused)
+                // Wait for GPU and get safe indices
+                let Some((current_frame_idx, image_index)) = self.renderer.as_mut().unwrap().begin_frame(self.window.as_ref().unwrap()) else {
+                        return; // Minimized or out of date, skip this frame
+                };
+
+                // Update the current frame index from the compute engine
+                self.compute_engine.as_mut().unwrap().set_frame_index(current_frame_idx);
+
+
+                let vk_core = self.vk_core.as_ref().unwrap();
+                let compute_engine = self.compute_engine.as_mut().unwrap();
+                let renderer = self.renderer.as_mut().unwrap();
+                let world = self.world.as_mut().unwrap();
+
+                // Extract the rendering data
+                let render_data = world.extract_render_data();
+
+                // Record commands to the gpu
+                rayon::join(
+                    ||{
+                        if !self.paused {
+                            world.update(vk_core, compute_engine);
+                        }
+                    },
+                    ||{
+                        renderer.record_draw_commands(
+                            &render_data,
+                            image_index,
+                            current_frame_idx,
+                            self.paused
+                        );
+                    }
                 );
-            },
+
+
+                // Submit phase
+                if !self.paused {
+                    // Submit commands to the queue
+                    compute_engine.submit_to_queue(&[]);
+                    let gpu_profiler = compute_engine.gpu_profiler();
+                    let timings = gpu_profiler
+                        .get_results(vk_core.device())
+                        .unwrap_or_default();
+                    for (i, time) in timings.iter().enumerate() {
+                        if *time != 0.0 {
+                            println!("Pass {}: {:.4} ms", i, time);
+                        }
+                    }
+                }
+
+                self.window.as_ref().unwrap().request_redraw();
+                self.renderer.as_mut().unwrap().submit_and_present(
+                        self.compute_engine.as_ref().unwrap().compute_finished_semaphore(self.paused),
+                        current_frame_idx,
+                        image_index
+                );
+            }
             WindowEvent::KeyboardInput {
                 event:
-                KeyEvent {
-                    physical_key: PhysicalKey::Code(code),
-                    state: key_state,
-                    ..
-                },
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state: key_state,
+                        ..
+                    },
                 ..
             } => input_manager::process_keyboard_input(self, event_loop, &code, &key_state),
-            WindowEvent::CursorMoved { position, .. } => input_manager::process_cursor_moved(self, &position),
-            WindowEvent::MouseInput {state: mouse_state, button: mouse_button, ..} => input_manager::process_mouse_input(self, &mouse_state, &mouse_button),
-            WindowEvent::MouseWheel { delta, .. } => input_manager::process_mouse_wheel(self, delta),
+            WindowEvent::CursorMoved { position, .. } => {
+                input_manager::process_cursor_moved(self, &position)
+            }
+            WindowEvent::MouseInput {
+                state: mouse_state,
+                button: mouse_button,
+                ..
+            } => input_manager::process_mouse_input(self, &mouse_state, &mouse_button),
+            WindowEvent::MouseWheel { delta, .. } => {
+                input_manager::process_mouse_wheel(self, delta)
+            }
             _ => (),
         }
     }
-    
 }
 
-
 impl App {
-    pub fn move_camera(&mut self, key: KeyCode, is_pressed: bool){
+    pub fn move_camera(&mut self, key: KeyCode, is_pressed: bool) {
         self.renderer.as_mut().unwrap().move_camera(key, is_pressed);
     }
-    pub fn zoom_camera(&mut self, mouse_scroll_delta: MouseScrollDelta){
-        self.renderer.as_mut().unwrap().zoom_camera(mouse_scroll_delta);
+    pub fn zoom_camera(&mut self, mouse_scroll_delta: MouseScrollDelta) {
+        self.renderer
+            .as_mut()
+            .unwrap()
+            .zoom_camera(mouse_scroll_delta);
     }
-    
+
     pub fn set_mouse_position(&mut self, position: Option<dpi::PhysicalPosition<f64>>) {
         self.mouse_position = position.unwrap();
-        self.renderer.as_mut().unwrap().set_camera_zoom_position(position);
+        self.renderer
+            .as_mut()
+            .unwrap()
+            .set_camera_zoom_position(position);
     }
-    
-    pub fn mouse_click(&mut self, button: &MouseButton, state: &ElementState){
+
+    pub fn mouse_click(&mut self, button: &MouseButton, state: &ElementState) {
         self.renderer.as_mut().unwrap().rotate_camera(button, state);
     }
-    
-    pub fn toggle_paused(&mut self){
+
+    pub fn toggle_paused(&mut self) {
         self.paused = !self.paused;
     }
-    
 }

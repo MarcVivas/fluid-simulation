@@ -3,7 +3,7 @@ pub struct PhysicsConfig {
     pub rest_density: f32,
     pub reversed_rest_density: f32,
     pub time_step: f32,
-    pub solver_iterations: u32,
+    pub solver_iterations: usize,
     pub lambda_density_epsilon: f32,
     pub k: f32,
     pub n: u32,

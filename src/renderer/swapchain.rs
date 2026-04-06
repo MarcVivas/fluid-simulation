@@ -4,20 +4,19 @@ use ash::{vk};
 use ash::prelude::VkResult;
 use ash::vk::{ComponentMapping, Extent2D};
 use crate::renderer::renderer::MAX_FRAME_LATENCY;
-use crate::vk_core::vk_core::VkCore;
+use crate::vulkan::vk_core::VkCore;
 use crate::renderer::surface::Surface;
-use crate::vk_utils::{ImageView};
+use crate::vulkan::vk_utils::{ImageView};
 
 pub struct Swapchain {
-    vk_core: Arc<VkCore>,
     swapchain_loader: ash::khr::swapchain::Device,
     swapchain: vk::SwapchainKHR,
     swapchain_images_view: Vec<ImageView>,
-    swapchain_images: Vec<vk::Image>, // Use raw handle here (exception) 
+    swapchain_images: Vec<vk::Image>, // Use raw handle here (exception)
 }
 
 impl Swapchain {
-    pub fn new(vk_core: Arc<VkCore>, surface: &Surface, window: &Window, old_swapchain: Option<&Swapchain>) -> Self {
+    pub fn new(vk_core: &Arc<VkCore>, surface: &Surface, window: &Window, old_swapchain: Option<&Swapchain>) -> Self {
         let old_handle = match old_swapchain {
             Some(old_swapchain) => old_swapchain.vk_swapchain(),
             None => vk::SwapchainKHR::null(),
@@ -57,17 +56,26 @@ impl Swapchain {
             *vk_core.physical_device()
         ).expect("failed to get surface present modes");
 
-        // V-sync on -> vk::PresentModeKHR::FIFO or MAILBOX
-        // V-sync off -> vk::PresentModeKHR::IMMEDIATE
-        let presentation_mode = presentation_modes
-            .iter()
-            .cloned()
-            .find(|&mode| mode == vk::PresentModeKHR::IMMEDIATE)
-            .unwrap_or(vk::PresentModeKHR::FIFO);
+
+        // V-sync on -> vk::PresentModeKHR::FIFO
+        // V-sync off -> vk::PresentModeKHR::IMMEDIATE or MAILBOX
+        let presentation_mode = if presentation_modes.contains(&vk::PresentModeKHR::MAILBOX) {
+            vk::PresentModeKHR::MAILBOX
+        }
+        else if presentation_modes.contains(&vk::PresentModeKHR::IMMEDIATE) {
+            vk::PresentModeKHR::IMMEDIATE
+        }
+        else if presentation_modes.contains(&vk::PresentModeKHR::FIFO){
+            vk::PresentModeKHR::FIFO
+        }
+        else {
+            vk::PresentModeKHR::FIFO_RELAXED
+        };
 
         let pre_transform = if surface_capabilities
             .supported_transforms
-            .contains(vk::SurfaceTransformFlagsKHR::IDENTITY) {
+            .contains(vk::SurfaceTransformFlagsKHR::IDENTITY)
+        {
             vk::SurfaceTransformFlagsKHR::IDENTITY
         }
         else {
@@ -90,17 +98,14 @@ impl Swapchain {
             .image_array_layers(1)
             .old_swapchain(old_handle);
 
-
         let swapchain = unsafe {
             swapchain_loader.create_swapchain(&swapchain_create_info, None)
         }.expect("failed to create swapchain");
-        
-        
 
         let swapchain_images: Vec<vk::Image> = unsafe {
             swapchain_loader.get_swapchain_images(swapchain.clone())
         }.expect("failed to get swapchain images");
-        
+
 
         let swapchain_images_view: Vec<ImageView> = swapchain_images
             .iter()
@@ -122,12 +127,11 @@ impl Swapchain {
                         layer_count: 1,
                     })
                     .image(*image);
-                
+
                 ImageView::new(vk_core.clone(), &create_view_info).unwrap()
             }).collect();
 
         Self {
-            vk_core,
             swapchain_loader,
             swapchain,
             swapchain_images_view,
@@ -161,7 +165,7 @@ impl Swapchain {
             self.swapchain_loader.queue_present(queue, present_info)
         }
     }
-    
+
     pub fn images(&self) -> &[vk::Image] {
         &self.swapchain_images
     }

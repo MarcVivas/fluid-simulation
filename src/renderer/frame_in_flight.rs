@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use ash::{vk, Device};
-use crate::vk_core::vk_core::VkCore;
+use crate::vulkan::vk_core::VkCore;
 
 /// Holds all semaphores and fences used for synchronization
 /// Fences are for CPU <-> GPU synchronization

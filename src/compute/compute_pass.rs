@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use ash::vk;
-use crate::vk_core::VkCore;
-use crate::vk_utils::{CommandBuffer, PipelineLayout};
+use crate::vulkan::vk_core::VkCore;
+use crate::vulkan::vk_utils::{CommandBuffer, PipelineLayout};
 
 pub struct ComputePass {
     vk_core: Arc<VkCore>,
@@ -136,9 +136,6 @@ impl ComputePass {
         self.dispatch(device, cmd_buffer.vk_cmd_buffer(), thread_groups);
     }
    
-    pub fn pipeline_layout(&self) -> &PipelineLayout {
-        &self.pipeline_layout
-    }
     
 }
 

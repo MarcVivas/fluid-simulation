@@ -1,5 +1,5 @@
 use ash::vk;
-use crate::vk_utils::CommandBuffer;
+use crate::vulkan::vk_utils::CommandBuffer;
 
 pub trait Drawable {
     fn draw(&self, cmd_buffer: &CommandBuffer);

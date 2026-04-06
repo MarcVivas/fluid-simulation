@@ -13,3 +13,5 @@ pub use drawable::Drawable;
 
 mod graphics_pipeline;
 pub use graphics_pipeline::GraphicsPipeline;
+
+pub use window_render_target::WindowRenderTarget;

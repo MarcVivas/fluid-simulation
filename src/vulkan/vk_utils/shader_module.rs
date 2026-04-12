@@ -1,6 +1,6 @@
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::shader_loader::get_shader_bytecode;
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 
 use ash::vk;
 use std::sync::Arc;
@@ -12,8 +12,8 @@ pub struct ShaderModule {
 }
 
 impl ShaderModule {
-    pub fn new(vk_core: Arc<VkCore>, shader_name: &str, compile_time_constants: &ShaderCompileTimeConstants) -> Self {
-        let spirv_code = get_shader_bytecode(shader_name, compile_time_constants); 
+    pub fn new(vk_core: Arc<VkCore>, shader_name: &str, compile_time_constants: Option<&ShaderCompileTimeConstants>) -> Self {
+        let spirv_code = get_shader_bytecode(shader_name, compile_time_constants.unwrap_or(&ShaderCompileTimeConstants::default())); 
                 
         let shader_create_info = ash::vk::ShaderModuleCreateInfo::default()
             .code(&spirv_code);

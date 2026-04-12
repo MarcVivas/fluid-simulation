@@ -2,13 +2,12 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct ShaderCompileTimeConstants {
-    // Keep CStrings alive so their pointers remain valid for Slang
     entries: HashMap<String, String>,
 }
 
 impl ShaderCompileTimeConstants {
     pub fn new() -> Self {
-            Self::default()
+        Self::default()
     }
     pub fn add(mut self, key: &str, value: impl ToString) -> Self {
         self.entries.insert(key.to_string(), value.to_string());

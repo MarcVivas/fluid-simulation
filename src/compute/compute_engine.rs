@@ -142,6 +142,11 @@ impl ComputeEngine {
         }
         None
     }
+    
+    pub fn command_pool(&self) -> vk::CommandPool {
+        self.compute_command_pool.vk_cmd_pool()
+    }
+
 }
 
 impl Drop for ComputeEngine {

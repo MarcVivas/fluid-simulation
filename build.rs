@@ -1,17 +1,31 @@
-use std::{
-    env,
-    fs::File,
-    io::Write,
-    path::PathBuf,
-};
 
-use shader_slang::Downcast;
 
+/// In debug mode, the shaders are compiled at RUNTIME
+#[cfg(debug_assertions)]
+fn main(){
+    
+}
+
+// End debug mode
+
+
+// In release mode, the shaders are compiled at COMPILE TIME
+#[cfg(not(debug_assertions))]
 const SHADERS_PATH: &str = "src/shaders";
 
 /// The build file compiles all the shaders in the shaders folder. 
 /// Executed automatically after compiling the project and before running it.  
+#[cfg(not(debug_assertions))]
 fn main() {
+    use std::{
+        env,
+        fs::File,
+        io::Write,
+        path::PathBuf,
+    };
+    
+    use shader_slang::Downcast;
+    
     println!("cargo:rerun-if-changed={}", SHADERS_PATH);
     let global_session = shader_slang::GlobalSession::new().unwrap();
     let search_path = std::ffi::CString::new(SHADERS_PATH).unwrap();
@@ -46,6 +60,7 @@ fn main() {
 }
 
 
+#[cfg(not(debug_assertions))]
 fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     let module = session.load_module(&file_name.to_string()).unwrap();
 
@@ -91,3 +106,5 @@ fn load_module(session: &mut shader_slang::Session, file_name: &str) {
     println!("cargo:rustc-env={file_name}.spv={path_str}");
     println!("cargo:warning=Compiled {file_name}! {length} bytes, {entry_point_count} entry points.");
 }
+
+// End of release mode

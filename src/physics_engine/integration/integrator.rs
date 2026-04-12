@@ -4,7 +4,7 @@ use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use crate::compute::{ComputePass};
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::compute::ComputeSystemBuilder;
 use crate::vulkan::vk_core::VkCore;
@@ -28,7 +28,7 @@ impl Integrator{
 
     pub fn new(vk_core: &Arc<VkCore>) -> VkResult<Self> {
 
-        let (integration_pass, integration_shader) = ComputeSystemBuilder::new(vk_core.clone(), "integration", ShaderCompileTimeConstants::default())
+        let (integration_pass, integration_shader) = ComputeSystemBuilder::new(vk_core.clone(), "integration")
             .push_constants::<IntegrationPushConstants>()
             .entry_points(&["main"])
             // Positions
@@ -101,7 +101,7 @@ impl Integrator{
             )
         ];
 
-        command_buffer.pipeline_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
     }
 
 }

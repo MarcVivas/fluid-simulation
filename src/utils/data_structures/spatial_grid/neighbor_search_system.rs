@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
@@ -22,7 +22,7 @@ struct NeighborSearchPushConstants {
 
 impl NeighborSearchSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let (neighbor_search_pass, neighbor_search_shader) = ComputeSystemBuilder::new(vk_core.clone(), "neighbor_search", ShaderCompileTimeConstants::default())
+        let (neighbor_search_pass, neighbor_search_shader) = ComputeSystemBuilder::new(vk_core.clone(), "neighbor_search")
             .entry_points(&["main"])
             .push_constants::<NeighborSearchPushConstants>()
             // Morton codes
@@ -83,7 +83,7 @@ impl NeighborSearchSystem {
                 .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
                 .subresource_range(range)
         ];
-        command_buffer.pipeline_barrier2(device, &[], &image_barrier);
+        command_buffer.pipeline_memory_barrier2(device, &[], &image_barrier);
     }
 
 }

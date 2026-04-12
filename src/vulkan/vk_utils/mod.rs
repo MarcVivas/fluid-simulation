@@ -13,7 +13,7 @@ pub use self::descriptor_pool::DescriptorPool;
 mod command_pool;
 pub use self::command_pool::CommandPool;
 
-mod barrier;
+mod gpu_synchronization;
 mod command_buffer;
 mod shader_module;
 mod vk_image;
@@ -23,7 +23,7 @@ mod image_view;
 use allocated_image::*;
 pub use image_view::*;
 
-pub use barrier::*;
+pub use gpu_synchronization::*;
 
 pub use shader_module::ShaderModule;
 
@@ -34,3 +34,5 @@ pub use gpu_profiler::GpuProfiler;
 
 mod query_pool;
 pub use query_pool::QueryPool;
+
+pub mod shader_constants;

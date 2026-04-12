@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
@@ -26,7 +26,7 @@ struct VorticityForceComputePushConstants {
 
 impl VorticityForceComputeSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let (vorticity_force_compute_pass, vorticity_force_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "vorticity_force_compute", ShaderCompileTimeConstants::default())
+        let (vorticity_force_compute_pass, vorticity_force_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "vorticity_force_compute")
             .entry_points(&["main"])
             .push_constants::<VorticityForceComputePushConstants>()
             // Read positions 
@@ -113,6 +113,6 @@ impl VorticityForceComputeSystem {
                 .dst_stage_mask(vk::PipelineStageFlags2::CLEAR)
                 .subresource_range(range)
         ];
-        command_buffer.pipeline_barrier2(device, &buffer_barriers, &image_barrier);
+        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &image_barrier);
     }
 }

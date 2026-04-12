@@ -5,7 +5,7 @@ use crate::renderer::GraphicsPipeline;
 use crate::world::world_objects::{particles::ParticleRenderData};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{CommandBuffer, PipelineLayout, ShaderModule, pipeline_layout::DescriptorSetLayoutConfig};
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::renderer::WindowRenderTarget;
 
 #[allow(unused)]
@@ -24,11 +24,11 @@ impl ParticleDrawingSystem {
     ) -> Self {
         
         
-        let task_shader_module = ShaderModule::new(vk_core.clone(), "particle_task_shader", &ShaderCompileTimeConstants::default());
+        let task_shader_module = ShaderModule::new(vk_core.clone(), "particle_task_shader", None);
 
-        let mesh_shader_module = ShaderModule::new(vk_core.clone(), "particle_mesh_shader", &ShaderCompileTimeConstants::default());
+        let mesh_shader_module = ShaderModule::new(vk_core.clone(), "particle_mesh_shader", None);
 
-        let fragment_shader_module = ShaderModule::new(vk_core.clone(), "particle_fragment_shader", &ShaderCompileTimeConstants::default());
+        let fragment_shader_module = ShaderModule::new(vk_core.clone(), "particle_fragment_shader", None);
 
         let shader_stage_create_infos = vec![
             vk::PipelineShaderStageCreateInfo::default()

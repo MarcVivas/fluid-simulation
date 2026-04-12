@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
@@ -34,7 +34,7 @@ impl DensityComputeSystem{
 
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
 
-        let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute", ShaderCompileTimeConstants::default())
+        let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute")
             .entry_points(&["main"])
             .push_constants::<DensityComputePushConstants>()
             // Packed positions
@@ -117,7 +117,7 @@ impl DensityComputeSystem{
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             ),
         ];
-        command_buffer.pipeline_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
     }
 
 }

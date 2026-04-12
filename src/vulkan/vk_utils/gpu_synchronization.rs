@@ -1,4 +1,5 @@
 use ash::vk;
+use crate::vulkan::vk_utils::CommandBuffer;
 
 pub fn compute_buffer_barrier(
     buffer: vk::Buffer,
@@ -72,4 +73,18 @@ pub fn transition_image_layout(
             base_array_layer: 0,
             layer_count: 1,
         })
+}
+
+
+pub fn global_sync_compute(device: &ash::Device, cmd: &CommandBuffer) {
+    let barrier = [vk::MemoryBarrier2::default()
+        // What are we waiting for? (The previous dispatch)
+        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+        
+        // What are we blocking? (The next dispatch)
+        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)];
+    
+    cmd.pipeline_global_barrier2(device, &barrier);
 }

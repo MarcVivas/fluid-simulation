@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Vec3};
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
@@ -35,7 +35,7 @@ struct ConstraintSolverPushConstants {
 
 impl ConstraintSolverSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let (constraint_solver_pass, constraint_solver_shader) = ComputeSystemBuilder::new(vk_core.clone(), "constraint_solver", ShaderCompileTimeConstants::default())
+        let (constraint_solver_pass, constraint_solver_shader) = ComputeSystemBuilder::new(vk_core.clone(), "constraint_solver")
             .entry_points(&["main"])
             .push_constants::<ConstraintSolverPushConstants>()
             // Read positions 
@@ -114,7 +114,7 @@ impl ConstraintSolverSystem {
         ];
 
        
-        command_buffer.pipeline_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
     }
     
 }

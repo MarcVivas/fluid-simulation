@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use ash::vk::PushConstantRange;
 use crate::compute::ComputePass;
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{DescriptorSetLayoutConfig, PipelineLayout, ShaderModule};
 
@@ -14,7 +14,7 @@ pub struct ComputeSystemBuilder {
     entry_points: Vec<&'static str>,
     bindings: Vec<vk::DescriptorSetLayoutBinding<'static>>,
     push_constant_size: Option<u32>,
-    compile_time_constants: ShaderCompileTimeConstants
+    compile_time_constants: Option<ShaderCompileTimeConstants>
 }
 
 pub struct ComputeSystemResources {
@@ -23,14 +23,14 @@ pub struct ComputeSystemResources {
 }
 
 impl ComputeSystemBuilder {
-    pub fn new(vk_core: Arc<VkCore>, shader_name: impl Into<String>, compile_time_constants: ShaderCompileTimeConstants) -> ComputeSystemBuilder {
+    pub fn new(vk_core: Arc<VkCore>, shader_name: impl Into<String>) -> ComputeSystemBuilder {
         Self {
             vk_core,
             shader_name: shader_name.into(),
             entry_points: vec![],
             bindings: vec![],
             push_constant_size: None,
-            compile_time_constants: compile_time_constants
+            compile_time_constants: None
         }
     }
 
@@ -49,6 +49,11 @@ impl ComputeSystemBuilder {
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
         );
         self
+    }
+    
+    pub fn compile_time_constants(mut self, compile_time_constants: ShaderCompileTimeConstants) -> Self {
+        self.compile_time_constants = Some(compile_time_constants);
+        self        
     }
 
     pub fn push_constants<T: bytemuck::Pod>(mut self) -> Self{
@@ -78,7 +83,7 @@ impl ComputeSystemBuilder {
             return Err("ComputeSystemBuilder::build() failed".into());
         }
         
-        let shader = ShaderModule::new(self.vk_core.clone(), &self.shader_name, &self.compile_time_constants);
+        let shader = ShaderModule::new(self.vk_core.clone(), &self.shader_name, self.compile_time_constants.as_ref());
 
         let descriptor_config = [
             DescriptorSetLayoutConfig {

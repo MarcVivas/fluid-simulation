@@ -315,7 +315,7 @@ impl Renderer {
                 .buffer(shared_buffer)
                 .size(vk::WHOLE_SIZE)];
 
-            cmd_buffer.pipeline_barrier2(self.vk_core.device(), &acquire_from_compute, &[]);
+            cmd_buffer.pipeline_memory_barrier2(self.vk_core.device(), &acquire_from_compute, &[]);
         }
 
         // TRANSITION TO RENDER TARGET
@@ -346,7 +346,7 @@ impl Renderer {
         );
 
         // Submit them both at the exact same time
-        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &[], &[color_barrier, depth_barrier]);
+        cmd_buffer.pipeline_memory_barrier2(self.vk_core.device(), &[], &[color_barrier, depth_barrier]);
 
         let color_attachment_info = [vk::RenderingAttachmentInfo::default()
             .image_view(current_image_view)
@@ -404,7 +404,7 @@ impl Renderer {
             .buffer(shared_buffer)
             .size(vk::WHOLE_SIZE)];
 
-        cmd_buffer.pipeline_barrier2(self.vk_core.device(), &release_to_compute, &[image_barrier]);
+        cmd_buffer.pipeline_memory_barrier2(self.vk_core.device(), &release_to_compute, &[image_barrier]);
 
         // Finished recording commands
         cmd_buffer

@@ -19,6 +19,7 @@ const REQUIRED_DEVICE_EXTENSIONS: &[&CStr] = &[
     ash::khr::synchronization2::NAME,
     ash::ext::scalar_block_layout::NAME,
     ash::khr::push_descriptor::NAME,
+    ash::khr::buffer_device_address::NAME, 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     ash::khr::portability_subset::NAME,
 ];
@@ -35,6 +36,7 @@ pub struct VkCore {
     gpu_allocator: Option<Mutex<Allocator>>,
     push_descriptor: ash::khr::push_descriptor::Device,
     mesh_shader_loader: Option<ash::ext::mesh_shader::Device>,
+    buffer_device_address_loader: ash::khr::buffer_device_address::Device
 }
 
 impl VkCore {
@@ -77,6 +79,7 @@ impl VkCore {
 
         let push_descriptor = ash::khr::push_descriptor::Device::new(&instance, &device);
         let mesh_shader_loader = Some(ash::ext::mesh_shader::Device::new(&instance, &device));
+        let bda_loader = ash::khr::buffer_device_address::Device::new(&instance, &device);
 
         Self {
             _entry: entry,
@@ -89,7 +92,8 @@ impl VkCore {
             physical_device,
             debug_messenger,
             push_descriptor,
-            mesh_shader_loader
+            mesh_shader_loader,
+            buffer_device_address_loader: bda_loader
         }
     }
 
@@ -275,6 +279,10 @@ impl VkCore {
     
     pub fn mesh_shader_loader(&self) -> Option<&ash::ext::mesh_shader::Device> {
         self.mesh_shader_loader.as_ref()
+    }
+    
+    pub fn buffer_device_address_loader(&self) -> &ash::khr::buffer_device_address::Device {
+        &self.buffer_device_address_loader
     }
 }
 

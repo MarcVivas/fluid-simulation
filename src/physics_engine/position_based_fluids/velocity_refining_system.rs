@@ -2,7 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
@@ -27,7 +27,7 @@ struct VelocityRefiningPushConstants {
 
 impl VelocityRefiningSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let (velocity_refining_pass, velocity_refining_shader) = ComputeSystemBuilder::new(vk_core.clone(), "velocity_refining", ShaderCompileTimeConstants::default())
+        let (velocity_refining_pass, velocity_refining_shader) = ComputeSystemBuilder::new(vk_core.clone(), "velocity_refining")
             .entry_points(&["main"])
             .push_constants::<VelocityRefiningPushConstants>()
             // Read positions
@@ -105,6 +105,6 @@ impl VelocityRefiningSystem {
                 vk::AccessFlags2::SHADER_STORAGE_WRITE
             ),
         ];
-        command_buffer.pipeline_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
     }
 }

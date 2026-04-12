@@ -3,7 +3,7 @@ use ash::prelude::VkResult;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use crate::compute::{ComputeSystemBuilder, ComputePass};
-use crate::vulkan::shader_compiler::shader_constants::ShaderCompileTimeConstants;
+use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::ParticleData};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};
@@ -24,7 +24,7 @@ pub struct MortonEncodingPushConstants {
 
 impl MortonEncodingSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> VkResult<Self> {
-        let (morton_encoding_pass, morton_encoding_shader) = ComputeSystemBuilder::new(vk_core.clone(), "morton_encoding", ShaderCompileTimeConstants::default())
+        let (morton_encoding_pass, morton_encoding_shader) = ComputeSystemBuilder::new(vk_core.clone(), "morton_encoding")
             .entry_points(&["main"])
             .push_constants::<MortonEncodingPushConstants>()
             // Positions
@@ -92,5 +92,5 @@ fn barrier(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, morton_codes: vk::
             vk::AccessFlags2::SHADER_STORAGE_READ
         )
     ];
-    cmd_buffer.pipeline_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
+    cmd_buffer.pipeline_memory_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
 }

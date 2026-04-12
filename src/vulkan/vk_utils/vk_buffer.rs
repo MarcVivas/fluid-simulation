@@ -13,6 +13,7 @@ pub struct VkBuffer<T: Copy> {
     buffer: AllocatedBuffer,
     len: usize,
     _phantom_data: PhantomData<T>,
+    address: u64    // Gpu address
 }
 
 impl<T: Copy> VkBuffer<T> {
@@ -52,7 +53,7 @@ impl<T: Copy> VkBuffer<T> {
 
         // Create the gpu only buffer
         let buffer_create_info = vk::BufferCreateInfo {
-            usage: buffer_create_info.usage | vk::BufferUsageFlags::TRANSFER_DST,
+            usage: buffer_create_info.usage | vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             ..buffer_create_info
         };
 
@@ -121,7 +122,9 @@ impl<T: Copy> VkBuffer<T> {
             device.destroy_fence(fence, None);
             device.free_command_buffers(command_pool, &[command_buffer]);
         }
-
+        
+        
+        let address: u64 = Self::get_address(vk_core, allocated_buffer.vk_buffer());
 
         Ok(
             Self
@@ -129,6 +132,7 @@ impl<T: Copy> VkBuffer<T> {
                 buffer: allocated_buffer,
                 len,
                 _phantom_data: PhantomData,
+                address: address
             }
         )
     }
@@ -142,7 +146,7 @@ impl<T: Copy> VkBuffer<T> {
     ) -> Result<Self, Box<dyn Error>>{
         // Create the gpu buffer
         let buffer_create_info = vk::BufferCreateInfo {
-            usage: buffer_create_info.usage | vk::BufferUsageFlags::TRANSFER_DST,
+            usage: buffer_create_info.usage | vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             ..buffer_create_info
         };
 
@@ -152,11 +156,15 @@ impl<T: Copy> VkBuffer<T> {
             &allocation_create_desc
         )?;
 
+        
+        let address: u64 = Self::get_address(vk_core, allocated_buffer.vk_buffer());
+
         Ok(
             Self{
                 buffer: allocated_buffer,
                 len,
                 _phantom_data: PhantomData,
+                address
             }
         )
     }
@@ -342,6 +350,19 @@ impl<T: Copy> VkBuffer<T> {
             device.free_command_buffers(command_pool, &[cmd]);
 
             Ok(result)
+        }
+    }
+    
+    
+    pub fn address(&self) -> u64 {
+        self.address
+    }
+    
+    fn get_address(vk_core: &Arc<VkCore>, buffer: vk::Buffer) -> u64 {
+        unsafe {
+            vk_core.buffer_device_address_loader().get_buffer_device_address(
+                &vk::BufferDeviceAddressInfo::default().buffer(buffer)
+            )
         }
     }
 }

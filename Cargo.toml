@@ -2,7 +2,7 @@
 opt-level = 1
 
 [package]
-name = "vulkan"
+name = "engine"
 version = "0.1.0"
 edition = "2024"
 

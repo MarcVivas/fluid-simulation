@@ -2,7 +2,7 @@ use crate::compute::ComputeEngine;
 use crate::physics_engine::PhysicsConfig;
 use crate::world::world_objects::{particles::Particles, particles::RearrangingSystem};
 use crate::utils::data_structures::spatial_grid::*;
-use crate::utils::gpu_algorithms::{sorting::kv_radix_sort::SortingSystem, morton_encoding::MortonEncodingSystem};
+use crate::utils::gpu_algorithms::{sorting::kv_radix_sort::GpuKVRadixSort, morton_encoding::MortonEncodingSystem};
 use crate::physics_engine::integration::{Integrator, UpdateVelocitiesSystem};
 use crate::physics_engine::position_based_fluids::{DensityComputeSystem, VelocityRefiningSystem, VorticityForceComputeSystem};
 use crate::physics_engine::position_based_dynamics::{ConstraintSolverSystem};
@@ -15,7 +15,7 @@ use std::sync::Arc;
 pub struct PhysicsEngine {
     physics_config: PhysicsConfig,
     morton_encoding_system: MortonEncodingSystem,
-    sorting_system: SortingSystem,
+    sorting_system: GpuKVRadixSort,
     integration_system: Integrator,
     rearranging_system: RearrangingSystem,
     grid_construction_system: GridConstructionSystem,
@@ -38,8 +38,7 @@ impl PhysicsEngine {
         let max_morton_bits = Some(spatial_grid.num_bits_needed_for_morton_codes());
         let morton_encoding_system = MortonEncodingSystem::new(vk_core)?;
         let integration_system = Integrator::new(vk_core)?;
-        let sorting_system =
-            SortingSystem::new(vk_core, max_objects, max_morton_bits)?;
+        let sorting_system = GpuKVRadixSort::new(vk_core, max_objects, max_morton_bits)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
         let grid_construction_system = GridConstructionSystem::new(vk_core)?;
         let neighbor_search_system = NeighborSearchSystem::new(vk_core)?;
@@ -93,7 +92,7 @@ impl PhysicsEngine {
                     .buffer(particles.buffers().positions_buffer.current().vk_buffer())
                     .size(vk::WHOLE_SIZE)];
 
-                command_buffer.pipeline_barrier2(vk_core.device(), &acquire_from_graphics, &[]);
+                command_buffer.pipeline_memory_barrier2(vk_core.device(), &acquire_from_graphics, &[]);
             } else {
                 self.first_frame = false;
                 let image_barrier = [vk::ImageMemoryBarrier2::default()
@@ -111,7 +110,7 @@ impl PhysicsEngine {
                         base_array_layer: 0,
                         layer_count: 1,
                     })];
-                command_buffer.pipeline_barrier2(vk_core.device(), &[], &image_barrier);
+                command_buffer.pipeline_memory_barrier2(vk_core.device(), &[], &image_barrier);
             }
             let particle_data = particles.buffers();
             self.integration_system.execute(

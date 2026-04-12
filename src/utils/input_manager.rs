@@ -2,7 +2,7 @@ use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode};
-use crate::App;
+use crate::app::App;
 
 /// Manages keyboard inputs from the user
 pub fn process_keyboard_input(app: &mut App, event_loop: &ActiveEventLoop, code: &KeyCode, key_state: &ElementState) {

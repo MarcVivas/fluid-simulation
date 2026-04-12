@@ -1,19 +1,17 @@
 
 // -----------------------------------------------------------------------------
-// Constants
-// -----------------------------------------------------------------------------
-static const uint ELEMENTS_PER_THREAD = 4;
-static const uint THREAD_GROUP_SIZE = 128;
-static const uint BITS_PER_PASS = 4;
-static const uint BIN_COUNT = 1 << BITS_PER_PASS; // 1 << 4 2^4
-static const uint BLOCK_SIZE = ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
-
-// -----------------------------------------------------------------------------
 // Resources
 // -----------------------------------------------------------------------------
 
-struct SortingPushConstants
-{
+struct SortingPushConstants {
+    Ptr<uint32_t, Access.Read> src_keys;
+    uint* dst_keys;
+    Ptr<uint32_t, Access.Read> src_payload;
+    uint* dst_payload;
+    uint* histogram;
+    uint* reduce_table;
+    uint* scan_scratch;
+
     uint num_keys;
     int  num_blocks_per_thread_group;
     uint num_thread_groups;
@@ -24,18 +22,8 @@ struct SortingPushConstants
     uint padding;
 };
 
-// Use Push Constants for data
 [[vk::push_constant]] SortingPushConstants push_constants;
 
-// Bindings match your Rust DescriptorSetLayout
-// 0: SrcKey, 1: DstKey, 2: SrcPayload, 3: DstPayload, 4: Histogram(histogram), 5: ReduceTable
-[[vk::binding(0, 0)]] RWStructuredBuffer<uint> SrcKeys;
-[[vk::binding(1, 0)]] RWStructuredBuffer<uint> DstKeys;
-[[vk::binding(2, 0)]] RWStructuredBuffer<uint> SrcPayload;
-[[vk::binding(3, 0)]] RWStructuredBuffer<uint> DstPayload;
-[[vk::binding(4, 0)]] RWStructuredBuffer<uint> histogram;
-[[vk::binding(5, 0)]] RWStructuredBuffer<uint> ReduceTable;
-[[vk::binding(6, 0)]] RWStructuredBuffer<uint> scan_scratch;
 
 // -----------------------------------------------------------------------------
 // Shared Memory (LDS)
@@ -109,9 +97,9 @@ void scan_helper(
     const uint bin_offset,
     const bool add_partial_sums,
     const uint num_values_to_scan,
-    const RWStructuredBuffer<uint> scan_src_buffer,
-    const RWStructuredBuffer<uint> scan_dst_buffer,
-    const RWStructuredBuffer<uint> scan_scratch_buffer
+    uint32_t* scan_src_buffer,
+    uint32_t* scan_dst_buffer,
+    uint32_t* scan_scratch_buffer
 ){
 
     // Load shared memory
@@ -196,10 +184,10 @@ void count(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_Gr
 
         // Pre-load the key values in order to hide some of the read latency
         uint local_src_keys[ELEMENTS_PER_THREAD];
-        local_src_keys[0] = SrcKeys[data_index];
-        local_src_keys[1] = SrcKeys[data_index + THREAD_GROUP_SIZE];
-        local_src_keys[2] = SrcKeys[data_index + THREAD_GROUP_SIZE * 2];
-        local_src_keys[3] = SrcKeys[data_index + THREAD_GROUP_SIZE * 3];
+        local_src_keys[0] = push_constants.src_keys[data_index];
+        local_src_keys[1] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE];
+        local_src_keys[2] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2];
+        local_src_keys[3] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3];
 
         // For each local value
         for(uint i = 0; i < ELEMENTS_PER_THREAD; i++){
@@ -229,7 +217,7 @@ void count(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_Gr
 	    for(uint i = 0; i < THREAD_GROUP_SIZE; i++){
 	        sum += group_shared_histogram[thread_local_id * THREAD_GROUP_SIZE + i];
 	    }
-	    histogram[thread_local_id * push_constants.num_thread_groups + thread_group_id] = sum;
+	    push_constants.histogram[thread_local_id * push_constants.num_thread_groups + thread_group_id] = sum;
 	}
 
 }
@@ -251,14 +239,14 @@ void reduce(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_G
     uint thread_group_sum = 0;
     for(uint i = 0; i < ELEMENTS_PER_THREAD; ++i){
         uint data_index = base_index + (i * THREAD_GROUP_SIZE) + thread_local_id;
-        thread_group_sum += (data_index < push_constants.num_thread_groups) ? histogram[bin_offset + data_index] : 0;
+        thread_group_sum += (data_index < push_constants.num_thread_groups) ? push_constants.histogram[bin_offset + data_index] : 0;
     }
 
     thread_group_sum = thread_group_reduce(thread_group_sum, thread_local_id);
 
     // The leader of the thread group writes the reduced sum for the bin
     if(thread_local_id == 0){
-        ReduceTable[thread_group_id] = thread_group_sum;
+        push_constants.reduce_table[thread_group_id] = thread_group_sum;
     }
 
 }
@@ -279,9 +267,9 @@ void scan_reduce_table(const uint3 local_id : SV_GroupThreadID, const uint3 grou
         bin_offset,
         add_partial_sums,
         push_constants.num_scan_values,
-        ReduceTable,
-        ReduceTable,
-        scan_scratch
+        push_constants.reduce_table,
+        push_constants.reduce_table,
+        push_constants.scan_scratch
     );
 
 }
@@ -302,9 +290,9 @@ void scan_add(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV
             bin_offset,
             add_partial_sums,
             push_constants.num_thread_groups,
-            histogram,
-            histogram,
-            ReduceTable
+            push_constants.histogram,
+            push_constants.histogram,
+            push_constants.reduce_table
         );
 }
 
@@ -327,7 +315,7 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
 
     // Load the bin offsets from histogram to shared memory for faster referencing
     if (local_id < BIN_COUNT){
-        shared_bin_offsets[local_id] = histogram[local_id * push_constants.num_thread_groups + group_id];
+        shared_bin_offsets[local_id] = push_constants.histogram[local_id * push_constants.num_thread_groups + group_id];
     }
 
     // Wait for all the threads of the group to be done
@@ -352,15 +340,15 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
 
         // Pre-load values in local memory
         uint local_src_keys[ELEMENTS_PER_THREAD];
-        local_src_keys[0] = SrcKeys[data_index];
-        local_src_keys[1] = SrcKeys[data_index + THREAD_GROUP_SIZE];
-        local_src_keys[2] = SrcKeys[data_index + THREAD_GROUP_SIZE * 2];
-        local_src_keys[3] = SrcKeys[data_index + THREAD_GROUP_SIZE * 3];
+        local_src_keys[0] = push_constants.src_keys[data_index];
+        local_src_keys[1] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE];
+        local_src_keys[2] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2];
+        local_src_keys[3] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3];
         uint local_src_payload[ELEMENTS_PER_THREAD];
-        local_src_payload[0] = SrcPayload[data_index];
-        local_src_payload[1] = SrcPayload[data_index + THREAD_GROUP_SIZE];
-        local_src_payload[2] = SrcPayload[data_index + THREAD_GROUP_SIZE * 2];
-        local_src_payload[3] = SrcPayload[data_index + THREAD_GROUP_SIZE * 3];
+        local_src_payload[0] = push_constants.src_payload[data_index];
+        local_src_payload[1] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE];
+        local_src_payload[2] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 2];
+        local_src_payload[3] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 3];
 
         // For each element
         for (uint i = 0; i < ELEMENTS_PER_THREAD; i++){
@@ -457,8 +445,8 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
             const uint total_offset = global_offset + local_offset;
 
             if(total_offset < push_constants.num_keys){
-                DstKeys[total_offset] = local_key;
-                DstPayload[total_offset] = local_value;
+                push_constants.dst_keys[total_offset] = local_key;
+                push_constants.dst_payload[total_offset] = local_value;
             }
 
             GroupMemoryBarrierWithGroupSync();
@@ -472,6 +460,4 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
         }
 
     }
-
-
 }

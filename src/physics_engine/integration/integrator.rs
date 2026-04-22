@@ -4,11 +4,12 @@ use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use crate::compute::{ComputePass};
+use crate::traits::{GpuTask, ShaderName};
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::compute::ComputeSystemBuilder;
 use crate::vulkan::vk_core::VkCore;
-use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};
+use crate::vulkan::vk_utils::{CommandBuffer, ShaderModule, compute_buffer_barrier};
 
 pub struct Integrator{
     integration_pass: ComputePass,
@@ -28,7 +29,7 @@ impl Integrator{
 
     pub fn new(vk_core: &Arc<VkCore>) -> VkResult<Self> {
 
-        let (integration_pass, integration_shader) = ComputeSystemBuilder::new(vk_core.clone(), "integration")
+        let (integration_pass, integration_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .push_constants::<IntegrationPushConstants>()
             .entry_points(&["main"])
             // Positions
@@ -104,4 +105,16 @@ impl Integrator{
         command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
     }
 
+}
+
+impl ShaderName for Integrator {
+    fn shader_name() -> &'static str {
+        return "integration"
+    }
+}
+
+impl GpuTask for Integrator {
+    fn profiling_label() -> &'static str {
+        "Integration"
+    }
 }

@@ -1,11 +1,14 @@
 use crate::compute::ComputeEngine;
+use crate::gpu_profile;
 use crate::physics_engine::PhysicsConfig;
+use crate::utils::gpu_profiler::GpuProfiler;
 use crate::world::world_objects::{particles::Particles, particles::RearrangingSystem};
 use crate::utils::data_structures::spatial_grid::*;
-use crate::utils::gpu_algorithms::{sorting::kv_radix_sort::GpuKVRadixSort, morton_encoding::MortonEncodingSystem};
+use crate::utils::gpu_algorithms::{sorting::kv_radix_sort::GpuKVRadixSort, morton_encoding::MortonEncoder};
 use crate::physics_engine::integration::{Integrator, UpdateVelocitiesSystem};
 use crate::physics_engine::position_based_fluids::{DensityComputeSystem, VelocityRefiningSystem, VorticityForceComputeSystem};
 use crate::physics_engine::position_based_dynamics::{ConstraintSolverSystem};
+use crate::traits::{GpuTask};
 
 use crate::vulkan::vk_core::VkCore;
 use ash::vk;
@@ -14,7 +17,7 @@ use std::sync::Arc;
 
 pub struct PhysicsEngine {
     physics_config: PhysicsConfig,
-    morton_encoding_system: MortonEncodingSystem,
+    morton_encoding_system: MortonEncoder,
     sorting_system: GpuKVRadixSort,
     integration_system: Integrator,
     rearranging_system: RearrangingSystem,
@@ -36,7 +39,7 @@ impl PhysicsEngine {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let max_objects: u32 = particles.len() as u32;
         let max_morton_bits = Some(spatial_grid.num_bits_needed_for_morton_codes());
-        let morton_encoding_system = MortonEncodingSystem::new(vk_core)?;
+        let morton_encoding_system = MortonEncoder::new(vk_core)?;
         let integration_system = Integrator::new(vk_core)?;
         let sorting_system = GpuKVRadixSort::new(vk_core, max_objects, max_morton_bits)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
@@ -74,13 +77,15 @@ impl PhysicsEngine {
         particles: &mut Particles,
         world_size: &Vec3,
         spatial_grid: &SpatialGrid,
+        gpu_profiler: &GpuProfiler,
     ) {
         let cell_size = spatial_grid.cell_size();
         let delta_time = self.physics_config.time_step;
 
-        let gpu_profiler = compute_engine.gpu_profiler();
 
         compute_engine.record_commands(|command_buffer| {
+      
+            
             if !self.first_frame {
                 let acquire_from_graphics = [vk::BufferMemoryBarrier2::default()
                     .src_stage_mask(vk::PipelineStageFlags2::MESH_SHADER_EXT)
@@ -113,37 +118,95 @@ impl PhysicsEngine {
                 command_buffer.pipeline_memory_barrier2(vk_core.device(), &[], &image_barrier);
             }
             let particle_data = particles.buffers();
-            self.integration_system.execute(
-                vk_core,
-                particles,
-                delta_time,
-                world_size,
-                command_buffer,
+            let device = vk_core.device();
+            let vk_cmd_buffer = command_buffer.vk_cmd_buffer();
+            
+            gpu_profile!(
+                device,
+                gpu_profiler,
+                vk_cmd_buffer,
+                Integrator::profiling_label(),
+                {
+                    self.integration_system.execute(
+                        vk_core,
+                        particles,
+                        delta_time,
+                        world_size,
+                        command_buffer,
+                    );
+                }
             );
-            self.morton_encoding_system.execute(
-                vk_core,
-                particle_data.morton_codes_buffer.len() as u32,
-                cell_size,
-                particle_data,
-                command_buffer,
+            
+            gpu_profile!(
+                device,
+                gpu_profiler,
+                vk_cmd_buffer,
+                MortonEncoder::profiling_label(),
+                {
+                    self.morton_encoding_system.execute(
+                        vk_core,
+                        particle_data.morton_codes_buffer.len() as u32,
+                        cell_size,
+                        particle_data.positions_buffer.current(),
+                        &particle_data.morton_codes_buffer,
+                        &particle_data.object_indices_buffer,
+                        command_buffer,
+                    );
+                }
             );
+            
+            gpu_profile!(
+                device,
+                gpu_profiler,
+                vk_cmd_buffer,
+                GpuKVRadixSort::profiling_label(),
+                {
+                    self.sorting_system.sort(
+                        vk_core,
+                        &particle_data.morton_codes_buffer,
+                        &particle_data.object_indices_buffer,
+                        command_buffer,
+                    );
+                }
+            );
+            
+            gpu_profile!(
+                device,
+                gpu_profiler,
+                vk_cmd_buffer,
+                RearrangingSystem::profiling_label(),
+                {
+                    self.rearranging_system
+                        .execute(vk_core, particle_data, command_buffer);
+                }
+            );
+            
 
-            gpu_profiler.timestamp(vk_core.device(), command_buffer.vk_cmd_buffer(), 0);
-            self.sorting_system.sort(
-                vk_core,
-                &particle_data.morton_codes_buffer,
-                &particle_data.object_indices_buffer,
-                command_buffer,
-            );
-            gpu_profiler.timestamp(vk_core.device(), command_buffer.vk_cmd_buffer(), 1);
-
-            self.rearranging_system
-                .execute(vk_core, particle_data, command_buffer);
             particles.buffers_mut().swap();
-            self.grid_construction_system
-                .execute(vk_core, command_buffer, spatial_grid, particles);
-            self.neighbor_search_system
-                .execute(vk_core, command_buffer, spatial_grid, particles);
+            
+            
+            gpu_profile!(
+                device,
+                gpu_profiler,
+                vk_cmd_buffer,
+                GridConstructionSystem::profiling_label(),
+                {
+                    self.grid_construction_system
+                        .execute(vk_core, command_buffer, spatial_grid, particles);
+                }
+            );
+            
+            gpu_profile!(
+                device,
+                gpu_profiler,
+                vk_cmd_buffer,
+                NeighborSearchSystem::profiling_label(),
+                {
+                    self.neighbor_search_system
+                        .execute(vk_core, command_buffer, spatial_grid, particles);
+                }
+            );
+
 
             for _ in 0..self.physics_config.solver_iterations {
                 self.density_compute_system.execute(

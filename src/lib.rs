@@ -6,3 +6,4 @@ pub mod utils;
 pub mod vulkan;
 pub mod world;
 pub mod app;
+pub mod traits; 

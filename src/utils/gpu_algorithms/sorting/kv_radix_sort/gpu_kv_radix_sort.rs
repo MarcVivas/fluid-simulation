@@ -1,8 +1,9 @@
 use crate::components::MortonCode;
 use crate::compute::{ComputePass, ComputeSystemBuilder};
+use crate::traits::GpuTask;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::vulkan::vk_core::VkCore;
-use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule, VkBuffer, global_sync_compute};
+use crate::vulkan::vk_utils::{CommandBuffer, ShaderModule, VkBuffer, compute_buffer_barrier, global_sync_compute};
 use crate::utils::gpu_algorithms::sorting::kv_radix_sort::radix_sort_data::RadixSortData;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
@@ -277,4 +278,11 @@ fn barrier_scatter_pass(
         ),
     ];
     cmd_buffer.pipeline_memory_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
+}
+
+
+impl GpuTask for GpuKVRadixSort {
+    fn profiling_label() -> &'static str {
+        "Radix sort"
+    }
 }

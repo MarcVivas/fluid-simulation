@@ -3,7 +3,6 @@ pub use vk_core::VkCore;
 mod debug_messenger;
 mod instance;
 mod queue_family_indices;
-pub mod test_context;
 
 use std::sync::Arc;
 use winit::raw_window_handle::HasDisplayHandle;

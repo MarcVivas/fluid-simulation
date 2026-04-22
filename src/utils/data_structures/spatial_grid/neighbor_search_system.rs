@@ -7,6 +7,8 @@ use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{CommandBuffer, ShaderModule};
+use crate::traits::{GpuTask, ShaderName};
+
 
 pub struct NeighborSearchSystem {
     neighbor_search_pass: ComputePass,
@@ -22,7 +24,7 @@ struct NeighborSearchPushConstants {
 
 impl NeighborSearchSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let (neighbor_search_pass, neighbor_search_shader) = ComputeSystemBuilder::new(vk_core.clone(), "neighbor_search")
+        let (neighbor_search_pass, neighbor_search_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .entry_points(&["main"])
             .push_constants::<NeighborSearchPushConstants>()
             // Morton codes
@@ -86,4 +88,17 @@ impl NeighborSearchSystem {
         command_buffer.pipeline_memory_barrier2(device, &[], &image_barrier);
     }
 
+}
+
+
+impl ShaderName for NeighborSearchSystem{
+    fn shader_name() -> &'static str {
+        "neighbor_search"
+    }
+}
+
+impl GpuTask for NeighborSearchSystem {
+    fn profiling_label() -> &'static str {
+        "Neighbor search"
+    }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::vulkan::vk_core::VkCore;
-use crate::vulkan::vk_utils::{CommandBuffer, GpuProfiler};
+use crate::vulkan::vk_utils::{CommandBuffer};
+use crate::utils::gpu_profiler::GpuProfiler;
 use ash::vk;
 use crate::compute::ComputeCommandPool;
 
@@ -11,7 +12,6 @@ pub struct ComputeEngine {
     semaphores: Vec<vk::Semaphore>,
     #[allow(unused)]
     compute_command_pool: ComputeCommandPool,
-    gpu_profiler: GpuProfiler,
     current_frame_index: usize,
 }
 
@@ -54,18 +54,13 @@ impl ComputeEngine {
             semaphores.push(unsafe { device.create_semaphore(&semaphore_info, None) }?);
         }
 
-
-        let max_zones = 1;
-        let gpu_profiler = GpuProfiler::new(vk_core.clone(), max_zones, frames_in_flight);
-
         Ok(
-            Self { vk_core, command_buffers, fences, semaphores, compute_command_pool, gpu_profiler, current_frame_index: 0 }
+            Self { vk_core, command_buffers, fences, semaphores, compute_command_pool, current_frame_index: 0 }
         )
 
     }
 
     pub fn set_frame_index(&mut self, frame_index: usize){
-        self.gpu_profiler.set_frame_index(frame_index);
         self.current_frame_index = frame_index;
     }
 
@@ -86,9 +81,6 @@ impl ComputeEngine {
             device,
             &vk::CommandBufferBeginInfo::default()
         ).unwrap();
-
-        // Reset query pool
-        self.gpu_profiler.reset(device, current_command_buffer.vk_cmd_buffer());
 
         // Call the recording function
         record_commands_fn(&current_command_buffer);
@@ -132,9 +124,6 @@ impl ComputeEngine {
         }
     }
 
-    pub fn gpu_profiler(&self) -> &GpuProfiler {
-        &self.gpu_profiler
-    }
 
     pub fn compute_finished_semaphore(&self, paused: bool) -> Option<vk::Semaphore> {
         if !paused {

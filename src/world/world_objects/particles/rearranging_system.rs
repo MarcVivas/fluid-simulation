@@ -5,7 +5,9 @@ use crate::compute::{ComputePass, ComputeSystemBuilder};
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::ParticleData};
 use crate::vulkan::vk_core::VkCore;
-use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};
+use crate::vulkan::vk_utils::{CommandBuffer, ShaderModule, compute_buffer_barrier};
+use crate::traits::{GpuTask, ShaderName};
+
 
 pub struct RearrangingSystem {
     rearranging_pass: ComputePass,
@@ -21,7 +23,7 @@ struct RearrangePushConstants {
 
 impl RearrangingSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
-        let (rearranging_pass, rearranging_shader) = ComputeSystemBuilder::new(vk_core.clone(), "rearrange")
+        let (rearranging_pass, rearranging_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .entry_points(&["main"])
             .push_constants::<RearrangePushConstants>()
             // Src Positions
@@ -96,5 +98,18 @@ impl RearrangingSystem {
         ];
         command_buffer.pipeline_memory_barrier2(device, &buffer_memory_barriers, &[]);
 
+    }
+}
+
+
+impl ShaderName for RearrangingSystem {
+    fn shader_name() -> &'static str {
+        "rearrange"
+    }
+}
+
+impl GpuTask for RearrangingSystem {
+    fn profiling_label() -> &'static str {
+        "Rearrange"
     }
 }

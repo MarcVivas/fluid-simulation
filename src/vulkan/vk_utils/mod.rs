@@ -29,10 +29,8 @@ pub use shader_module::ShaderModule;
 
 pub use self::command_buffer::CommandBuffer;
 
-mod gpu_profiler;
-pub use gpu_profiler::GpuProfiler;
-
 mod query_pool;
 pub use query_pool::QueryPool;
 
 pub mod shader_constants;
+

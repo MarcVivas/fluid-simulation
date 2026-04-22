@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use glam::{Vec3};
+use crate::utils::gpu_profiler::GpuProfiler;
 use crate::world::world_objects::particles::{Particles, ParticleRenderData};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::physics_engine::PhysicsEngine;
@@ -43,14 +44,15 @@ impl World{
     }
 
     /// Updates the world
-    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine){
+    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, gpu_profiler: &GpuProfiler){
         let world_size = self.world_size();
         self.physics_engine.update(
             vk_core,
             compute_engine,
             &mut self.particle_system,
             &world_size,
-            &self.spatial_grid
+            &self.spatial_grid,
+            gpu_profiler
         );
     }
 

@@ -132,7 +132,8 @@ impl VkCore {
         let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
         let mut scalar_alignment = vk::PhysicalDeviceScalarBlockLayoutFeatures::default().scalar_block_layout(true);
         let mut mesh_shader = vk::PhysicalDeviceMeshShaderFeaturesEXT::default().mesh_shader(true).task_shader(true);
-
+        let mut host_query_reset_features = vk::PhysicalDeviceHostQueryResetFeatures::default().host_query_reset(true);
+        
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
             .enabled_features(&features)
@@ -141,7 +142,8 @@ impl VkCore {
             .push_next(&mut buffer_device_address_features)
             .push_next(&mut dynamic_rendering_features)
             .push_next(&mut scalar_alignment)
-            .push_next(&mut mesh_shader);
+            .push_next(&mut mesh_shader)
+            .push_next(&mut host_query_reset_features);
 
         unsafe {
             instance.create_device(physical_device, &device_create_info, None)
@@ -191,13 +193,15 @@ impl VkCore {
         let mut dynamic_rendering = vk::PhysicalDeviceDynamicRenderingFeatures::default();
         let mut scalar_alignment = vk::PhysicalDeviceScalarBlockLayoutFeatures::default();
         let mut mesh_shader = vk::PhysicalDeviceMeshShaderFeaturesEXT::default();
+        let mut host_query_reset = vk::PhysicalDeviceHostQueryResetFeatures::default();
 
         let mut features2 = vk::PhysicalDeviceFeatures2::default()
             .push_next(&mut sync2)
             .push_next(&mut bda)
             .push_next(&mut dynamic_rendering)
             .push_next(&mut scalar_alignment)
-            .push_next(&mut mesh_shader);
+            .push_next(&mut mesh_shader)
+            .push_next(&mut host_query_reset);
 
         unsafe { instance.get_physical_device_features2(physical_device, &mut features2) };
 
@@ -207,6 +211,7 @@ impl VkCore {
             && scalar_alignment.scalar_block_layout == vk::TRUE
             && mesh_shader.mesh_shader == vk::TRUE
             && mesh_shader.task_shader == vk::TRUE
+            && host_query_reset.host_query_reset == vk::TRUE // Ensure it's supported
     }
 
     fn find_queue_families(instance: &Instance, physical_device: PhysicalDevice, surface: Option<&Surface>) -> QueueFamilyIndices {

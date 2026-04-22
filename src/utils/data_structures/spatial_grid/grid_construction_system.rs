@@ -2,6 +2,7 @@ use std::sync::Arc;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
+use crate::traits::{GpuTask, ShaderName};
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::{SpatialGrid, EMPTY_CELL};
@@ -25,7 +26,7 @@ struct GridConstructionPushConstants{
 impl GridConstructionSystem {
     pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
 
-        let (grid_construction_pass, grid_construction_shader) = ComputeSystemBuilder::new(vk_core.clone(), "grid_construction")
+        let (grid_construction_pass, grid_construction_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .entry_points(&["main"])
             .push_constants::<GridConstructionPushConstants>()
             // Morton codes
@@ -132,5 +133,18 @@ impl GridConstructionSystem {
                 .subresource_range(range)
         ];
         command_buffer.pipeline_memory_barrier2(device, &[], &image_barrier);
+    }
+}
+
+
+impl ShaderName for GridConstructionSystem{
+    fn shader_name() -> &'static str {
+        "grid_construction"
+    }
+}
+
+impl GpuTask for GridConstructionSystem {
+    fn profiling_label() -> &'static str {
+        "Grid construction"
     }
 }

@@ -1,5 +1,6 @@
 use crate::compute::ComputeEngine;
 use crate::renderer::renderer::Renderer;
+use crate::utils::gpu_profiler::GpuProfiler;
 use crate::utils::input_manager;
 use crate::vulkan::vk_core::init_with_window;
 use crate::vulkan::vk_core::VkCore;
@@ -23,7 +24,9 @@ pub struct App {
     paused: bool,
     world: Option<World>,
     compute_engine: Option<ComputeEngine>,
+    gpu_profiler: Option<GpuProfiler>,
     mouse_position: dpi::PhysicalPosition<f64>,
+    total_frames_proccessed: u64
 }
 
 impl App {
@@ -33,10 +36,12 @@ impl App {
             vk_core: None,
             renderer: None,
             world: None,
+            gpu_profiler: None,
             window_resized: false,
             paused: true,
             mouse_position: dpi::PhysicalPosition::default(),
             compute_engine: None,
+            total_frames_proccessed: 0
         }
     }
 }
@@ -69,6 +74,9 @@ impl ApplicationHandler for App {
             ComputeEngine::new(vk_core.clone(), frames_in_flight)
                 .unwrap()
         );
+        
+        let max_zones = 100;
+        self.gpu_profiler = Some(GpuProfiler::new(vk_core.clone(), max_zones, frames_in_flight));
 
         self.world = Some(World::new(
             &vk_core,
@@ -108,15 +116,34 @@ impl ApplicationHandler for App {
                         return; // Minimized or out of date, skip this frame
                 };
 
-                // Update the current frame index from the compute engine
-                self.compute_engine.as_mut().unwrap().set_frame_index(current_frame_idx);
+
 
 
                 let vk_core = self.vk_core.as_ref().unwrap();
                 let compute_engine = self.compute_engine.as_mut().unwrap();
                 let renderer = self.renderer.as_mut().unwrap();
                 let world = self.world.as_mut().unwrap();
-
+                
+                // Update the current frame index from the compute engine
+                compute_engine.set_frame_index(current_frame_idx);
+                self.gpu_profiler.as_mut().unwrap().set_frame_index(current_frame_idx, self.total_frames_proccessed);
+                
+                let gpu_profiler = self.gpu_profiler.as_ref().unwrap();
+                let timings = gpu_profiler
+                    .get_results(vk_core.device(), self.total_frames_proccessed)
+                    .unwrap_or_default();
+                for (label, time) in timings {
+                    if time != 0.0 {
+                        println!("Pass {}: {:.4} ms", label, time);
+                    }
+                }
+                
+                // Reset query pool
+                self.gpu_profiler.as_ref().unwrap().reset_on_host(vk_core.device());
+                
+                
+                
+                
                 // Extract the rendering data
                 let render_data = world.extract_render_data();
 
@@ -124,7 +151,7 @@ impl ApplicationHandler for App {
                 rayon::join(
                     ||{
                         if !self.paused {
-                            world.update(vk_core, compute_engine);
+                            world.update(vk_core, compute_engine, self.gpu_profiler.as_ref().unwrap());
                         }
                     },
                     ||{
@@ -142,15 +169,7 @@ impl ApplicationHandler for App {
                 if !self.paused {
                     // Submit commands to the queue
                     compute_engine.submit_to_queue(&[]);
-                    let gpu_profiler = compute_engine.gpu_profiler();
-                    let timings = gpu_profiler
-                        .get_results(vk_core.device())
-                        .unwrap_or_default();
-                    for (i, time) in timings.iter().enumerate() {
-                        if *time != 0.0 {
-                            println!("Pass {}: {:.4} ms", i, time);
-                        }
-                    }
+                    self.total_frames_proccessed+=1;
                 }
 
                 self.window.as_ref().unwrap().request_redraw();

@@ -47,6 +47,7 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
         
     let session_options = CompilerOptions::default()
         .vulkan_use_entry_point_name(true)
+        .optimization(shader_slang::OptimizationLevel::Default)
         .matrix_layout_row(true);
             
     let target_desc = [TargetDesc::default().format(CompileTarget::Spirv)];

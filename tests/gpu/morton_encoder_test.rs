@@ -11,11 +11,9 @@ const CELL_SIZE: f32 = 2.0;
 #[test]
 pub fn test_morton_encoder(){
     
-    TestContext::run_gpu_test(|engine, vk_core|{
+    TestContext::run_gpu_test(|engine, vk_core, mut rng|{
         let count = 100024;
-        
-        let mut rng = rand::rng();
-        
+                
         let input_points: Vec<Vec4> = (0..count)
                 .map(|_| {
                     Vec4::new(

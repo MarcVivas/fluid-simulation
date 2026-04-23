@@ -8,11 +8,9 @@ use crate::gpu::TestContext;
 
 #[test]
 pub fn test_gpu_kv_radix_sort(){
-    TestContext::run_gpu_test(|engine, vk_core|{
+    TestContext::run_gpu_test(|engine, vk_core, mut rng|{
         let count = 100024;
-        
-        let mut rng = rand::rng();
-        
+                
         let input_keys: Vec<MortonCode> = (0..count)
             .map(|_|{
                 return rng.random::<MortonCode>();

@@ -36,7 +36,8 @@ pub struct VkCore {
     gpu_allocator: Option<Mutex<Allocator>>,
     push_descriptor: ash::khr::push_descriptor::Device,
     mesh_shader_loader: Option<ash::ext::mesh_shader::Device>,
-    buffer_device_address_loader: ash::khr::buffer_device_address::Device
+    buffer_device_address_loader: ash::khr::buffer_device_address::Device,
+    subgroup_size: u32,
 }
 
 impl VkCore {
@@ -81,6 +82,16 @@ impl VkCore {
         let mesh_shader_loader = Some(ash::ext::mesh_shader::Device::new(&instance, &device));
         let bda_loader = ash::khr::buffer_device_address::Device::new(&instance, &device);
 
+        let mut subgroup_properties = vk::PhysicalDeviceSubgroupProperties::default();
+        let mut device_properties = vk::PhysicalDeviceProperties2::default()
+            .push_next(&mut subgroup_properties);
+        
+        unsafe {
+            instance.get_physical_device_properties2(physical_device, &mut device_properties);
+        }
+        
+        let subgroup_size = subgroup_properties.subgroup_size;
+        
         Self {
             _entry: entry,
             gpu_allocator: Some(gpu_allocator),
@@ -93,7 +104,8 @@ impl VkCore {
             debug_messenger,
             push_descriptor,
             mesh_shader_loader,
-            buffer_device_address_loader: bda_loader
+            buffer_device_address_loader: bda_loader,
+            subgroup_size
         }
     }
 
@@ -288,6 +300,10 @@ impl VkCore {
     
     pub fn buffer_device_address_loader(&self) -> &ash::khr::buffer_device_address::Device {
         &self.buffer_device_address_loader
+    }
+    
+    pub fn subgroup_size(&self) -> u32 {
+        self.subgroup_size
     }
 }
 

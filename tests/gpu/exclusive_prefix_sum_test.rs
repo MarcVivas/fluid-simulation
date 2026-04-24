@@ -30,7 +30,7 @@ pub fn large_exclusive_prefix_sum(){
 fn generate_random_test_case(vk_core: &Arc<VkCore>, engine: &ComputeEngine, num_elements: u32, rng: &mut ThreadRng) -> (Vec<u32>, VkBuffer<u32>) {
     let data: Vec<u32> = (0..num_elements).map(
         |_|{
-            rng.random_range(0..40221)
+            rng.random_range(0..=1)
         }
     ).collect();
     let numbers_buffer: VkBuffer<u32> = VkBuffer::new_gpu_only(
@@ -56,7 +56,7 @@ fn cpu_exclusive_prefix_sum(data: &mut Vec<u32>){
 }
 
 fn run_prefix_sum_test(vk_core: &Arc<VkCore>, engine: &ComputeEngine, mut rng: ThreadRng, num_elements: u32){
-    let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, num_elements);
+    let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, engine.command_pool(), num_elements);
     
     let (mut data, data_buffer): (Vec<u32>, VkBuffer<u32>) = generate_random_test_case(vk_core, engine, num_elements, &mut rng);
     

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use engine::{compute::ComputeEngine, utils::gpu_algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{vk_core::{VkCore, vk_core}, vk_utils::VkBuffer}};
+use engine::{common::test_context::TestContext, compute::ComputeEngine, utils::gpu_algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{vk_core::{VkCore}, vk_utils::VkBuffer}};
 use rand::{Rng, rngs::ThreadRng};
 
-use crate::gpu::common::test_context::TestContext;
 
 
 #[test]
@@ -56,7 +55,7 @@ fn cpu_exclusive_prefix_sum(data: &mut Vec<u32>){
 }
 
 fn run_prefix_sum_test(vk_core: &Arc<VkCore>, engine: &ComputeEngine, mut rng: ThreadRng, num_elements: u32){
-    let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, engine.command_pool(), num_elements);
+    let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, num_elements);
     
     let (mut data, data_buffer): (Vec<u32>, VkBuffer<u32>) = generate_random_test_case(vk_core, engine, num_elements, &mut rng);
     

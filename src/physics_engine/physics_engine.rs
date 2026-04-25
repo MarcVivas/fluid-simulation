@@ -121,91 +121,54 @@ impl PhysicsEngine {
             let device = vk_core.device();
             let vk_cmd_buffer = command_buffer.vk_cmd_buffer();
             
-            gpu_profile!(
-                device,
-                gpu_profiler,
-                vk_cmd_buffer,
-                Integrator::profiling_label(),
-                {
-                    self.integration_system.execute(
-                        vk_core,
-                        particles,
-                        delta_time,
-                        world_size,
-                        command_buffer,
-                    );
-                }
-            );
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, Integrator::profiling_label(), ||{
+                self.integration_system.execute(
+                    vk_core,
+                    particles,
+                    delta_time,
+                    world_size,
+                    command_buffer,
+                );
+            });
             
-            gpu_profile!(
-                device,
-                gpu_profiler,
-                vk_cmd_buffer,
-                MortonEncoder::profiling_label(),
-                {
-                    self.morton_encoding_system.execute(
-                        vk_core,
-                        particle_data.morton_codes_buffer.len() as u32,
-                        cell_size,
-                        particle_data.positions_buffer.current(),
-                        &particle_data.morton_codes_buffer,
-                        &particle_data.object_indices_buffer,
-                        command_buffer,
-                    );
-                }
-            );
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, MortonEncoder::profiling_label(), ||{
+                self.morton_encoding_system.execute(
+                    vk_core,
+                    particle_data.morton_codes_buffer.len() as u32,
+                    cell_size,
+                    particle_data.positions_buffer.current(),
+                    &particle_data.morton_codes_buffer,
+                    &particle_data.object_indices_buffer,
+                    command_buffer,
+                );
+            });
             
-            gpu_profile!(
-                device,
-                gpu_profiler,
-                vk_cmd_buffer,
-                GpuKVRadixSort::profiling_label(),
-                {
-                    self.sorting_system.sort(
-                        vk_core,
-                        &particle_data.morton_codes_buffer,
-                        &particle_data.object_indices_buffer,
-                        command_buffer,
-                    );
-                }
-            );
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, GpuKVRadixSort::profiling_label(), ||{
+                self.sorting_system.sort(
+                    vk_core,
+                    &particle_data.morton_codes_buffer,
+                    &particle_data.object_indices_buffer,
+                    command_buffer,
+                );
+            });
             
-            gpu_profile!(
-                device,
-                gpu_profiler,
-                vk_cmd_buffer,
-                RearrangingSystem::profiling_label(),
-                {
-                    self.rearranging_system
-                        .execute(vk_core, particle_data, command_buffer);
-                }
-            );
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, RearrangingSystem::profiling_label(), ||{
+                self.rearranging_system
+                    .execute(vk_core, particle_data, command_buffer);
+            });
             
 
             particles.buffers_mut().swap();
             
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, GridConstructionSystem::profiling_label(), ||{
+                self.grid_construction_system
+                    .execute(vk_core, command_buffer, spatial_grid, particles);
+            });
             
-            gpu_profile!(
-                device,
-                gpu_profiler,
-                vk_cmd_buffer,
-                GridConstructionSystem::profiling_label(),
-                {
-                    self.grid_construction_system
-                        .execute(vk_core, command_buffer, spatial_grid, particles);
-                }
-            );
-            
-            gpu_profile!(
-                device,
-                gpu_profiler,
-                vk_cmd_buffer,
-                NeighborSearchSystem::profiling_label(),
-                {
-                    self.neighbor_search_system
-                        .execute(vk_core, command_buffer, spatial_grid, particles);
-                }
-            );
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, NeighborSearchSystem::profiling_label(), ||{
+                self.neighbor_search_system
+                    .execute(vk_core, command_buffer, spatial_grid, particles);
+            });
 
 
             for _ in 0..self.physics_config.solver_iterations {

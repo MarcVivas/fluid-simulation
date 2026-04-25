@@ -15,7 +15,7 @@ pub struct ExclusivePrefixSum {
 }
 
 impl ExclusivePrefixSum {
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_elements: u32) -> Self {
+    pub fn new(vk_core: &Arc<VkCore>, num_elements: u32) -> Self {
         
         let (prefix_sum_pass, prefix_sum_shader) = ComputeSystemBuilder::new(vk_core.clone(), "exclusive_prefix_sum")
             .push_constants::<ExclusivePrefixSumPushConstants>()
@@ -29,7 +29,7 @@ impl ExclusivePrefixSum {
             )
             .build_with_single_pass().unwrap();
         
-        let prefix_sum_data = ExclusivePrefixSumData::new(vk_core, cmd_pool, Self::num_thread_groups(num_elements, THREAD_GROUP_SIZE)[0]);
+        let prefix_sum_data = ExclusivePrefixSumData::new(vk_core, Self::num_thread_groups(num_elements, THREAD_GROUP_SIZE)[0]);
         
         Self { 
             prefix_sum_shader,
@@ -40,6 +40,8 @@ impl ExclusivePrefixSum {
     
     
     pub fn dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, nums: &VkBuffer<u32>){
+        
+        self.data.clear_buffers(vk_core.device(), cmd_buffer);
         
         let num_elements = nums.len() as u32;
         let push_constant = ExclusivePrefixSumPushConstants {

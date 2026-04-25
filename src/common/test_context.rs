@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex, OnceLock};
-use engine::{compute::ComputeEngine, vulkan::vk_core::{VkCore, init_headless}};
+use crate::{compute::ComputeEngine, vulkan::vk_core::{VkCore, init_headless}};
 use rand::rngs::ThreadRng;
 
 pub struct TestContext {
@@ -28,7 +28,7 @@ impl TestContext {
         })
     }
     
-pub fn run_gpu_test<F>(test_logic: F)
+    pub fn run_gpu_test<F>(test_logic: F)
         where
             F: FnOnce(&ComputeEngine, &Arc<VkCore>, ThreadRng)
     {
@@ -42,6 +42,8 @@ pub fn run_gpu_test<F>(test_logic: F)
         test_logic(engine, vk_core, rng);
     }
 }
+
+
 
 
 

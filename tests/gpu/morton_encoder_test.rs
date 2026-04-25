@@ -1,10 +1,10 @@
+use engine::common::TestContext;
 use engine::vulkan::vk_utils::VkBuffer;
 use glam::Vec4;
 use rand::Rng;
 use engine::components::MortonCode;
 use engine::utils::gpu_algorithms::morton_encoding::MortonEncoder;
 
-use crate::gpu::TestContext;
 
 const CELL_SIZE: f32 = 2.0;
 

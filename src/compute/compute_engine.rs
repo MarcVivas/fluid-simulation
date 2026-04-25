@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{CommandBuffer};
-use crate::utils::gpu_profiler::GpuProfiler;
 use ash::vk;
 use crate::compute::ComputeCommandPool;
 

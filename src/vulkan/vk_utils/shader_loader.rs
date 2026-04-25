@@ -8,7 +8,6 @@ use shader_slang::{
 
 
 /// Runtime shader compilation
-#[cfg(debug_assertions)]
 pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstants) -> Vec<u32> {
     use std::fs;
     use shader_slang::{GlobalSession, SessionDesc, CompilerOptions, TargetDesc, CompileTarget};
@@ -86,8 +85,8 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
 
 
 /// Loads a precompiled shader from the `OUT_DIR`
-#[cfg(not(debug_assertions))]
-pub fn get_shader_bytecode(
+
+pub fn _get_shader_bytecode(
     shader_name: &str,
     _compile_time_constants: &ShaderCompileTimeConstants
 ) -> Vec<u32>

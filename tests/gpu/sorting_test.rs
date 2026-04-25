@@ -1,10 +1,10 @@
 
+use engine::common::TestContext;
 use engine::components::MortonCode;
 use engine::utils::gpu_algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
 use engine::vulkan::vk_utils::VkBuffer;
 use rand::Rng;
 
-use crate::gpu::TestContext;
 
 #[test]
 pub fn test_gpu_kv_radix_sort(){

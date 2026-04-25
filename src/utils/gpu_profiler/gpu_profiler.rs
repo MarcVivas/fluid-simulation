@@ -67,7 +67,7 @@ impl GpuProfiler {
         }
     }
     
-    pub fn begin_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, label: &str){
+    pub fn begin_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, label: &str) -> u32 {
         let start_index = self.zones.lock().unwrap().get_or_create_zone_index(label);
         unsafe {
             device.cmd_write_timestamp(
@@ -77,11 +77,12 @@ impl GpuProfiler {
                 start_index,
             );
         }
+        start_index
     }
     
-    pub fn end_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, label: &str) {
+    pub fn end_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, idx: u32) {
         
-        let zone_start_index = *self.zones.lock().unwrap().get_zone_index(label).expect(format!("The zone with the given label {} didn't exist.", label).as_str());
+        let zone_start_index = idx;
         let zone_end_index = zone_start_index + 1; 
         
         let pool = &self.query_pools[self.frame_index.load(atomic::Ordering::Relaxed)];
@@ -95,6 +96,18 @@ impl GpuProfiler {
             );
         }
     }
+    
+    
+    pub fn profile_scope<F, R>(&self, device: &ash::Device, cmd_buffer: vk::CommandBuffer, label: &str, scope: F) -> R
+        where F: FnOnce() -> R
+    {
+        let idx = self.begin_timestamp_zone(device, cmd_buffer, label);
+        let res = scope();
+        self.end_timestamp_zone(device, cmd_buffer, idx);
+        res
+    }
+    
+    
 
     pub fn set_frame_index(&self, frame_index: usize, total_frames_processed: u64){
         if total_frames_processed < self.query_pools.len() as u64 {

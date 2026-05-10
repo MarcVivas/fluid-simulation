@@ -174,7 +174,7 @@ impl<T: Copy> VkBuffer<T> {
     {
         let buffer_create_info = vk::BufferCreateInfo::default()
             .size((len * size_of::<T>()) as vk::DeviceSize)
-            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .usage(vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
 
         let allocation_create_desc = AllocationCreateDesc{
@@ -201,7 +201,7 @@ impl<T: Copy> VkBuffer<T> {
             data,
             vk::BufferCreateInfo::default()
                 .size((data.len() * size_of::<T>()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+                .usage(vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE),
             AllocationCreateDesc{
                 name,

@@ -1,14 +1,13 @@
-
-use engine::common::TestContext;
 use engine::components::MortonCode;
 use engine::utils::gpu_algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use engine::vulkan::headless::VkHeadless;
 use engine::vulkan::vk_utils::VkBuffer;
 use rand::Rng;
 
 
 #[test]
 pub fn test_gpu_kv_radix_sort(){
-    TestContext::run_gpu_test(|engine, vk_core, mut rng|{
+    VkHeadless::run(|engine, vk_core, mut rng|{
         let count = 100024;
                 
         let input_keys: Vec<MortonCode> = (0..count)
@@ -27,7 +26,7 @@ pub fn test_gpu_kv_radix_sort(){
             sorting_system.sort(vk_core, &keys_buffer, &payload_buffer, cmd);
         });
         
-        engine.submit_to_queue(&[]);
+        engine.submit_without_signaling();
         
         let mut expected: Vec<(MortonCode, u32)> = input_keys.into_iter()
             .zip(input_payload.into_iter())

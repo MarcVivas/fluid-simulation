@@ -6,7 +6,6 @@ use glam::Vec4;
 use crate::components::MortonCode;
 use crate::compute::{ComputeSystemBuilder, ComputePass};
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
-use crate::world::world_objects::{particles::ParticleData};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{CommandBuffer, ShaderModule, VkBuffer, compute_buffer_barrier};
 use crate::traits::{GpuTask, ShaderName};

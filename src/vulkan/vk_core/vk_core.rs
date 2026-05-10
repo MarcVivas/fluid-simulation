@@ -14,12 +14,11 @@ use std::collections::HashSet;
     3. Enable those features in the pNext chain during device creation.
  */
 const REQUIRED_DEVICE_EXTENSIONS: &[&CStr] = &[
-    ash::khr::swapchain::NAME,
     ash::ext::mesh_shader::NAME,
     ash::khr::synchronization2::NAME,
     ash::ext::scalar_block_layout::NAME,
     ash::khr::push_descriptor::NAME,
-    ash::khr::buffer_device_address::NAME, 
+    ash::khr::buffer_device_address::NAME,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     ash::khr::portability_subset::NAME,
 ];
@@ -55,7 +54,7 @@ impl VkCore {
         ).expect( "failed to find a suitable GPU!");
 
 
-        let device = Self::create_logical_device(physical_device, &queue_family_indices, &instance);
+        let device = Self::create_logical_device(physical_device, &queue_family_indices, &instance, surface.is_some());
 
         let graphics_queue = unsafe {
             device.get_device_queue(queue_family_indices.graphics_family, 0)
@@ -110,15 +109,20 @@ impl VkCore {
     }
 
 
-    fn create_logical_device(physical_device: PhysicalDevice, queue_family_indices: &QueueFamilyIndices, instance: &Instance) -> Device {
+    fn create_logical_device(physical_device: PhysicalDevice, queue_family_indices: &QueueFamilyIndices, instance: &Instance, enable_swapchain: bool) -> Device {
         // Convert strict CStr references to raw pointers for Vulkan
-        let extension_names: Vec<*const i8> = REQUIRED_DEVICE_EXTENSIONS
+        let mut extension_names: Vec<*const i8> = REQUIRED_DEVICE_EXTENSIONS
             .iter()
             .map(|name| name.as_ptr())
             .collect();
 
+        if enable_swapchain {
+            extension_names.push(ash::khr::swapchain::NAME.as_ptr());
+        }
+
         let features = vk::PhysicalDeviceFeatures {
-            shader_clip_distance: 1,
+            shader_clip_distance: vk::TRUE,
+            shader_int64: vk::TRUE,
             ..vk::PhysicalDeviceFeatures::default()
         };
 
@@ -216,6 +220,7 @@ impl VkCore {
             .push_next(&mut host_query_reset);
 
         unsafe { instance.get_physical_device_features2(physical_device, &mut features2) };
+        let has_int64 = features2.features.shader_int64 == vk::TRUE;
 
         sync2.synchronization2 == vk::TRUE
             && bda.buffer_device_address == vk::TRUE
@@ -223,7 +228,8 @@ impl VkCore {
             && scalar_alignment.scalar_block_layout == vk::TRUE
             && mesh_shader.mesh_shader == vk::TRUE
             && mesh_shader.task_shader == vk::TRUE
-            && host_query_reset.host_query_reset == vk::TRUE // Ensure it's supported
+            && host_query_reset.host_query_reset == vk::TRUE
+            && has_int64
     }
 
     fn find_queue_families(instance: &Instance, physical_device: PhysicalDevice, surface: Option<&Surface>) -> QueueFamilyIndices {

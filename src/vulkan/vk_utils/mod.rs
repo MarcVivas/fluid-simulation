@@ -34,3 +34,5 @@ pub use query_pool::QueryPool;
 
 pub mod shader_constants;
 
+pub mod indirect_buffer;
+pub use indirect_buffer::*;

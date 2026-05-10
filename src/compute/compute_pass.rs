@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use ash::vk;
 use crate::vulkan::vk_core::VkCore;
-use crate::vulkan::vk_utils::{CommandBuffer, PipelineLayout};
+use crate::vulkan::vk_utils::{CommandBuffer, IndirectBuffer, PipelineLayout};
 
 pub struct ComputePass {
     vk_core: Arc<VkCore>,
@@ -133,9 +133,30 @@ impl ComputePass {
         self.push_descriptors(vk_core, cmd_buffer, buffers, images);
         
         // Dispatch the compute shader.
-        self.dispatch(device, cmd_buffer.vk_cmd_buffer(), thread_groups);
+        cmd_buffer.dispatch(device, thread_groups);
     }
-   
+    
+    /// Indirect Dispatch with buffers, images and push constants.
+    pub fn indirect_dispatch(
+        &self,
+        vk_core: &Arc<VkCore>,
+        cmd_buffer: &CommandBuffer,
+        buffers: &[vk::Buffer],
+        images: &[ImageDescriptor],
+        push_constants: &[u8],
+        dispatch_buffer: vk::Buffer,
+        offset: u64,
+    ) {
+        let device = vk_core.device();
+    
+        self.bind(device, cmd_buffer.vk_cmd_buffer());
+    
+        self.set_push_constants(device, cmd_buffer, push_constants);
+    
+        self.push_descriptors(vk_core, cmd_buffer, buffers, images);
+        
+        cmd_buffer.indirect_dispatch(device, dispatch_buffer, offset);
+    }
     
 }
 

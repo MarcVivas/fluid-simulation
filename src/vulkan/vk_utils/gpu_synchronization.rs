@@ -88,3 +88,16 @@ pub fn global_sync_compute(device: &ash::Device, cmd: &CommandBuffer) {
     
     cmd.pipeline_global_barrier2(device, &barrier);
 }
+
+
+/// Use this when a compute shader writes to a buffer that will be used as the 
+/// argument buffer for an indirect dispatch.
+pub fn sync_compute_to_indirect(device: &ash::Device, cmd: &CommandBuffer) {
+    let barrier = [vk::MemoryBarrier2::default()
+        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags2::DRAW_INDIRECT | vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .dst_access_mask(vk::AccessFlags2::INDIRECT_COMMAND_READ | vk::AccessFlags2::SHADER_STORAGE_READ)];
+    
+    cmd.pipeline_global_barrier2(device, &barrier);
+}

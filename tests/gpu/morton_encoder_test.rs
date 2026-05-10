@@ -1,4 +1,4 @@
-use engine::common::TestContext;
+use engine::vulkan::headless::VkHeadless;
 use engine::vulkan::vk_utils::VkBuffer;
 use glam::Vec4;
 use rand::Rng;
@@ -11,7 +11,7 @@ const CELL_SIZE: f32 = 2.0;
 #[test]
 pub fn test_morton_encoder(){
     
-    TestContext::run_gpu_test(|engine, vk_core, mut rng|{
+    VkHeadless::run(|engine, vk_core, mut rng|{
         let count = 100024;
                 
         let input_points: Vec<Vec4> = (0..count)
@@ -62,7 +62,7 @@ pub fn test_morton_encoder(){
             );
         });
         
-        engine.submit_to_queue(&[]);
+        engine.submit_without_signaling();
         
         let result_codes: Vec<MortonCode> = codes_buffer.read_back(vk_core, engine.command_pool()).unwrap();
         let result_point_ids: Vec<u32> = points_indexes.read_back(vk_core, engine.command_pool()).unwrap();

@@ -123,6 +123,31 @@ impl ComputeEngine {
         }
     }
 
+    pub fn submit_without_signaling(&self) {
+        let device = self.vk_core.device();
+        let queue = self.vk_core.compute_queue();
+    
+        let current_fence = self.fences[self.current_frame_index];
+        let current_command_buffer = &self.command_buffers[self.current_frame_index];
+    
+        let command_buffer_submit_info = [
+            vk::CommandBufferSubmitInfo::default()
+                .command_buffer(current_command_buffer.vk_cmd_buffer())
+        ];
+    
+        // We pass NO signal semaphores here. 
+        let submit_info = vk::SubmitInfo2::default()
+            .command_buffer_infos(&command_buffer_submit_info)
+            .wait_semaphore_infos(&[]) 
+            .signal_semaphore_infos(&[]);
+    
+        unsafe {
+            // The Fence still gets signaled, so the CPU can still wait!
+            device.queue_submit2(*queue, &[submit_info], current_fence)
+                .expect("Compute submit failed");
+        }
+    }
+
 
     pub fn compute_finished_semaphore(&self, paused: bool) -> Option<vk::Semaphore> {
         if !paused {

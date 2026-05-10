@@ -1,5 +1,4 @@
 use crate::compute::ComputeEngine;
-use crate::gpu_profile;
 use crate::physics_engine::PhysicsConfig;
 use crate::utils::gpu_profiler::GpuProfiler;
 use crate::world::world_objects::{particles::Particles, particles::RearrangingSystem};

@@ -4,10 +4,15 @@
 
 struct PrefixSumPushConstants{
     uint32_t num_elements;
+
+    Ptr<uint32_t, Access.Read> num_elements_ptr;
     
     // The actual array of numbers to perform the prefix sum
     // Size: num_elements
-    uint32_t* nums;
+    Ptr<uint32_t, Access.Read> nums;
+
+    // The result will be written here
+    Ptr<uint32_t, Access.ReadWrite> out_nums;
     
     // The Atomic Counter (to assign logical block IDs at runtime)
     // Size: 1 uint
@@ -37,6 +42,8 @@ groupshared uint broadcast;
 func main(
     const uint32_t local_id : SV_GroupThreadID 
 ){
+
+    const uint32_t num_elements = pc.num_elements_ptr != 0 ? pc.num_elements_ptr[0] : pc.num_elements;
     
     // Get IDs...
     const uint32_t group_id = get_thread_group_id(local_id); 
@@ -44,7 +51,7 @@ func main(
     const uint32_t wave_id = local_id / WAVE_SIZE;
     
     // Get the value from global memory
-    const uint32_t value = global_id < pc.num_elements ? pc.nums[global_id] : 0;
+    const uint32_t value = global_id < num_elements ? pc.nums[global_id] : 0;
     
     // Perform a warp level exclusive prefix sum
     const uint32_t wave_accumulated = WavePrefixSum(value);
@@ -127,8 +134,8 @@ func main(
     
     uint32_t prev_prefix_sum = group_id == 0 ? 0 : broadcast;
     
-    if(global_id >= pc.num_elements) return;
-    pc.nums[global_id] = final_local_value + prev_prefix_sum; 
+    if(global_id >= num_elements) return;
+    pc.out_nums[global_id] = final_local_value + prev_prefix_sum; 
     
 }
 

@@ -203,4 +203,25 @@ impl CommandBuffer {
             device.cmd_fill_buffer(self.cmd_buffer, buffer, offset, size, data);
         }
     }
+    
+    pub fn dispatch(&self, 
+        device: &ash::Device,
+        group_count: [u32; 3]
+    ){
+        unsafe {
+            device.cmd_dispatch(self.cmd_buffer, group_count[0], group_count[1], group_count[2]);
+        }
+    }
+    
+    pub fn indirect_dispatch(
+        &self, 
+        device: &ash::Device,
+        buffer: vk::Buffer,
+        offset: u64
+    ) {
+        unsafe {
+            device.cmd_dispatch_indirect(self.cmd_buffer, buffer, offset);
+        }
+        
+    }
 }

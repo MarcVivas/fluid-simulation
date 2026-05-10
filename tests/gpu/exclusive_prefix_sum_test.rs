@@ -1,27 +1,27 @@
 use std::sync::Arc;
 
-use engine::{common::test_context::TestContext, compute::ComputeEngine, utils::gpu_algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{vk_core::{VkCore}, vk_utils::VkBuffer}};
+use engine::{compute::ComputeEngine, utils::gpu_algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
 use rand::{Rng, rngs::ThreadRng};
 
 
 
 #[test]
 pub fn small_exclusive_prefix_sum(){
-    TestContext::run_gpu_test(|engine, vk_core, rng|{
+    VkHeadless::run(|engine, vk_core, rng|{
         run_prefix_sum_test(vk_core, engine, rng, 26);
     });
 }
 
 #[test]
 pub fn medium_size_exclusive_prefix_sum(){
-    TestContext::run_gpu_test(|engine, vk_core, rng|{
+    VkHeadless::run(|engine, vk_core, rng|{
         run_prefix_sum_test(vk_core, engine, rng, 26000);
     });
 }
 
 #[test]
 pub fn large_exclusive_prefix_sum(){
-    TestContext::run_gpu_test(|engine, vk_core, rng|{
+    VkHeadless::run(|engine, vk_core, rng|{
         run_prefix_sum_test(vk_core, engine, rng, 21_600_000);
     });
 }
@@ -60,10 +60,10 @@ fn run_prefix_sum_test(vk_core: &Arc<VkCore>, engine: &ComputeEngine, mut rng: T
     let (mut data, data_buffer): (Vec<u32>, VkBuffer<u32>) = generate_random_test_case(vk_core, engine, num_elements, &mut rng);
     
     engine.record_commands(|cmd_buffer|{
-        exclusive_prefix_sum.dispatch(vk_core, cmd_buffer, &data_buffer);
+        exclusive_prefix_sum.dispatch(vk_core, cmd_buffer, &data_buffer, &data_buffer);
     });
     
-    engine.submit_to_queue(&[]);
+    engine.submit_without_signaling();
     
     cpu_exclusive_prefix_sum(&mut data);
     let actual = data_buffer.read_back(vk_core, engine.command_pool()).unwrap();

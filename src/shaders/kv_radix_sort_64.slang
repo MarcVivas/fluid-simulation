@@ -3,15 +3,28 @@
 // Resources
 // -----------------------------------------------------------------------------
 
+struct IndirectSortingMetadata {
+    uint num_keys;
+    int  num_blocks_per_thread_group;
+    uint num_thread_groups;
+    uint num_thread_groups_with_additional_blocks;
+    uint num_reduce_thread_group_per_bin;
+    uint num_scan_values;
+}
+
+
 struct SortingPushConstants {
     Ptr<uint32_t, Access.Read> src_keys;
     uint* dst_keys;
-    Ptr<uint32_t, Access.Read> src_payload;
-    uint* dst_payload;
+    Ptr<uint2, Access.Read> src_payload;
+    uint2* dst_payload;
     uint* histogram;
     uint* reduce_table;
     uint* scan_scratch;
-
+    IndirectSortingMetadata* metadata;
+    uint3* indirect_dispatch_buffer;
+    uint* count_buffer;
+    
     uint num_keys;
     int  num_blocks_per_thread_group;
     uint num_thread_groups;
@@ -19,7 +32,7 @@ struct SortingPushConstants {
     uint num_reduce_thread_group_per_bin;
     uint num_scan_values;
     uint shift_bit;
-    uint padding;
+    uint is_indirect;
 };
 
 [[vk::push_constant]] SortingPushConstants push_constants;
@@ -37,9 +50,16 @@ groupshared uint shared_local_histogram[BIN_COUNT];
 // Scratch area for the scatter shader
 groupshared uint shared_scratch[THREAD_GROUP_SIZE];
 
+groupshared uint shared_payload_y[THREAD_GROUP_SIZE];
+
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+[ForceInline]
+void set_shared_sum(uint idx, uint val) { group_shared_sums[idx] = val; }
+[ForceInline]
+uint get_shared_sum(uint idx) { return group_shared_sums[idx]; }
 
 uint thread_group_reduce(uint local_sum, uint thread_local_id){
     // Wave local reduce
@@ -49,14 +69,14 @@ uint thread_group_reduce(uint local_sum, uint thread_local_id){
 
     // The leader of the wave stores the reduction to shared memory
     if (WaveIsFirstLane()) {
-        group_shared_sums[wave_id] = wave_reduced;
+        set_shared_sum(wave_id, wave_reduced);
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     // The first wave of threads sum up the reductions of the rest of the waves
     if(wave_id == 0){
-        const uint value = (thread_local_id < THREAD_GROUP_SIZE / WaveGetLaneCount()) ? group_shared_sums[thread_local_id] : 0;
+        const uint value = (thread_local_id < THREAD_GROUP_SIZE / WaveGetLaneCount()) ? get_shared_sum(thread_local_id) : 0;
         wave_reduced = WaveActiveSum(value);
     }
 
@@ -72,20 +92,20 @@ uint thread_group_scan(const uint local_sum, const uint thread_local_id){
 
     // The last element of the wave writes the wave prefix sum to shared memory
     if(lane_id == WaveGetLaneCount() - 1) {
-        group_shared_sums[wave_id] = wave_prefix_sum + local_sum;
+        set_shared_sum(wave_id, wave_prefix_sum + local_sum);
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     // The first wave does the prefix sum of the partial wave sums
     if(wave_id == 0){
-        const uint partial_wave_sum = group_shared_sums[thread_local_id];
-        group_shared_sums[thread_local_id] = WavePrefixSum(partial_wave_sum);
+        const uint partial_wave_sum = get_shared_sum(thread_local_id);
+        set_shared_sum(thread_local_id, WavePrefixSum(partial_wave_sum));
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    wave_prefix_sum += group_shared_sums[wave_id];
+    wave_prefix_sum += get_shared_sum(wave_id);
 
     return wave_prefix_sum;
 }
@@ -167,16 +187,21 @@ void count(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_Gr
     // Wait for everyone to catch up
     GroupMemoryBarrierWithGroupSync();
 
-    uint thread_group_block_start = BLOCK_SIZE * push_constants.num_blocks_per_thread_group * thread_group_id;
-    uint num_blocks_to_process = push_constants.num_blocks_per_thread_group;
+    const uint num_blocks_per_thread_group = get_num_blocks_per_thread_group();
+    uint thread_group_block_start = BLOCK_SIZE * num_blocks_per_thread_group * thread_group_id;
+    uint num_blocks_to_process = num_blocks_per_thread_group;
+    const uint num_thread_groups_with_additional_blocks = get_num_thread_groups_with_additional_blocks();
+    const uint num_thread_groups = get_num_thread_groups();
 
-    if(thread_group_id >= push_constants.num_thread_groups - push_constants.num_thread_groups_with_additional_blocks){
-        thread_group_block_start += (thread_group_id - (push_constants.num_thread_groups - push_constants.num_thread_groups_with_additional_blocks)) * BLOCK_SIZE;
+    if(thread_group_id >= num_thread_groups - num_thread_groups_with_additional_blocks){
+        thread_group_block_start += (thread_group_id - (num_thread_groups - num_thread_groups_with_additional_blocks)) * BLOCK_SIZE;
         num_blocks_to_process++;
     }
 
     // Get the block starting index for this thread
     uint block_index = thread_group_block_start + thread_local_id;
+
+    const uint num_keys = get_num_keys();
 
     // For each block to process
     for(uint block_count = 0; block_count < num_blocks_to_process; block_count++, block_index += BLOCK_SIZE){
@@ -191,7 +216,7 @@ void count(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_Gr
 
         // For each local value
         for(uint i = 0; i < ELEMENTS_PER_THREAD; i++){
-            if(data_index < push_constants.num_keys){
+            if(data_index < num_keys){
                 // data_index is not out of bounds
 
                 // Shift + mask to remove the other values
@@ -217,7 +242,7 @@ void count(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_Gr
 	    for(uint i = 0; i < THREAD_GROUP_SIZE; i++){
 	        sum += group_shared_histogram[thread_local_id * THREAD_GROUP_SIZE + i];
 	    }
-	    push_constants.histogram[thread_local_id * push_constants.num_thread_groups + thread_group_id] = sum;
+	    push_constants.histogram[thread_local_id * num_thread_groups + thread_group_id] = sum;
 	}
 
 }
@@ -230,16 +255,18 @@ void reduce(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_G
     const uint thread_local_id = local_id.x;
 
     // Figure out what bin data we are reducing
-    const uint bin_id = thread_group_id / push_constants.num_reduce_thread_group_per_bin;
-    const uint bin_offset = bin_id * push_constants.num_thread_groups;
+    const uint num_reduce_thread_group_per_bin = get_num_reduce_thread_group_per_bin();
+    const uint bin_id = thread_group_id / num_reduce_thread_group_per_bin;
+    const uint num_thread_groups = get_num_thread_groups();
+    const uint bin_offset = bin_id * num_thread_groups;
 
     // Get the base index for this thread group
-    const uint base_index = (thread_group_id % push_constants.num_reduce_thread_group_per_bin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
+    const uint base_index = (thread_group_id % num_reduce_thread_group_per_bin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
 
     uint thread_group_sum = 0;
     for(uint i = 0; i < ELEMENTS_PER_THREAD; ++i){
         uint data_index = base_index + (i * THREAD_GROUP_SIZE) + thread_local_id;
-        thread_group_sum += (data_index < push_constants.num_thread_groups) ? push_constants.histogram[bin_offset + data_index] : 0;
+        thread_group_sum += (data_index < num_thread_groups) ? push_constants.histogram[bin_offset + data_index] : 0;
     }
 
     thread_group_sum = thread_group_reduce(thread_group_sum, thread_local_id);
@@ -266,7 +293,7 @@ void scan_reduce_table(const uint3 local_id : SV_GroupThreadID, const uint3 grou
         base_index,
         bin_offset,
         add_partial_sums,
-        push_constants.num_scan_values,
+        get_num_scan_values(),
         push_constants.reduce_table,
         push_constants.reduce_table,
         push_constants.scan_scratch
@@ -279,9 +306,11 @@ void scan_reduce_table(const uint3 local_id : SV_GroupThreadID, const uint3 grou
 void scan_add(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_GroupID)
 {
     // Adds the reduced scan results back to the main table
-    const uint base_index = (group_id.x % push_constants.num_reduce_thread_group_per_bin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
-    const uint bin_id = group_id.x / push_constants.num_reduce_thread_group_per_bin;
-    const uint bin_offset = bin_id * push_constants.num_thread_groups;
+    const uint num_reduce_thread_group_per_bin = get_num_reduce_thread_group_per_bin();
+    const uint base_index = (group_id.x % num_reduce_thread_group_per_bin) * ELEMENTS_PER_THREAD * THREAD_GROUP_SIZE;
+    const uint bin_id = group_id.x / num_reduce_thread_group_per_bin;
+    const uint num_thread_groups = get_num_thread_groups();
+    const uint bin_offset = bin_id * num_thread_groups;
     const bool add_partial_sums = true;
         scan_helper(
             local_id.x,
@@ -289,7 +318,7 @@ void scan_add(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV
             base_index,
             bin_offset,
             add_partial_sums,
-            push_constants.num_thread_groups,
+            num_thread_groups,
             push_constants.histogram,
             push_constants.histogram,
             push_constants.reduce_table
@@ -312,26 +341,31 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
      Threads 0-16 will all hold Bin 0 keys.
      Threads 17-25 will all hold Bin 1 keys.
     */
-
+    const uint num_thread_groups = get_num_thread_groups();
+    
     // Load the bin offsets from histogram to shared memory for faster referencing
     if (local_id < BIN_COUNT){
-        shared_bin_offsets[local_id] = push_constants.histogram[local_id * push_constants.num_thread_groups + group_id];
+        shared_bin_offsets[local_id] = push_constants.histogram[local_id * num_thread_groups + group_id];
     }
 
     // Wait for all the threads of the group to be done
     GroupMemoryBarrierWithGroupSync();
 
     // Figure out this thread group's index into the block data (taking into account thread groups that need to do extra reads)
-    uint thread_group_block_start = BLOCK_SIZE * push_constants.num_blocks_per_thread_group * group_id;
-    uint num_blocks_to_process = push_constants.num_blocks_per_thread_group;
+    const uint num_blocks_per_thread_group = get_num_blocks_per_thread_group();
+    uint thread_group_block_start = BLOCK_SIZE * num_blocks_per_thread_group * group_id;
+    uint num_blocks_to_process = num_blocks_per_thread_group;
+    const uint num_thread_groups_with_additional_blocks = get_num_thread_groups_with_additional_blocks();
 
-    if(group_id >= push_constants.num_thread_groups - push_constants.num_thread_groups_with_additional_blocks){
-        thread_group_block_start += (group_id - (push_constants.num_thread_groups - push_constants.num_thread_groups_with_additional_blocks)) * BLOCK_SIZE;
+    if(group_id >= num_thread_groups - num_thread_groups_with_additional_blocks){
+        thread_group_block_start += (group_id - (num_thread_groups - num_thread_groups_with_additional_blocks)) * BLOCK_SIZE;
         num_blocks_to_process++;
     }
 
     // Get the block starting index for this thread
     uint block_index = thread_group_block_start + local_id;
+
+    const uint num_keys = get_num_keys();
 
     // Count value occurrences
     uint new_count;
@@ -344,7 +378,7 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
         local_src_keys[1] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE];
         local_src_keys[2] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2];
         local_src_keys[3] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3];
-        uint local_src_payload[ELEMENTS_PER_THREAD];
+        uint2 local_src_payload[ELEMENTS_PER_THREAD];
         local_src_payload[0] = push_constants.src_payload[data_index];
         local_src_payload[1] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE];
         local_src_payload[2] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 2];
@@ -358,8 +392,8 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
             }
 
             // Load the local key and value
-            uint local_key = (data_index < push_constants.num_keys) ? local_src_keys[i] : 0xffffffff;
-            uint local_value = (data_index < push_constants.num_keys) ? local_src_payload[i]: 0;
+            uint local_key = (data_index < num_keys) ? local_src_keys[i] : 0xffffffff;
+            uint2 local_value = (data_index < num_keys) ? local_src_payload[i]: uint2(0, 0);
 
             // Sort the thread group keys locally in shared memory
             // Radix sort with 2 bits per pass and therefore 4 total bins (00, 01, 10, 11)
@@ -410,10 +444,11 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
 
                 // Rearrange the values (store, sync, load)
                 // Store the value
-                group_shared_sums[key_offset] = local_value;
+                group_shared_sums[key_offset] = local_value.x; 
+                shared_payload_y[key_offset] = local_value.y;
                 GroupMemoryBarrierWithGroupSync();
-                // Pick up the actual value assigned to this thread
-                local_value = group_shared_sums[local_id];
+                local_value.x = group_shared_sums[local_id];
+                local_value.y = shared_payload_y[local_id];
                 GroupMemoryBarrierWithGroupSync();
             }
 
@@ -444,7 +479,7 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
             // Write to destination
             const uint total_offset = global_offset + local_offset;
 
-            if(total_offset < push_constants.num_keys){
+            if(total_offset < num_keys){
                 push_constants.dst_keys[total_offset] = local_key;
                 push_constants.dst_payload[total_offset] = local_value;
             }
@@ -460,4 +495,64 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
         }
 
     }
+}
+
+[ForceInline] uint get_num_keys() {
+    return push_constants.is_indirect == 1 ? push_constants.metadata[0].num_keys : push_constants.num_keys;
+}
+
+[ForceInline] int get_num_blocks_per_thread_group() {
+    return push_constants.is_indirect == 1 ? push_constants.metadata[0].num_blocks_per_thread_group : push_constants.num_blocks_per_thread_group;
+}
+
+[ForceInline] uint get_num_thread_groups() {
+    return push_constants.is_indirect == 1 ? push_constants.metadata[0].num_thread_groups : push_constants.num_thread_groups;
+}
+
+[ForceInline] uint get_num_thread_groups_with_additional_blocks() {
+    return push_constants.is_indirect == 1 ? push_constants.metadata[0].num_thread_groups_with_additional_blocks : push_constants.num_thread_groups_with_additional_blocks;
+}
+
+[ForceInline] uint get_num_reduce_thread_group_per_bin() {
+    return push_constants.is_indirect == 1 ? push_constants.metadata[0].num_reduce_thread_group_per_bin : push_constants.num_reduce_thread_group_per_bin;
+}
+
+[ForceInline] uint get_num_scan_values() {
+    return push_constants.is_indirect == 1 ? push_constants.metadata[0].num_scan_values : push_constants.num_scan_values;
+}
+
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void setup_indirect_sort() {
+    // Read the actual number of keys from the GPU buffer
+    const uint num_keys = push_constants.count_buffer[0];
+
+    const uint total_blocks = (num_keys + BLOCK_SIZE - 1) / BLOCK_SIZE; 
+    const uint num_thread_groups = min(total_blocks, MAX_THREAD_GROUPS);
+    const uint num_thread_groups_safe = max(num_thread_groups, 1);
+
+    const int blocks_per_thread_group = total_blocks / num_thread_groups_safe;
+    const uint num_thread_groups_with_additional_blocks = (total_blocks < MAX_THREAD_GROUPS) ? 0 : (total_blocks % num_thread_groups_safe);
+
+    const uint num_reduce_thread_groups = BIN_COUNT * ((num_thread_groups + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    const uint num_reduce_thread_groups_per_bin = num_reduce_thread_groups / BIN_COUNT;
+
+    IndirectSortingMetadata metadata;
+    metadata.num_keys = num_keys;
+    metadata.num_blocks_per_thread_group = blocks_per_thread_group;
+    metadata.num_thread_groups = num_thread_groups;
+    metadata.num_thread_groups_with_additional_blocks = num_thread_groups_with_additional_blocks;
+    metadata.num_reduce_thread_group_per_bin = num_reduce_thread_groups_per_bin;
+    metadata.num_scan_values = num_reduce_thread_groups;
+
+    // Write to global memory
+    *push_constants.metadata = metadata;
+
+    push_constants.indirect_dispatch_buffer[0] = {num_thread_groups, 1, 1};
+    push_constants.indirect_dispatch_buffer[1] = {num_reduce_thread_groups, 1, 1};
+    push_constants.indirect_dispatch_buffer[2] = {1, 1, 1};
+    push_constants.indirect_dispatch_buffer[3] = {num_reduce_thread_groups, 1, 1};
+    push_constants.indirect_dispatch_buffer[4] = {num_thread_groups, 1, 1};    
+
 }

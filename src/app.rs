@@ -81,7 +81,8 @@ impl ApplicationHandler for App {
         self.world = Some(World::new(
             &vk_core,
             &world_size,
-            self.renderer.as_ref().unwrap(),
+            self.compute_engine.as_ref().unwrap(),
+            self.renderer.as_ref().unwrap()
         ));
 
         self.vk_core = Some(vk_core);
@@ -117,16 +118,15 @@ impl ApplicationHandler for App {
                 };
 
 
-
-
                 let vk_core = self.vk_core.as_ref().unwrap();
                 let compute_engine = self.compute_engine.as_mut().unwrap();
                 let renderer = self.renderer.as_mut().unwrap();
                 let world = self.world.as_mut().unwrap();
                 
                 // Update the current frame index from the compute engine
+                
                 compute_engine.set_frame_index(current_frame_idx);
-                self.gpu_profiler.as_mut().unwrap().set_frame_index(current_frame_idx, self.total_frames_proccessed);
+                self.gpu_profiler.as_mut().unwrap().set_frame_index(current_frame_idx);
                 
                 let gpu_profiler = self.gpu_profiler.as_ref().unwrap();
                 let timings = gpu_profiler
@@ -137,22 +137,21 @@ impl ApplicationHandler for App {
                         println!("Pass {}: {:.4} ms", label, time);
                     }
                 }
+
                 
                 // Reset query pool
                 self.gpu_profiler.as_ref().unwrap().reset_on_host(vk_core.device());
                 
-                
-                
-                
                 // Extract the rendering data
-                let render_data = world.extract_render_data();
+                let render_data = world.extract_render_data(self.paused);
 
                 // Record commands to the gpu
                 rayon::join(
                     ||{
                         if !self.paused {
-                            world.update(vk_core, compute_engine, self.gpu_profiler.as_ref().unwrap());
-                        }
+                            let first_frame = self.total_frames_proccessed == 0;
+                            world.update(vk_core, compute_engine, first_frame, self.gpu_profiler.as_ref().unwrap());
+                        } 
                     },
                     ||{
                         renderer.record_draw_commands(
@@ -172,12 +171,14 @@ impl ApplicationHandler for App {
                     self.total_frames_proccessed+=1;
                 }
 
+
                 self.window.as_ref().unwrap().request_redraw();
                 self.renderer.as_mut().unwrap().submit_and_present(
                         self.compute_engine.as_ref().unwrap().compute_finished_semaphore(self.paused),
                         current_frame_idx,
                         image_index
                 );
+                
             }
             WindowEvent::KeyboardInput {
                 event:

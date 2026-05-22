@@ -12,6 +12,7 @@ pub struct PhysicsConfig {
     pub vorticity_epsilon: f32,
 
     // Runtime constants
+    pub search_radius: f32,
     pub kernel_radius_2: f32,
     pub kernel_poly6: f32,
     pub kernel_spiky_grad: f32,
@@ -43,6 +44,7 @@ impl PhysicsConfig {
             kernel_radius_2: kernel_radius * kernel_radius,
             kernel_poly6,
             kernel_spiky_grad,
+            search_radius: kernel_radius
         }
     }
 

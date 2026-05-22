@@ -13,6 +13,8 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
     use shader_slang::{GlobalSession, SessionDesc, CompilerOptions, TargetDesc, CompileTarget};
     use std::ffi::CString;
 
+    println!("Compiling {:?}", file_name);
+    
     // 1. Get the absolute path to the project directory
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
         .unwrap_or_else(|_| ".".to_string());

@@ -109,10 +109,7 @@ impl GpuProfiler {
     
     
 
-    pub fn set_frame_index(&self, frame_index: usize, total_frames_processed: u64){
-        if total_frames_processed < self.query_pools.len() as u64 {
-            return;
-        }
+    pub fn set_frame_index(&self, frame_index: usize){
         self.frame_index.store(frame_index, atomic::Ordering::Relaxed);
     }
 

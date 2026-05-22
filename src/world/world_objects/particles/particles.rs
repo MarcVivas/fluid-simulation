@@ -4,7 +4,6 @@ use ash::vk;
 use glam::{Vec3};
 use rand::Rng;
 use crate::components::{Density, FluidLambda, MortonCode, Position, Velocity, Vorticity};
-use crate::renderer::renderer::Renderer;
 use crate::vulkan::vk_core::VkCore;
 use crate::utils::data_structures::{ping_pong::PingPong};
 use crate::vulkan::vk_utils::{create_ping_pong_buffer, VkBuffer};
@@ -68,7 +67,7 @@ impl Particles {
         num_particles: usize,
         world_dim: &Vec3,
         vk_core: &Arc<VkCore>,
-        renderer: &Renderer,
+        cmd_pool: vk::CommandPool,
     ) -> Result<Self, Box<dyn Error>> {
         let mut random_number_generator = rand::rng();
 
@@ -123,7 +122,7 @@ impl Particles {
 
         let particle_system_buffers = create_particle_data(
             vk_core,
-            renderer.command_pool(),
+            cmd_pool,
             *vk_core.graphics_queue(),
             &positions,
             &previous_positions,
@@ -159,7 +158,15 @@ impl Particles {
         self.max_radius
     }
 
-    pub fn extract_render_data(&self, solver_iterations: usize) -> ParticleRenderData{
+    pub fn extract_render_data(&self, solver_iterations: usize, compute_paused: bool) -> ParticleRenderData{
+        if compute_paused{
+            // Return current
+            return ParticleRenderData {
+                positions_buffer: self.buffers().positions_buffer.current().vk_buffer(),
+                velocities: self.buffers.velocities.current().vk_buffer(),
+                total_particles: self.total_particles
+            };
+        }
         let (pos_idx, vel_idx) = self.buffers.predict_final_indices(solver_iterations);
         let final_positions_buffer = self.buffers.positions_buffer.from_index(pos_idx);
 

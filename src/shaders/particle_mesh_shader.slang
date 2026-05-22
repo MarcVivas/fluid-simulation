@@ -50,10 +50,12 @@ void main(
     out vertices VertexOutput vertices[GROUP_SIZE * VERTICES_PER_PARTICLE] // Max vertices: GROUP_SIZE * 4 = 256
 )
 {
+
+    
     // Retrieve the valid count directly from the payload
     // We trust the Task Shader did the counting for us
     uint validCount = payload.numVisible;
-
+    
     // Set the output counts (mandatory)
     SetMeshOutputCounts(
         validCount * VERTICES_PER_PARTICLE,

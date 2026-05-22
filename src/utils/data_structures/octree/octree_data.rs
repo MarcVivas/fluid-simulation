@@ -64,7 +64,9 @@ pub struct OctreeData {
    leaf_offsets: VkBuffer<u32>,
 
    /// Size: (max_internal + max_leaves)
-   leaf_data: VkBuffer<u32>,
+   /// leaf_data.x = first particle index
+   /// leaf_data.y = particle count
+   leaf_data: VkBuffer<glam::UVec2>,
 
    // ── Metadata ─────────────────────────────────────────────────────────
 
@@ -80,6 +82,12 @@ pub struct OctreeData {
    
    indirect_dispatch_buffer_leaves: IndirectBuffer,
    indirect_dispatch_buffer_nodes: IndirectBuffer
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LeafData {
+    pub start_idx: u32, 
+    pub count: u32    
 }
 
 impl OctreeData {
@@ -104,13 +112,13 @@ impl OctreeData {
         let level_offsets = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; (max_levels + 2) as usize], "level_offsets", cmd_pool, queue).unwrap();
         
         let leaf_offsets = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; (max_leaves + 1) as usize], "level_offsets", cmd_pool, queue).unwrap();
-        let leaf_data = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; total_nodes as usize], "leaf_data", cmd_pool, queue).unwrap();
+        let leaf_data = VkBuffer::new_gpu_only(vk_core, &vec![glam::UVec2::default(); total_nodes as usize], "leaf_data", cmd_pool, queue).unwrap();
         
         let leaf_count = create_ping_pong_buffer(vk_core, &vec![1 as u32; 1 as usize], "leaf_count", cmd_pool, queue).unwrap();
         let node_count = VkBuffer::new_gpu_only(vk_core, &vec![1 as u32; 1 as usize], "node_count", cmd_pool, queue).unwrap();
         
-        let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, glam::UVec3::new(1, 1, 1));
-        let indirect_dispatch_buffer_nodes = IndirectBuffer::new(vk_core, cmd_pool, glam::UVec3::new(1, 1, 1));
+        let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
+        let indirect_dispatch_buffer_nodes = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
 
         Self {
             cornerstone_array,
@@ -195,7 +203,7 @@ impl OctreeData {
         &self.leaf_offsets
     }
 
-    pub fn leaf_data(&self) -> &VkBuffer<u32> {
+    pub fn leaf_data(&self) -> &VkBuffer<glam::UVec2> {
         &self.leaf_data
     }
 }

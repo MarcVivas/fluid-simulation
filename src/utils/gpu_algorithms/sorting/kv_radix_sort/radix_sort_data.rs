@@ -1,23 +1,40 @@
-use crate::vulkan::vk_utils::VkBuffer;
+use ash::vk;
+
+use crate::utils::gpu_algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
+use crate::vulkan::vk_utils::{IndirectBuffer, VkBuffer};
 use std::sync::Arc;
 use crate::components::MortonCode;
 use crate::vulkan::vk_core::VkCore;
 
-pub struct RadixSortData {
+pub struct RadixSortData<T: RadixSortPayload> {
     #[allow(unused)]
     pub keys_bit_count: u32, // The maximum bits the keys use,
     pub num_passes: u32, // Number of passes to sort the keys
     pub num_keys: u32,
     pub histogram_buffer: VkBuffer<u32>,
     pub keys_b: VkBuffer<MortonCode>,
-    pub payload_b: VkBuffer<u32>,
+    pub payload_b: VkBuffer<T>,
     pub reduce_table: VkBuffer<u32>,
     pub scan_scratch: VkBuffer<u32>,
+    pub metadata_buffer: VkBuffer<SortingMetadata>,
+    pub indirect_dispatch_buffer: IndirectBuffer,
 }
 
-impl RadixSortData {
+#[allow(unused)]
+#[derive(Clone, Copy, Debug)]
+pub struct SortingMetadata {
+    num_keys: u32,
+    num_blocks_per_thread_group: i32,
+    num_thread_groups: u32,
+    num_thread_groups_with_additional_blocks: u32,
+    num_reduce_thread_group_per_bin: u32,
+    num_scan_values: u32
+}
+
+impl <T: RadixSortPayload> RadixSortData<T> {
     pub fn new(
         vk_core: &Arc<VkCore>,
+        cmd_pool: vk::CommandPool,
         max_keys: u32,
         keys_bit_count: Option<u32>,
         bits_per_pass: u32,
@@ -51,6 +68,9 @@ impl RadixSortData {
         let keys_bit_count = keys_bit_count.unwrap_or(32);
         let num_passes = Self::calculate_number_of_passes(keys_bit_count, bits_per_pass);
 
+        let metadata_buffer = VkBuffer::new_gpu_only_uninitialized(vk_core, 1, "Sorting metadata").unwrap();
+        let indirect_dispatch_buffer = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1); 5]);
+        
         Ok(Self {
             keys_bit_count,
             num_passes,
@@ -60,6 +80,8 @@ impl RadixSortData {
             payload_b: payload_b_buffer,
             reduce_table: reduce_table_buffer,
             scan_scratch: scan_scratch_buffer,
+            metadata_buffer,
+            indirect_dispatch_buffer
         })
     }
 

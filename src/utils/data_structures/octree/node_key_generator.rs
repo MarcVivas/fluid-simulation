@@ -15,6 +15,7 @@ struct NodeKeyGeneratorPushConstants {
     node_count: u64,
     leaf_data: u64,
     leaf_offsets: u64,
+    leaves_histogram: u64
 }
 
 pub struct NodeKeyGenerator {
@@ -51,6 +52,7 @@ impl NodeKeyGenerator {
             node_count: octree_data.node_count().address(),
             leaf_data: octree_data.leaf_data().address(),
             leaf_offsets: octree_data.leaf_offsets().address(),
+            leaves_histogram: octree_data.leaves_histogram().address(),
         };
         
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves().vk_buffer();

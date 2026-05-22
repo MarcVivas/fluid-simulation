@@ -1,10 +1,17 @@
+struct LeafData {
+    uint32_t start_idx; 
+    uint32_t count;
+}
+
 struct PushConsts {
     Ptr<uint32_t, Access.Read> num_leaves;
     Ptr<uint32_t, Access.Read> cornerstone_array;           // Cornerstone array
     Ptr<uint32_t, Access.ReadWrite> node_keys;     // Output Node Keys array (internal nodes + leaf nodes)
     Ptr<uint32_t, Access.ReadWrite> node_count;
-    Ptr<uint32_t, Access.ReadWrite> leaf_data;
+    Ptr<LeafData, Access.ReadWrite> leaf_data;
     Ptr<uint32_t, Access.Read> leaf_offsets;
+    Ptr<uint32_t, Access.Read> leaves_histogram;
+
 }
 [[vk::push_constant]] PushConsts pc;
 
@@ -37,7 +44,10 @@ func main(const uint global_id : SV_DispatchThreadID) {
 
     // Convert to Warren-Salmon placeholder-bit format
     pc.node_keys[num_internal_nodes + global_id] = convert_key_to_warren_salmon(key_i, leaf_level);
-    pc.leaf_data[num_internal_nodes + global_id] = pc.leaf_offsets[global_id];
+    LeafData ld;
+    ld.start_idx = pc.leaf_offsets[global_id];
+    ld.count = pc.leaves_histogram[global_id];
+    pc.leaf_data[num_internal_nodes + global_id] = ld;
 
     // The last thread stops here
     if(global_id >= num_leaves - 1) return; 

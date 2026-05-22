@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use engine::{components::MortonCode, compute::ComputeEngine, utils::data_structures::octree::octree::Octree, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
+use ash::vk;
+use engine::{components::{HilbertKey}, compute::ComputeEngine, utils::{data_structures::octree::{octree::Octree}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
 use rand::rngs::ThreadRng;
 use rand::Rng;
 
 #[test]
 pub fn octree_test(){
     VkHeadless::run(|engine, vk_core, mut rng|{
-        let sentinel = Octree::sentinel();
-        let num_elements = 30000;
+        let num_elements = 300000;
         let cmd_pool = engine.command_pool();
-        let (keys, keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements, sentinel);
+        let (keys, keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements);
         let mut octree = Octree::new(vk_core, cmd_pool, num_elements);
 
         engine.record_commands(|cmd_buffer|{
@@ -20,41 +20,56 @@ pub fn octree_test(){
         engine.submit_without_signaling();
         unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
-        // Get back the data
-        let octree_data = octree.data();
-        let cornerstone_array = octree_data.cornerstone_array().read_back(vk_core, cmd_pool).unwrap();
-        let leaves_histogram = octree_data.leaves_histogram().read_back(vk_core, cmd_pool).unwrap();
-        let leaf_count = octree_data.leaf_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
-        let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
-        let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
-        let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
-        let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
-        let n_crit = octree.n_crit();
-        let num_internal_nodes = (leaf_count - 1) / 7;
-        let total_nodes = leaf_count + num_internal_nodes;
-        let max_levels = Octree::max_levels();
-
-        assert_eq!(node_count, total_nodes);
-
-        let active_histogram = &leaves_histogram[0..leaf_count];
-        let active_cornerstone = &cornerstone_array[0..leaf_count+1];
-        let active_node_keys = &node_keys[0..total_nodes];
-        let active_node_first_child = &node_first_child[0..total_nodes];
-        let active_level_offsets = &level_offsets[0..max_levels as usize + 2];
+        validate(vk_core, cmd_pool, &octree, &keys);
         
-        verify_spatial_integrity(sentinel, n_crit, &keys, &active_cornerstone, &active_histogram, leaf_count);
-        validate_sorted_node_keys(active_node_keys);
-        validate_octree_topology(active_node_keys, active_level_offsets, active_node_first_child, max_levels as usize);
-        
-        let total_counted: u32 = active_histogram.iter().sum();
-        assert_eq!(total_counted, num_elements as u32, "Lost particles during octree build!");
 
     });
 }
 
+fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, keys: &Vec<HilbertKey>){
+    // Get back the data
+    let sentinel = Octree::sentinel();
+    let octree_data = octree.data();
+    let cornerstone_array = octree_data.cornerstone_array().read_back(vk_core, cmd_pool).unwrap();
+    let leaves_histogram = octree_data.leaves_histogram().read_back(vk_core, cmd_pool).unwrap();
+    let leaf_count = octree_data.leaf_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
+    let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
+    let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
+    let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
+    let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
+    let leaf_data = octree_data.leaf_data().read_back(vk_core, cmd_pool).unwrap();
+    let n_crit = octree.n_crit();
+    let num_internal_nodes = (leaf_count - 1) / 7;
+    let total_nodes = leaf_count + num_internal_nodes;
+    let max_levels = Octree::max_levels();
 
-fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32, sentinel: u32) -> (Vec<MortonCode>, VkBuffer<MortonCode>){
+    assert_eq!(node_count, total_nodes);
+
+    let active_histogram = &leaves_histogram[0..leaf_count];
+    let active_cornerstone = &cornerstone_array[0..leaf_count+1];
+    let active_node_keys = &node_keys[0..total_nodes];
+    let active_node_first_child = &node_first_child[0..total_nodes];
+    let active_leaf_data = &leaf_data[0..total_nodes];
+    let active_level_offsets = &level_offsets[0..max_levels as usize + 2];
+    
+    verify_spatial_integrity(sentinel, n_crit, &keys, &active_cornerstone, &active_histogram, leaf_count);
+    validate_sorted_node_keys(active_node_keys);
+    validate_octree_topology(active_node_keys, active_level_offsets, active_node_first_child, max_levels as usize);
+    validate_leaf_data(
+        active_node_keys, 
+        active_node_first_child, 
+        active_leaf_data, 
+        &keys,
+        max_levels as usize
+    );
+    let total_counted: u32 = active_histogram.iter().sum();
+    assert_eq!(total_counted, keys.len() as u32, "Lost particles during octree build!");
+}
+
+
+fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32) -> (Vec<u32>, VkBuffer<u32>){
     let mut keys: Vec<u32> = Vec::with_capacity(num_elements as usize);
+    let sentinel = Octree::sentinel();
 
     let cluster_a_size = num_elements / 4;
     for _ in 0..cluster_a_size {
@@ -80,70 +95,93 @@ fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut T
 #[test]
 pub fn octree_maintenance_test() {
     VkHeadless::run(|engine, vk_core, mut rng| {
-        let sentinel = Octree::sentinel();
         let cmd_pool = engine.command_pool();
 
         // Initial Build with Dense Data
         let num_elements_initial = 30000;
-        let (mut keys, mut keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements_initial, sentinel);
+        let (mut keys, mut keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
         let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial);
 
-        // Build the tree (maintenance_mode = false)
-        engine.record_commands(|cmd_buffer| {
-            octree.build(vk_core, cmd_buffer, &keys_buffer, false);
-        });
-        engine.submit_without_signaling();
-        unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
-        // Simulate Particles Moving/Dispersing
-        // We will severely reduce the number of particles to trigger merges
-        let num_elements_sparse = num_elements_initial;
-        keys.clear();
-        for _ in 0..num_elements_sparse {
-            keys.push(rng.random_range(0..sentinel)); // Evenly spread
+        for _ in 0..20 {
+            engine.record_commands(|cmd_buffer| {
+                octree.build(vk_core, cmd_buffer, &keys_buffer, true);
+            });
+            engine.submit_without_signaling();
+            unsafe { vk_core.device().device_wait_idle().unwrap(); }
+
+            validate(vk_core, cmd_pool, &octree, &keys);
+
+            // Simulate Particles Moving/Dispersing
+            // We will severely reduce the number of particles to trigger merges
+            let num_elements_sparse = num_elements_initial;
+            keys.clear();
+            for _ in 0..num_elements_sparse {
+                keys.push(rng.random_range(0..Octree::sentinel())); 
+            }
+            keys.sort();
+    
+            // Upload the new sparse data
+            keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys_sparse", cmd_pool, *vk_core.compute_queue()).unwrap();
         }
-        keys.sort();
 
-        // Upload the new sparse data
-        keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys_sparse", cmd_pool, *vk_core.compute_queue()).unwrap();
-
-        // Maintenance Pass
-        engine.record_commands(|cmd_buffer| {
-            // Run the build/update loop again, but with maintenance mode ON!
-            octree.build(vk_core, cmd_buffer, &keys_buffer, true);
-        });
-        engine.submit_without_signaling();
-        unsafe { vk_core.device().device_wait_idle().unwrap(); }
-
-        // Get back the data
-        let octree_data = octree.data();
-        let cornerstone_array = octree_data.cornerstone_array().read_back(vk_core, cmd_pool).unwrap();
-        let leaves_histogram = octree_data.leaves_histogram().read_back(vk_core, cmd_pool).unwrap();
-        let leaf_count = octree_data.leaf_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
-        let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
-        let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
-        let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
-        let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
-        let n_crit = octree.n_crit();
-        let num_internal_nodes = (leaf_count - 1) / 7;
-        let total_nodes = leaf_count + num_internal_nodes;
-        let max_levels = Octree::max_levels();
-
-        assert_eq!(node_count, total_nodes);
-
-        let active_histogram = &leaves_histogram[0..leaf_count];
-        let active_cornerstone = &cornerstone_array[0..leaf_count+1];
-        let active_node_keys = &node_keys[0..total_nodes];
-        let active_node_first_child = &node_first_child[0..total_nodes];
-        let active_level_offsets = &level_offsets[0..max_levels as usize + 2];
-        
-        verify_spatial_integrity(sentinel, n_crit, &keys, &active_cornerstone, &active_histogram, leaf_count);
-        validate_sorted_node_keys(active_node_keys);
-        validate_octree_topology(active_node_keys, active_level_offsets, active_node_first_child, max_levels as usize);
-        
-        let total_counted: u32 = active_histogram.iter().sum();
-        assert_eq!(total_counted, num_elements_initial as u32, "Lost particles during octree build!");
+       
     });
+}
+
+pub fn validate_leaf_data(
+    node_keys: &[u32],
+    node_first_child: &[u32],
+    leaf_data: &[glam::UVec2],
+    sorted_keys: &[u32],
+    max_levels: usize,
+) {
+    let total_nodes = node_keys.len();
+    assert_eq!(leaf_data.len(), total_nodes, "LeafData array length mismatch");
+    
+    let mut total_particles_in_leaves = 0;
+
+    for i in 0..total_nodes {
+        // If CO is 0, this node is a leaf!
+        if node_first_child[i] == 0 { 
+            let start_idx = leaf_data[i].x as usize;
+            let count = leaf_data[i].y as usize;
+            
+            // 1. Decode the Warren-Salmon Key to find its spatial boundaries
+            let key = node_keys[i];
+            let key_level = ((31 - key.leading_zeros()) / 3) as usize;
+            let shift = 3 * (max_levels - key_level); 
+            
+            let placeholder = 1 << (3 * key_level);
+            let path = key ^ placeholder;
+            
+            let left_bound = path << shift;
+            let right_bound = left_bound + (1 << shift);
+            
+            // 2. Verify that every particle in this range actually belongs in this leaf!
+            for p in 0..count {
+                let particle_key = sorted_keys[start_idx + p];
+                assert!(
+                    particle_key >= left_bound && particle_key < right_bound,
+                    "Particle at index {} (Key: {}) in leaf {} (Level {}) is out of spatial bounds[{}, {})",
+                    start_idx + p, particle_key, i, key_level, left_bound, right_bound
+                );
+            }
+            
+            // Track total particles to ensure no one was left behind
+            total_particles_in_leaves += count;
+        }
+    }
+    
+    // 3. Verify the whole tree accounts for every single particle
+    assert_eq!(
+        total_particles_in_leaves, 
+        sorted_keys.len(),
+        "Total particles in leaves ({}) does not match the simulation total ({})!",
+        total_particles_in_leaves, sorted_keys.len()
+    );
+    
+    println!("LeafData Validation Passed! O(1) particle lookups are mathematically perfect.");
 }
 
 fn verify_spatial_integrity(

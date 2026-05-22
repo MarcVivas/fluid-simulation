@@ -112,6 +112,9 @@ impl ParticleDrawingSystem {
     }
 
     pub fn draw(&self, command_buffer: &CommandBuffer, total_particles: usize){
+        if total_particles <= 0 {
+            return;
+        }
         let device = self.vk_core.device();
         // Bind pipeline
         command_buffer.bind_pipeline(
@@ -144,24 +147,26 @@ impl ParticleDrawingSystem {
             &[]
         );
 
-        // Push the Buffers (Set 1)
-        let desc_buffer_infos = [
-            vk::DescriptorBufferInfo::default()
-                .buffer(particle_render_data.positions_buffer)
-                .offset(0)
-                .range(vk::WHOLE_SIZE),
-            vk::DescriptorBufferInfo::default()
-                .buffer(particle_render_data.velocities)
-                .offset(0)
-                .range(vk::WHOLE_SIZE)
-        ];
-
-
+        let pos_info = [vk::DescriptorBufferInfo::default()
+            .buffer(particle_render_data.positions_buffer)
+            .range(vk::WHOLE_SIZE)];
+            
+        let vel_info = [vk::DescriptorBufferInfo::default()
+            .buffer(particle_render_data.velocities)
+            .range(vk::WHOLE_SIZE)];
+        
         let descriptor_writes = [
             vk::WriteDescriptorSet::default()
                 .dst_binding(0)
+                .descriptor_count(1) // explicitly 1
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&desc_buffer_infos[0..desc_buffer_infos.len()]),
+                .buffer_info(&pos_info),
+                
+            vk::WriteDescriptorSet::default()
+                .dst_binding(1)
+                .descriptor_count(1) // explicitly 1
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&vel_info),
         ];
 
         // Pushing Set 1

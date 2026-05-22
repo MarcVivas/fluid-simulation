@@ -5,7 +5,8 @@ use rand::rngs::ThreadRng;
 pub struct VkHeadless {
     pub vk_core: Arc<VkCore>,
     pub engine: ComputeEngine,
-    pub mutex: Mutex<()>    // Mutex to prevent multiple tests use the same queue
+    pub mutex: Mutex<()>,    // Mutex to prevent multiple tests use the same queue
+    
 }
 
 impl VkHeadless {
@@ -16,7 +17,7 @@ impl VkHeadless {
             let vk_core = Arc::new(init_headless());
             
             // Initialize the compute engine
-            let engine = ComputeEngine::new(vk_core.clone(), 1)
+            let engine = ComputeEngine::new(vk_core.clone(), Self::frames_in_flight())
                 .expect("Failed to create Compute engine");   
             
             // Return the TestContext
@@ -40,6 +41,10 @@ impl VkHeadless {
         let engine = &ctx.engine;
         let rng = rand::rng();
         code(engine, vk_core, rng);
+    }
+
+    pub fn frames_in_flight() -> usize {
+        1
     }
 }
 

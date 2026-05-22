@@ -38,7 +38,7 @@ impl Octree {
         let max_nodes = max_leaves + max_internal_nodes;
         
         let octree_data = OctreeData::new(vk_core, cmd_pool, max_leaves, max_internal_nodes, MAX_LEVELS, SENTINEL_VALUE);
-        let octree_constructor = OctreeConstructor::new(vk_core, max_leaves, SENTINEL_VALUE, MAX_LEVELS, MAX_BITS, max_nodes);
+        let octree_constructor = OctreeConstructor::new(vk_core, cmd_pool, max_leaves, SENTINEL_VALUE, MAX_LEVELS, MAX_BITS, max_nodes);
         
         Self {
             octree_data,

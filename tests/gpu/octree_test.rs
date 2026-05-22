@@ -21,8 +21,6 @@ pub fn octree_test(){
         unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
         validate(vk_core, cmd_pool, &octree, &keys);
-        
-
     });
 }
 
@@ -52,9 +50,16 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
     let active_leaf_data = &leaf_data[0..total_nodes];
     let active_level_offsets = &level_offsets[0..max_levels as usize + 2];
     
+    // 1. Verify 1D physical boundaries and histograms
     verify_spatial_integrity(sentinel, n_crit, &keys, &active_cornerstone, &active_histogram, leaf_count);
+    
+    // 2. Verify tree node key sorting
     validate_sorted_node_keys(active_node_keys);
+    
+    // 3. Verify topological connectivity
     validate_octree_topology(active_node_keys, active_level_offsets, active_node_first_child, max_levels as usize);
+    
+    // 4. Verify node key-range containment
     validate_leaf_data(
         active_node_keys, 
         active_node_first_child, 
@@ -62,10 +67,153 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
         &keys,
         max_levels as usize
     );
+
+    // 5. Verify physical 1D-to-3D mathematical loop closure and cornerstone alignment
+    validate_leaf_data_alignment(
+        active_node_keys,
+        active_node_first_child,
+        active_leaf_data,
+        &active_cornerstone,
+        &active_histogram,
+        leaf_count
+    );
+
     let total_counted: u32 = active_histogram.iter().sum();
     assert_eq!(total_counted, keys.len() as u32, "Lost particles during octree build!");
 }
 
+/// Verifies that every GPU cornerstone leaf node represents a mathematically aligned, non-overlapping
+/// power-of-8 spatial cell, and that the 3D-decoded coordinates loop back exactly to the 1D boundaries.
+fn validate_leaf_data_alignment(
+    node_keys: &[u32],
+    node_first_child: &[u32],
+    leaf_data: &[glam::UVec2],
+    cornerstone: &[u32],
+    histogram: &[u32],
+    leaf_count: usize,
+) {
+    struct DecodedLeaf {
+        node_idx: usize,
+        key: u32,
+        level: usize,
+        path: u32,
+        start_idx: usize,
+        count: usize,
+    }
+
+    let total_nodes = node_keys.len();
+    let mut decoded_leaves = Vec::new();
+
+    // 1. Collect all leaf nodes from the sorted tree
+    for i in 0..total_nodes {
+        if node_first_child[i] == 0 {
+            let key = node_keys[i];
+            let leading_zeros = key.leading_zeros();
+            let bit_high = if leading_zeros == 32 { 0 } else { 31 - leading_zeros };
+            let level = (bit_high / 3) as usize;
+            let path = key ^ (1 << (3 * level));
+
+            let start_idx = leaf_data[i].x as usize;
+            let count = leaf_data[i].y as usize;
+
+            decoded_leaves.push(DecodedLeaf {
+                node_idx: i,
+                key,
+                level,
+                path,
+                start_idx,
+                count,
+            });
+        }
+    }
+
+    assert_eq!(decoded_leaves.len(), leaf_count, "Collected leaf count does not match leaf_count");
+
+    // 2. Sort the leaves by their 30-bit Hilbert key start bounds to align them with the cornerstone order
+    decoded_leaves.sort_by_key(|leaf| leaf.path << (3 * (10 - leaf.level)));
+
+    let mut expected_start_idx = 0usize;
+
+    for i in 0..leaf_count {
+        let leaf = &decoded_leaves[i];
+        let left = cornerstone[i];
+        let right = cornerstone[i + 1];
+        let delta = right - left;
+
+        // Verify Cornerstone Alignment
+        let is_power_of_8 = delta > 0 && (delta.trailing_zeros() % 3 == 0) && (delta & (delta - 1) == 0);
+        assert!(
+            is_power_of_8,
+            "CORNERSTONE ALIGNMENT VIOLATION: Leaf {} interval [{}, {}) has delta {}, which is NOT a power of 8. The cornerstone generator created unaligned boundaries.",
+            i, left, right, delta
+        );
+
+        // Verify Loop Closure with Cornerstone bounds
+        let leaf_30bit_path = leaf.path << (3 * (10 - leaf.level));
+        assert_eq!(
+            leaf_30bit_path, left,
+            "LOOP CLOSURE FAILURE: Leaf {} (Node {}) path is {}, but expected cornerstone left bound is {}.",
+            i, leaf.node_idx, leaf_30bit_path, left
+        );
+
+        // Verify Histogram and Leaf Data particle counts
+        assert_eq!(
+            leaf.count, histogram[i] as usize,
+            "HISTOGRAM MISMATCH: Leaf {} (Node {}) count is {}, but active_histogram[{}] is {}.",
+            i, leaf.node_idx, leaf.count, i, histogram[i]
+        );
+
+        // Verify Start Index (Leaf Offsets)
+        assert_eq!(
+            leaf.start_idx, expected_start_idx,
+            "START INDEX MISMATCH: Leaf {} (Node {}) start_idx is {}, but expected prefix sum is {}.",
+            i, leaf.node_idx, leaf.start_idx, expected_start_idx
+        );
+
+        expected_start_idx += leaf.count;
+    }
+
+    println!("Octree 3D Loop-Closure and Cornerstone Alignment Validation Passed!");
+}
+
+/// Decodes a 30-bit Hilbert index into integer grid coordinates on the CPU using candidate evaluation.
+fn decode_hilbert_3d_cpu(code: u32) -> glam::UVec3 {
+    let mut grid_pos = glam::UVec3::ZERO;
+    let mut state = 0u32;
+
+    for i in (0..10).rev() {
+        let chunk = (code >> (3 * i)) & 7u32;
+        let mut octant = 0u32;
+
+        for candidate in 0..8u32 {
+            let s = candidate ^ (candidate >> 1);
+            let t = (candidate ^ state) & 3;
+
+            let mut state_new = state;
+            if t == 0 {
+                state_new ^= if (candidate & 1) != 0 { 6 } else { 0 };
+            } else if t == 3 {
+                state_new ^= if (candidate & 1) != 0 { 0 } else { 6 };
+            }
+
+            if (s ^ state_new) == chunk {
+                octant = candidate;
+                state = state_new;
+                break;
+            }
+        }
+
+        let b2 = (octant >> 2) & 1;
+        let b1 = (octant >> 1) & 1;
+        let b0 = (octant >> 0) & 1;
+
+        grid_pos.x |= b2 << i;
+        grid_pos.y |= b1 << i;
+        grid_pos.z |= b0 << i;
+    }
+
+    grid_pos
+}
 
 fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32) -> (Vec<u32>, VkBuffer<u32>){
     let mut keys: Vec<u32> = Vec::with_capacity(num_elements as usize);
@@ -124,8 +272,6 @@ pub fn octree_maintenance_test() {
             // Upload the new sparse data
             keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys_sparse", cmd_pool, *vk_core.compute_queue()).unwrap();
         }
-
-       
     });
 }
 

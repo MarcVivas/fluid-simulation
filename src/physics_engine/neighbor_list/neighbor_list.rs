@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Add, sync::Arc};
 
 use ash::vk;
 use bytemuck::bytes_of;
@@ -30,6 +30,8 @@ impl NeighborList {
                     .add("MAX_LEVELS", max_levels)
                     .add("MAX_NEIGHBOR_CAPACITY", MAX_NEIGHBOR_CAPACITY)
                     .add("CLUSTER_SIZE", CLUSTER_SIZE)
+                    .add("WAVE_SIZE", vk_core.subgroup_size())
+                    .add("QUEUE_MEMORY_PER_WORKGROUP", NeighborListData::queue_memory_per_workgroup())
             )
             .build_with_single_pass().unwrap();
 
@@ -67,7 +69,7 @@ impl NeighborList {
             super_clusters: self.data.super_clusters().address(), 
             super_clusters_neighbors: self.data.super_cluster_neighbors().address(), 
             allocator: self.data.allocator().address(),
-
+            queue_pool: self.data.queue_pool().address(),
             world_min,
             world_size,
             search_radius,

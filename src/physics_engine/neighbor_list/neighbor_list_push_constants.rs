@@ -13,12 +13,12 @@ pub struct NeighborListPushConstants {
     pub super_clusters: u64, 
     pub super_clusters_neighbors: u64, 
     pub allocator: u64,
+    pub queue_pool: u64,
 
     // Metadata
+    pub world_min: glam::Vec4,
     pub world_size: f32,
     pub search_radius: f32,
-    pub world_min: glam::Vec4,
     pub num_particles: u32,
     pub num_super_clusters: u32,
-    pub _padding: [u32; 2]
 }

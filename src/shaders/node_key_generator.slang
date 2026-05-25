@@ -83,7 +83,7 @@ func calculate_internal_node_idx(const uint32_t internal_node_level, const uint3
     int mu[8] = {0, 1, 2, 3, -3, -2, -1, 0};
 
     [unroll]
-    for(uint level = 1; level <= MAX_LEVELS; level++){
+    for(uint level = 1; level <= internal_node_level; level++){
         // Extract the level octal digit from the key
         const uint32_t shift = MAX_BITS - 3 * level;
         const uint32_t digit = key >> shift & 0x7;

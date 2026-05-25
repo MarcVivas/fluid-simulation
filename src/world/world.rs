@@ -19,7 +19,7 @@ pub struct World{
     neighbor_list: NeighborList,
 }
 
-const NUM_PARTICLES: usize = 4000; //8193;
+const NUM_PARTICLES: usize = 400000; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, world_max: &Vec3, compute_engine: &ComputeEngine, renderer: &Renderer) -> Self{

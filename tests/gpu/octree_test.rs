@@ -21,6 +21,7 @@ pub fn octree_test(){
         unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
         validate(vk_core, cmd_pool, &octree, &keys);
+        validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements as usize);
     });
 }
 
@@ -80,6 +81,201 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
 
     let total_counted: u32 = active_histogram.iter().sum();
     assert_eq!(total_counted, keys.len() as u32, "Lost particles during octree build!");
+}
+
+pub fn validate_octree_bulletproof(
+    vk_core: &Arc<VkCore>,
+    cmd_pool: vk::CommandPool,
+    octree: &Octree,
+    num_particles: usize,
+) {
+    let octree_data = octree.data();
+    let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
+    let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
+    let leaf_data = octree_data.leaf_data().read_back(vk_core, cmd_pool).unwrap();
+    let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
+    let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
+    let max_levels = Octree::max_levels() as usize;
+
+    let node_keys = &node_keys[0..node_count];
+    let node_first_child = &node_first_child[0..node_count];
+    let leaf_data = &leaf_data[0..node_count];
+    let level_offsets = &level_offsets[0..max_levels + 2];
+
+    // ── 1. Every node_first_child value is either 0 or a valid in-bounds index ──
+    for i in 0..node_count {
+        let fci = node_first_child[i] as usize;
+        if fci != 0 {
+            assert!(
+                fci + 7 < node_count,
+                "Node {}: node_first_child={} places children [{}, {}] out of bounds (node_count={})",
+                i, fci, fci, fci + 7, node_count
+            );
+            // Child index must be strictly greater than parent (no back-edges → no cycles)
+            assert!(
+                fci > i,
+                "Node {}: node_first_child={} is a back-edge — guaranteed BFS cycle!",
+                i, fci
+            );
+        }
+    }
+
+    // ── 2. Every internal node's children have the mathematically correct keys ──
+    // Also verify no internal node accidentally got node_first_child=0
+    // by cross-checking: if a node's child key EXISTS in node_keys, 
+    // then node_first_child must NOT be 0
+    for i in 0..node_count {
+        let key = node_keys[i];
+        let level = (31u32.saturating_sub(key.leading_zeros())) / 3;
+        let fci = node_first_child[i] as usize;
+
+        if fci == 0 {
+            // Claims to be a leaf — verify no child key exists in the array
+            if level < max_levels as u32 {
+                let child_key = key << 3;
+                assert!(
+                    node_keys.binary_search(&child_key).is_err(),
+                    "Node {} (key={}, level={}): node_first_child=0 (leaf) but child key {} EXISTS in tree — linker missed it!",
+                    i, key, level, child_key
+                );
+            }
+        } else {
+            // Claims to be internal — verify all 8 children have correct keys
+            for octant in 0u32..8 {
+                let expected_child_key = (key << 3) | octant;
+                let actual_child_key = node_keys[fci + octant as usize];
+                assert_eq!(
+                    actual_child_key, expected_child_key,
+                    "Node {} (key={}, level={}): child at octant {} has key {} but expected {}",
+                    i, key, level, octant, actual_child_key, expected_child_key
+                );
+            }
+        }
+    }
+
+    // ── 3. leaf_data sanity for ALL nodes ──
+    // Internal nodes: leaf_data doesn't matter structurally, but
+    // particle_count must not be a garbage value that would cause 
+    // the BFS to iterate billions of clusters
+    for i in 0..node_count {
+        let fci = node_first_child[i] as usize;
+        let start = leaf_data[i].x as usize;
+        let count = leaf_data[i].y as usize;
+
+        if fci == 0 {
+            // Leaf node
+            assert!(
+                count <= num_particles,
+                "Leaf node {}: particle_count={} exceeds total num_particles={}",
+                i, count, num_particles
+            );
+            assert!(
+                start <= num_particles,
+                "Leaf node {}: start_idx={} exceeds total num_particles={}",
+                i, start, num_particles
+            );
+            assert!(
+                start + count <= num_particles,
+                "Leaf node {}: start_idx={} + count={} = {} overflows num_particles={}",
+                i, start, count, start + count, num_particles
+            );
+        } else {
+            // Internal node — leaf_data is meaningless but must not be
+            // a huge garbage value that would hang the BFS if it were 
+            // ever mistakenly treated as a leaf
+            assert!(
+                count == 0 || count == 0xFFFF || count <= num_particles,
+                "Internal node {}: leaf_data.count={} is a dangerous garbage value \
+                 that would cause BFS to iterate {} clusters if this node is \
+                 mistakenly treated as a leaf",
+                i, count, count
+            );
+        }
+    }
+
+    // ── 4. Reachability — every node must be reachable from the root ──
+    // A node that is unreachable means the linker created a disconnected subtree
+    let mut reachable = vec![false; node_count];
+    let mut stack = vec![0usize]; // start from root
+    reachable[0] = true;
+
+    while let Some(node) = stack.pop() {
+        let fci = node_first_child[node] as usize;
+        if fci != 0 {
+            for octant in 0..8 {
+                let child = fci + octant;
+                assert!(
+                    !reachable[child],
+                    "Node {} is reachable via multiple paths — tree has a DAG merge or cycle!",
+                    child
+                );
+                reachable[child] = true;
+                stack.push(child);
+            }
+        }
+    }
+
+    for i in 0..node_count {
+        assert!(
+            reachable[i],
+            "Node {} (key={}) is UNREACHABLE from root — disconnected subtree, \
+             linker missed a parent-child connection",
+            i, node_keys[i]
+        );
+    }
+
+    // ── 5. Leaf coverage — leaves must cover [0, num_particles) exactly ──
+    // with no gaps and no overlaps
+    let mut coverage = vec![0u32; num_particles + 1];
+    for i in 0..node_count {
+        if node_first_child[i] == 0 {
+            let start = leaf_data[i].x as usize;
+            let count = leaf_data[i].y as usize;
+            for p in start..start + count {
+                coverage[p] += 1;
+                assert_eq!(
+                    coverage[p], 1,
+                    "Particle {} is covered by multiple leaves — overlap detected at node {}",
+                    p, i
+                );
+            }
+        }
+    }
+    for p in 0..num_particles {
+        assert_eq!(
+            coverage[p], 1,
+            "Particle {} is not covered by any leaf — gap in coverage",
+            p
+        );
+    }
+
+    // ── 6. level_offsets are consistent with actual node levels ──
+    assert_eq!(
+        level_offsets[max_levels + 1] as usize,
+        node_count,
+        "level_offsets[MAX_LEVELS+1]={} != node_count={}",
+        level_offsets[max_levels + 1], node_count
+    );
+    for level in 0..=max_levels {
+        let start = level_offsets[level] as usize;
+        let end = level_offsets[level + 1] as usize;
+        for i in start..end {
+            let key = node_keys[i];
+            let actual_level = (31u32.saturating_sub(key.leading_zeros())) / 3;
+            assert_eq!(
+                actual_level as usize, level,
+                "Node {} (key={}): actual level={} but level_offsets places it in level {}",
+                i, key, actual_level, level
+            );
+        }
+    }
+
+    println!("Bulletproof octree validation passed! {} nodes, {} leaves.",
+        node_count,
+        node_keys.iter().zip(node_first_child.iter())
+            .filter(|(_, fci)| **fci == 0)
+            .count()
+    );
 }
 
 /// Verifies that every GPU cornerstone leaf node represents a mathematically aligned, non-overlapping
@@ -259,6 +455,7 @@ pub fn octree_maintenance_test() {
             unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
             validate(vk_core, cmd_pool, &octree, &keys);
+            validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements_initial as usize);
 
             // Simulate Particles Moving/Dispersing
             // We will severely reduce the number of particles to trigger merges

@@ -45,13 +45,6 @@ impl NeighborListTest {
         let super_clusters = self.neighbor_list.super_clusters().read_back(vk_core, command_pool).unwrap();
         let super_cluster_neighbors = self.neighbor_list.super_cluster_neighbors().read_back(vk_core, command_pool).unwrap();
         let positions = self.particles.buffers().positions_buffer.current().read_back(vk_core, command_pool).unwrap();
-        
-        println!("==================================================");
-        println!("DIAGNOSTICS");
-        println!("Vulkan Device Subgroup Size: {}", vk_core.subgroup_size());
-        println!("GPU Super-Clusters Allocated: {}", super_clusters.len());
-        println!("CPU Super-Clusters Checked: {}", self.particles.len() / 64);
-        println!("==================================================");
 
         // Perform neighbor-list matching.
         self.validate_neighbor_list(&super_clusters, &super_cluster_neighbors, &positions);        
@@ -168,7 +161,7 @@ impl NeighborListTest {
 #[test]
 pub fn test_neighbor_list_building() {
     VkHeadless::run(|engine, vk_core, _|{
-        let num_particles = 54009;
+        let num_particles = 154000;
         let search_radius = 1.8f32;
         let world_size = 3000.0;
         let world_min = glam::Vec3::new(0.0, 0.0, 0.0);

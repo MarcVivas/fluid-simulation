@@ -27,24 +27,30 @@ pub struct NeighborListData {
     // Super-clusters use this to dynamically allocate contiguous blocks of memory in the NeighborData buffer.
     allocator: VkBuffer<u32>,
 
+    // A list of queues used for bfs traversal
+    queue_pool: VkBuffer<u32>,
+
     // How many particles are in a super-cluster?
     super_cluster_size: u32
 }
 
 
 impl NeighborListData {
-    // One for every 32/64 particles
+
     pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_particles: u32, super_cluster_size: u32, max_expected_neighbors_per_element: u32) -> Self {
 
-        let total_super_clusters = num_particles / super_cluster_size;
-        let total_super_cluster_neighbors = max_expected_neighbors_per_element * num_particles / 8;
+        let total_super_clusters: usize = (num_particles / super_cluster_size).try_into().unwrap(); 
+        let total_super_cluster_neighbors: usize = (max_expected_neighbors_per_element * num_particles / 8).try_into().unwrap();
         
-        let super_clusters: VkBuffer<SuperCluster> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_clusters as usize, "SuperClusters").unwrap();
+        let super_clusters: VkBuffer<SuperCluster> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_clusters, "SuperClusters").unwrap();
 
-        let super_cluster_neighbors: VkBuffer<SuperClusterNeighbors> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_cluster_neighbors as usize, "SuperClusterNeighbors").unwrap();
+        let queue_memory_per_workgroup: usize = Self::queue_memory_per_workgroup() as usize;
+        let queue_pool = VkBuffer::new_gpu_only(vk_core, &vec![0; total_super_clusters * queue_memory_per_workgroup], "Queue pool", cmd_pool, *vk_core.compute_queue()).unwrap();
+        
+        let super_cluster_neighbors: VkBuffer<SuperClusterNeighbors> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_cluster_neighbors, "SuperClusterNeighbors").unwrap();
 
         let allocator = VkBuffer::new_gpu_only(vk_core, &vec![0], "Allocator", cmd_pool, *vk_core.compute_queue()).unwrap();
-        Self { super_clusters, super_cluster_neighbors, allocator, super_cluster_size}
+        Self { super_clusters, super_cluster_neighbors, allocator, super_cluster_size, queue_pool}
     }
 
 
@@ -63,6 +69,14 @@ impl NeighborListData {
     pub fn super_cluster_size(&self) -> u32{
         self.super_cluster_size
     }
-   
+
+    pub fn queue_pool(&self) -> &VkBuffer<u32> {
+        &self.queue_pool
+    }
+
+    // Must be a power of 2
+    pub fn queue_memory_per_workgroup() -> u32 {
+        8192u32
+    }
 }
 

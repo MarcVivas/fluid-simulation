@@ -27,6 +27,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
         pc.new_cornerstone[write_idx_base] = key;
     }
     else if(rebalance_op == 8){
+        
         // Subdivide the node
         // Divide it into 8 sub-ranges of equal length. 
 
@@ -40,8 +41,10 @@ func main(const uint global_id : SV_DispatchThreadID) {
         for(uint32_t i = 0; i < 8; i++){
             pc.new_cornerstone[write_idx_base + i] = key + i * delta_child;
         }
+        
     }
 
+    
     // The last thread changes the leaf count and the indirect dispatch buffer
     if(global_id == num_leaves - 1){
         // Compute the new leaf count using the exclusive prefix sum
@@ -54,8 +57,10 @@ func main(const uint global_id : SV_DispatchThreadID) {
         pc.new_cornerstone[new_leaf_count] = SENTINEL_VALUE;
 
         // Update the indirect dispatch buffer
+        
         const uint3 new_indirect_dispatch_buffer = uint3((new_leaf_count + THREAD_GROUP_SIZE - 1) / THREAD_GROUP_SIZE, 1, 1);
         *pc.indirect_dispatch_buffer = new_indirect_dispatch_buffer;
     }   
+    
 }
 

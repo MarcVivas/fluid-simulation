@@ -82,7 +82,6 @@ impl ApplicationHandler for App {
             &vk_core,
             &world_size,
             self.compute_engine.as_ref().unwrap(),
-            self.renderer.as_ref().unwrap()
         ));
 
         self.vk_core = Some(vk_core);
@@ -134,7 +133,7 @@ impl ApplicationHandler for App {
                     .unwrap_or_default();
                 for (label, time) in timings {
                     if time != 0.0 {
-                        println!("Pass {}: {:.4} ms", label, time);
+                        //println!("Pass {}: {:.4} ms", label, time);
                     }
                 }
 

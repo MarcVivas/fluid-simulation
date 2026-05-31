@@ -1,4 +1,4 @@
-use std::{ops::Add, sync::Arc};
+use std::{sync::Arc};
 
 use ash::vk;
 use bytemuck::bytes_of;
@@ -57,9 +57,11 @@ impl NeighborList {
 
         // Clear the allocator buffer to 0
         cmd_buffer.fill_buffer(device, self.data.allocator().vk_buffer(), 0, size_of::<u32>() as vk::DeviceSize, 0);
+        cmd_buffer.fill_buffer(device, self.data.target_counter().vk_buffer(), 0, size_of::<u32>() as vk::DeviceSize, 0);  
         global_sync_compute(device, cmd_buffer);
         
         let num_particles = particles.positions_buffer.current().len() as u32;
+        let num_groups = (num_particles + vk_core.subgroup_size() - 1) / vk_core.subgroup_size();
         let octree_data = octree.data();
         let push_constants = NeighborListPushConstants {
             node_keys: octree_data.node_keys().address(),
@@ -70,16 +72,20 @@ impl NeighborList {
             super_clusters_neighbors: self.data.super_cluster_neighbors().address(), 
             allocator: self.data.allocator().address(),
             queue_pool: self.data.queue_pool().address(),
+            target_counter: self.data.target_counter().address(),
+            neighbor_counts: self.data.neighbor_counts().address(),
+            neighbors: self.data.neighbors().address(),
             world_min,
             world_size,
             search_radius,
             num_particles,
-            num_super_clusters: self.data.super_clusters().len() as u32,
+            num_thread_groups: num_groups,
             ..Default::default()
         };
 
         let thread_group_size = self.data.super_cluster_size();
-        let thread_groups = [(num_particles + thread_group_size - 1) / thread_group_size, 1, 1];
+        let num_workgroups = vk_core.num_persistent_workgroups(thread_group_size);
+        let thread_groups = [num_workgroups, 1, 1];
         self.build_neighbor_list.dispatch_compute(
             vk_core, 
             cmd_buffer, 
@@ -94,6 +100,26 @@ impl NeighborList {
 
     pub fn super_cluster_neighbors(&self) -> &VkBuffer<SuperClusterNeighbors> {
         &self.data.super_cluster_neighbors()
+    }
+
+    pub fn neighbors(&self) -> &VkBuffer<u32>{
+        self.data.neighbors()
+    }
+
+    pub fn neighbor_counts(&self) -> &VkBuffer<u32>{
+        self.data.neighbor_counts()
+    }
+
+    pub fn max_neighbors() -> u32{
+        MAX_NEIGHBOR_CAPACITY
+    }
+
+    pub fn super_cluster_size(&self) -> u32 {
+        self.data.super_cluster_size()
+    }
+
+    pub fn cluster_size() -> u32 {
+        CLUSTER_SIZE
     }
 }
 

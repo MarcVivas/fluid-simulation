@@ -47,7 +47,7 @@ func main(const uint global_id: SV_DispatchThreadID){
 
     // Compute the new velocity based on the actual displacement allowed by the boundaries
     float3 new_velocity = (corrected_position - previous_pos) / push_constants.delta_time;
-if(world_collision.collided) {
+    if(world_collision.collided) {
         float vn = dot(new_velocity, world_collision.normal);
         if(vn < 0.0) {
             // Remove only the velocity component pointing INTO the wall

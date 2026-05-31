@@ -80,7 +80,7 @@ func convert_key_to_warren_salmon(const uint32_t key, const uint32_t level) -> u
 [ForceInline]
 func calculate_internal_node_idx(const uint32_t internal_node_level, const uint32_t key, const int global_id) -> uint32_t {
     int delta_val = 0; 
-    int mu[8] = {0, 1, 2, 3, -3, -2, -1, 0};
+    const int mu[8] = {0, -1, -2, -3, 3, 2, 1, 0};
 
     [unroll]
     for(uint level = 1; level <= internal_node_level; level++){
@@ -90,5 +90,5 @@ func calculate_internal_node_idx(const uint32_t internal_node_level, const uint3
         delta_val += mu[digit];
     }
 
-    return (uint32_t) ((global_id - delta_val) / 7);
+    return (uint32_t) ((global_id + delta_val) / 7);
 }

@@ -22,7 +22,7 @@ pub struct World{
 const NUM_PARTICLES: usize = 400000; //8193;
 
 impl World{
-    pub fn new(vk_core: &Arc<VkCore>, world_max: &Vec3, compute_engine: &ComputeEngine, renderer: &Renderer) -> Self{
+    pub fn new(vk_core: &Arc<VkCore>, world_max: &Vec3, compute_engine: &ComputeEngine) -> Self{
 
         let world_min = glam::Vec4::new(0., 0., 0.0, 0.);
         let world_size = world_max.max_element();
@@ -31,7 +31,7 @@ impl World{
             NUM_PARTICLES,
             &world_max,
             &vk_core,
-            renderer.command_pool(),
+            compute_engine.command_pool(),
         ).expect("Failed to create particle system");
 
         let search_radius = 1.8f32;

@@ -72,10 +72,10 @@ fn validate_determinism(result_keys: &Vec<HilbertKey>){
 }
 
 fn validate_bounds_and_clamping(result_keys: &Vec<HilbertKey>){
-    // Index 2 is far outside world_min. Index 3 is far outside world_max.
     // They should clamp safely to valid Hilbert keys without overflowing.
-    assert!(result_keys[2] < (1 << 30), "Out-of-bounds (min) particle generated an invalid overflow key!");
-    assert!(result_keys[3] < (1 << 30), "Out-of-bounds (max) particle generated an invalid overflow key!");
+    for &key in result_keys {
+        assert!(key < (1u32 << 30u32), "Out-of-bounds (min) particle generated an invalid overflow key!");
+    }
 }
 
 fn validate_spatial_compactness(result_keys: &Vec<HilbertKey>, result_point_ids: &Vec<u32>, original_points: &Vec<Vec4>, count: usize){
@@ -106,7 +106,7 @@ fn validate_spatial_compactness(result_keys: &Vec<HilbertKey>, result_point_ids:
     // A functioning Hilbert curve should drastically reduce the physical distance 
     // between neighboring elements in memory. Usually by a factor of 10x to 50x!
     assert!(
-        hilbert_avg_dist < (random_avg_dist / 5.0), 
+        hilbert_avg_dist < (random_avg_dist / 15.0), 
         "Hilbert sorting did not significantly improve spatial locality!"
     );
 

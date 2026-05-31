@@ -94,7 +94,7 @@ impl <T: Copy + std::fmt::Debug + std::cmp::PartialEq + RadixSortPayload> KvRadi
 #[test]
 pub fn kv_radix_sort_test(){
     VkHeadless::run(|engine, vk_core, rng|{
-        let count = 100024;
+        let count = 1400024;
         let kv_radix_sort_test = KvRadixSortTest::<u32>::new(vk_core, engine, count, rng, |i| i);
         kv_radix_sort_test.run_test(vk_core, engine, false);       
     });
@@ -103,7 +103,7 @@ pub fn kv_radix_sort_test(){
 #[test]
 pub fn kv_radix_sort_indirect_test(){
     VkHeadless::run(|engine, vk_core, rng|{
-        let count = 200024;
+        let count = 2100024;
         let kv_radix_sort_test = KvRadixSortTest::<u32>::new(vk_core, engine, count, rng, |i| i);
         kv_radix_sort_test.run_test(vk_core, engine, true);   
     });
@@ -113,7 +113,7 @@ pub fn kv_radix_sort_indirect_test(){
 #[test]
 pub fn kv_radix_sort_indirect_uvec2_payload_test(){
     VkHeadless::run(|engine, vk_core, rng|{
-        let count = 100023;
+        let count = 1000023;
         let kv_radix_sort_test = KvRadixSortTest::<glam::UVec2>::new(vk_core, engine, count, rng, |i| glam::UVec2::new(i, i));
         kv_radix_sort_test.run_test(vk_core, engine, true);    
     });

@@ -4,7 +4,7 @@ use rand::Rng;
 #[test]
 pub fn test_radix_sort(){
     VkHeadless::run(|engine, vk_core, mut rng|{
-        let count = 100024;
+        let count = 1400024;
                 
         let mut input_array: Vec<u32> = (0..count)
             .map(|_|{

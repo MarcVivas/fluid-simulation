@@ -311,6 +311,12 @@ impl VkCore {
     pub fn subgroup_size(&self) -> u32 {
         self.subgroup_size
     }
+
+    pub fn num_persistent_workgroups(&self, threads_per_workgroup: u32) -> u32 {
+        // Conservative estimate: enough to saturate most GPUs
+        // Can be tuned per-GPU later
+        2048 / (threads_per_workgroup / self.subgroup_size).max(1)
+    }
 }
 
 impl Drop for VkCore {

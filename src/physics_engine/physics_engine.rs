@@ -82,6 +82,7 @@ impl PhysicsEngine {
         neighbor_list: &NeighborList,
         gpu_profiler: &GpuProfiler,
     ) { 
+        
         let delta_time = self.physics_config.time_step;
         let world_max = world_min + world_size;
         let world_max = &glam::Vec3::new(world_max.x, world_max.y, world_max.z);
@@ -136,13 +137,13 @@ impl PhysicsEngine {
         particles.buffers_mut().swap();
 
         gpu_profiler.profile_scope(device, vk_cmd_buffer, "Octree construction", ||{
-            octree.build(vk_core, command_buffer, &particles.buffers().morton_codes_buffer, true);
+            octree.build(vk_core, command_buffer, &particles.buffers().morton_codes_buffer, false);
         });
 
         let search_radius = self.physics_config.search_radius;
         
         gpu_profiler.profile_scope(device, vk_cmd_buffer, "Neighbor list construction", ||{
-            neighbor_list.build(vk_core, command_buffer, octree, particles.buffers(), search_radius, world_min, world_size);
+            //neighbor_list.build(vk_core, command_buffer, octree, particles.buffers(), search_radius, world_min, world_size);
         });
        
         

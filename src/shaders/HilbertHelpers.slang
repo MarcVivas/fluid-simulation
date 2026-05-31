@@ -1,38 +1,52 @@
 module HilbertHelpers;
 
+
+static const uint mortonToHilbert[8] = {0, 1, 3, 2, 7, 6, 4, 5};
+
 /// Encodes 3D integer coordinates (max 1023 per axis) into a 30-bit Hilbert
 /// code.
 [ForceInline]
-public func encode_hilbert_3d(float3 position, float4 world_min,
-                              float world_size, int max_levels)
-    ->uint {
-  const uint3 grid_pos =
-      position_to_grid(position, world_min, world_size, max_levels);
-
-  uint key = 0;
-  uint state = 0;
-
-  for (int i = max_levels - 1; i >= 0; i--) {
-    uint rx = (grid_pos.x >> i) & 1;
-    uint ry = (grid_pos.y >> i) & 1;
-    uint rz = (grid_pos.z >> i) & 1;
-
-    uint octant = (rx << 2) | (ry << 1) | rz;
-
-    uint s = octant ^ (octant >> 1);
-    uint t = (octant ^ state) & 3;
-
-    if (t == 0) {
-      state ^= (octant & 1) ? 6 : 0;
-    } else if (t == 3) {
-      state ^= (octant & 1) ? 0 : 6;
+public func encode_hilbert_3d(float3 position, float4 world_min, float world_size, int max_levels) -> uint {
+    uint3 grid_pos = position_to_grid(position, world_min, world_size, max_levels);
+    
+    uint px = grid_pos.x;
+    uint py = grid_pos.y;
+    uint pz = grid_pos.z;
+    uint key = 0;
+   
+    for (int level = max_levels - 1; level >= 0; --level) {
+        uint xi = (px >> level) & 1u;
+        uint yi = (py >> level) & 1u;
+        uint zi = (pz >> level) & 1u;
+   
+        uint octant = (xi << 2) | (yi << 1) | zi;
+        key = (key << 3) + mortonToHilbert[octant];
+   
+        // Safely generate bitmasks without relying on unary minus on bool/uint
+        uint mask_x = (xi & ((yi == 0 ? 1u : 0u) | zi)) ? 0xFFFFFFFFu : 0u;
+        uint mask_y = ((xi & (yi | zi)) | (yi & (zi == 0 ? 1u : 0u))) ? 0xFFFFFFFFu : 0u;
+        uint mask_z = ((xi & (yi == 0 ? 1u : 0u) & (zi == 0 ? 1u : 0u)) | (yi & (zi == 0 ? 1u : 0u))) ? 0xFFFFFFFFu : 0u;
+   
+        px ^= mask_x;
+        py ^= mask_y;
+        pz ^= mask_z;
+   
+        if (zi != 0) {
+            uint pt = px;
+            px = py;
+            py = pz;
+            pz = pt;
+        } else if (yi == 0) {
+            uint pt = px;
+            px = pz;
+            pz = pt;
+        }
     }
-
-    key = (key << 3) | (s ^ state);
-  }
-
-  return key;
+   
+    return key;
 }
+
+
 [ForceInline]
 func position_to_grid(float3 position, float4 world_min, float world_size,
                       int max_levels)
@@ -48,42 +62,42 @@ func position_to_grid(float3 position, float4 world_min, float world_size,
 
 /// Decodes a 30-bit Hilbert code back into 3D coordinates using the matching state-machine.
 [ForceInline]
-public func decode_hilbert_3d(uint code) -> uint3 {
-  uint3 grid_pos = uint3(0, 0, 0);
-  uint state = 0;
-
-  for (int i = 9; i >= 0; i--) {
-    const uint chunk = (code >> (3 * i)) & 7u;
-    uint octant = 0;
-
-    // Evaluate candidates to identify the unique matching octant and update state
-    [unroll]
-    for (uint candidate = 0; candidate < 8; candidate++) {
-        const uint s = candidate ^ (candidate >> 1);
-        const uint t = (candidate ^ state) & 3;
-        
-        uint state_new = state;
-        if (t == 0) {
-            state_new ^= (candidate & 1) ? 6 : 0;
-        } else if (t == 3) {
-            state_new ^= (candidate & 1) ? 0 : 6;
+public func decode_hilbert_3d(const uint key, const int max_levels) -> uint3 {
+    uint px = 0;
+    uint py = 0;
+    uint pz = 0;
+    
+    for (uint level = 0; level < uint(max_levels); ++level) {
+        uint octant = (key >> (3u * level)) & 7u;
+        uint xi = octant >> 2u;
+        uint yi = (octant >> 1u) & 1u;
+        uint zi = octant & 1u;
+    
+        if ((yi ^ zi) != 0) {
+            uint pt = px;
+            px = pz;
+            pz = py;
+            py = pt;
+        } else if (((xi == 0) && (yi == 0) && (zi == 0)) || ((xi != 0) && (yi != 0) && (zi != 0))) {
+            uint pt = px;
+            px = pz;
+            pz = pt;
         }
-
-        if ((s ^ state_new) == chunk) {
-            octant = candidate;
-            state = state_new;
-            break;
-        }
+    
+        uint mask = (1u << level) - 1u;
+    
+        uint mask_x = (xi & (yi | zi)) ? mask : 0u;
+        uint mask_y = ((xi & ((yi == 0 ? 1u : 0u) | (zi == 0 ? 1u : 0u))) | ((xi == 0 ? 1u : 0u) & yi & zi)) ? mask : 0u;
+        uint mask_z = ((xi & (yi == 0 ? 1u : 0u) & (zi == 0 ? 1u : 0u)) | (yi & zi)) ? mask : 0u;
+    
+        px ^= mask_x;
+        py ^= mask_y;
+        pz ^= mask_z;
+    
+        px |= (xi << level);
+        py |= ((xi ^ yi) << level);
+        pz |= ((yi ^ zi) << level);
     }
-
-    const uint b2 = (octant >> 2) & 1;
-    const uint b1 = (octant >> 1) & 1;
-    const uint b0 = (octant >> 0) & 1;
-
-    grid_pos.x |= (b2 << i);
-    grid_pos.y |= (b1 << i);
-    grid_pos.z |= (b0 << i);
-  }
-
-  return grid_pos;
+    
+    return uint3(px, py, pz);
 }

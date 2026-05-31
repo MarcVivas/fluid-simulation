@@ -1,5 +1,5 @@
 use std::{sync::Arc};
-use ash::vk;
+use ash::vk::{self, CommandPool};
 
 use crate::{components::MortonCode, utils::data_structures::octree::{octree_constructor::OctreeConstructor, octree_data::OctreeData}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer}}};
 
@@ -17,7 +17,7 @@ const BITS_USED: u32 = 32;
 const MAX_LEVELS: u32 = BITS_USED / 3;
 const MAX_BITS: u32 = 3 * MAX_LEVELS;
 const SENTINEL_VALUE: u32 = 1 << MAX_BITS;
-
+const LEAF: u32 = 0;
 
 pub struct Octree {
     
@@ -56,7 +56,7 @@ impl Octree {
     
     /// Worst-case leaf count: every leaf has exactly 1 particle, no merges.
     fn max_leaves(num_elements: u32, max_elements_per_leaf: u32) -> u32 {
-        (8 * num_elements / (max_elements_per_leaf + 1)).max(1024)
+        (24 * num_elements / (max_elements_per_leaf + 1)).max(1024)
     }
     
     /// Internal node count is exact given leaf count:
@@ -79,6 +79,21 @@ impl Octree {
 
     pub fn n_crit(&self) -> u32 {
         self.max_elements_per_leaf
+    }
+
+    pub fn is_leaf(node_idx: u32) -> bool {
+        node_idx == LEAF
+    }
+
+    pub fn leaf_indexes(&self, vk_core: &Arc<VkCore>, command_pool: CommandPool) -> Vec<u32>{
+        let node_first_child = self.data().node_first_child().read_back(vk_core, command_pool).unwrap();
+        let node_count = self.data().node_count().read_back(vk_core, command_pool).unwrap()[0] as usize;
+        
+        let leaves: Vec<u32> = (0u32..node_count as u32)
+            .filter(|&i| Self::is_leaf(node_first_child[i as usize]))
+            .collect();
+    
+        leaves
     }
 
 }

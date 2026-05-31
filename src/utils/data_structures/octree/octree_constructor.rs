@@ -56,7 +56,7 @@ impl OctreeConstructor {
     pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<MortonCode>, octree_data: &mut OctreeData, max_levels: u32, maintenance_mode: bool){
 
         let device = vk_core.device();
-        
+    
         for _ in 0..max_levels {
             self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
             global_sync_compute(device, cmd_buffer);
@@ -71,6 +71,7 @@ impl OctreeConstructor {
             octree_data.swap_ping_pong_buffers();
         }
 
+        
         // This is needed if the algorithm couldn't converge
         self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
         global_sync_compute(device, cmd_buffer);
@@ -79,6 +80,7 @@ impl OctreeConstructor {
         global_sync_compute(device, cmd_buffer);
 
         self.build_internal_nodes(vk_core, cmd_buffer, octree_data);
+       
 
     } 
 

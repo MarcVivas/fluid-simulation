@@ -4,6 +4,7 @@ use ash::vk;
 use engine::{components::{HilbertKey}, compute::ComputeEngine, utils::{data_structures::octree::{octree::Octree}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
 use rand::rngs::ThreadRng;
 use rand::Rng;
+use crate::gpu::neighbor_list_test::BoundingBox;
 
 #[test]
 pub fn octree_test(){
@@ -21,7 +22,41 @@ pub fn octree_test(){
         unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
         validate(vk_core, cmd_pool, &octree, &keys);
-        validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements as usize);
+    });
+}
+
+#[test]
+pub fn octree_maintenance_test() {
+    VkHeadless::run(|engine, vk_core, mut rng| {
+        let cmd_pool = engine.command_pool();
+
+        // Initial Build with Dense Data
+        let num_elements_initial = 30000;
+        let (mut keys, mut keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
+        let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial);
+
+
+        for _ in 0..20 {
+            engine.record_commands(|cmd_buffer| {
+                octree.build(vk_core, cmd_buffer, &keys_buffer, true);
+            });
+            engine.submit_without_signaling();
+            unsafe { vk_core.device().device_wait_idle().unwrap(); }
+
+            validate(vk_core, cmd_pool, &octree, &keys);
+
+            // Simulate Particles Moving/Dispersing
+            // We will severely reduce the number of particles to trigger merges
+            let num_elements_sparse = num_elements_initial;
+            keys.clear();
+            for _ in 0..num_elements_sparse {
+                keys.push(rng.random_range(0..Octree::sentinel())); 
+            }
+            keys.sort();
+    
+            // Upload the new sparse data
+            keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys_sparse", cmd_pool, *vk_core.compute_queue()).unwrap();
+        }
     });
 }
 
@@ -41,7 +76,8 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
     let num_internal_nodes = (leaf_count - 1) / 7;
     let total_nodes = leaf_count + num_internal_nodes;
     let max_levels = Octree::max_levels();
-
+    let num_elements = keys.len();
+    
     assert_eq!(node_count, total_nodes);
 
     let active_histogram = &leaves_histogram[0..leaf_count];
@@ -78,6 +114,18 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
         &active_histogram,
         leaf_count
     );
+
+    // 6. Verify Hierarchical AABB Query Performance
+    validate_bounding_box_queries(
+        active_node_keys,
+        active_node_first_child,
+        active_leaf_data,
+        &keys,
+        max_levels as usize,
+    );
+    
+    validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements);
+
 
     let total_counted: u32 = active_histogram.iter().sum();
     assert_eq!(total_counted, keys.len() as u32, "Lost particles during octree build!");
@@ -373,42 +421,81 @@ fn validate_leaf_data_alignment(
 }
 
 /// Decodes a 30-bit Hilbert index into integer grid coordinates on the CPU using candidate evaluation.
-fn decode_hilbert_3d_cpu(code: u32) -> glam::UVec3 {
-    let mut grid_pos = glam::UVec3::ZERO;
-    let mut state = 0u32;
+#[allow(unused)]
+pub fn decode_hilbert_3d_cpu(code: u32, max_levels: u32) -> glam::UVec3 {
+    let mut px = 0u32;
+    let mut py = 0u32;
+    let mut pz = 0u32;
 
-    for i in (0..10).rev() {
-        let chunk = (code >> (3 * i)) & 7u32;
-        let mut octant = 0u32;
+    for level in 0..max_levels {
+        let octant = (code >> (3 * level)) & 7u32;
+        let xi = octant >> 2;
+        let yi = (octant >> 1) & 1;
+        let zi = octant & 1;
 
-        for candidate in 0..8u32 {
-            let s = candidate ^ (candidate >> 1);
-            let t = (candidate ^ state) & 3;
-
-            let mut state_new = state;
-            if t == 0 {
-                state_new ^= if (candidate & 1) != 0 { 6 } else { 0 };
-            } else if t == 3 {
-                state_new ^= if (candidate & 1) != 0 { 0 } else { 6 };
-            }
-
-            if (s ^ state_new) == chunk {
-                octant = candidate;
-                state = state_new;
-                break;
-            }
+        if (yi ^ zi) != 0 {
+            // Cyclic rotation
+            let pt = px;
+            px = pz;
+            pz = py;
+            py = pt;
+        } else if (xi == 0 && yi == 0 && zi == 0) || (xi != 0 && yi != 0 && zi != 0) {
+            // Swap x and z
+            let pt = px;
+            px = pz;
+            pz = pt;
         }
 
-        let b2 = (octant >> 2) & 1;
-        let b1 = (octant >> 1) & 1;
-        let b0 = (octant >> 0) & 1;
+        let mask = (1u32 << level) - 1;
 
-        grid_pos.x |= b2 << i;
-        grid_pos.y |= b1 << i;
-        grid_pos.z |= b0 << i;
+        // Safe bitmasks 
+        let mask_x = if xi != 0 && (yi != 0 || zi != 0) { mask } else { 0 };
+        let mask_y = if (xi != 0 && (yi == 0 || zi == 0)) || (xi == 0 && yi != 0 && zi != 0) { mask } else { 0 };
+        let mask_z = if (xi != 0 && yi == 0 && zi == 0) || (yi != 0 && zi != 0) { mask } else { 0 };
+
+        px ^= mask_x;
+        py ^= mask_y;
+        pz ^= mask_z;
+
+        px |= xi << level;
+        py |= (xi ^ yi) << level;
+        pz |= (yi ^ zi) << level;
     }
 
-    grid_pos
+    glam::UVec3::new(px, py, pz)
+}
+
+
+pub fn decode_warren_salmon_key(key: u32, world_size: f32,  world_min: glam::Vec3) -> BoundingBox 
+{
+    let max_levels = Octree::max_levels(); 
+    
+    // Get the tree depth (level)
+    // The leading '1' indicates the depth
+    let level = key.ilog2() / 3;
+
+    // Remove the leading one from the key to get the actual hilbert code
+    let hilbert_key = key ^ (1 << (3 * level));
+
+    let shift = 3 * (max_levels - level);
+    let min_30bit_code = hilbert_key << shift;
+
+    // Decode the hilbert code to get the grid coords for this level
+    let mut grid_pos = decode_hilbert_3d_cpu(min_30bit_code, max_levels);
+
+    let node_size_3d = 1u32 << (max_levels - level);
+    let mask = !(node_size_3d - 1);
+    grid_pos.x &= mask;
+    grid_pos.y &= mask;
+    grid_pos.z &= mask;
+
+    let grid_resolution = 1u32 << max_levels;
+    let physical_node_size = (world_size / grid_resolution as f32) * node_size_3d as f32;
+  
+    let min = (world_min + grid_pos.as_vec3() * (world_size / grid_resolution as f32)).extend(0.0);
+    let max = min + glam::Vec4::new(physical_node_size, physical_node_size, physical_node_size, 0.0);
+   
+    return BoundingBox { min, max };
 }
 
 fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32) -> (Vec<u32>, VkBuffer<u32>){
@@ -436,48 +523,14 @@ fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut T
 }
 
 
-#[test]
-pub fn octree_maintenance_test() {
-    VkHeadless::run(|engine, vk_core, mut rng| {
-        let cmd_pool = engine.command_pool();
 
-        // Initial Build with Dense Data
-        let num_elements_initial = 30000;
-        let (mut keys, mut keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
-        let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial);
-
-
-        for _ in 0..20 {
-            engine.record_commands(|cmd_buffer| {
-                octree.build(vk_core, cmd_buffer, &keys_buffer, true);
-            });
-            engine.submit_without_signaling();
-            unsafe { vk_core.device().device_wait_idle().unwrap(); }
-
-            validate(vk_core, cmd_pool, &octree, &keys);
-            validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements_initial as usize);
-
-            // Simulate Particles Moving/Dispersing
-            // We will severely reduce the number of particles to trigger merges
-            let num_elements_sparse = num_elements_initial;
-            keys.clear();
-            for _ in 0..num_elements_sparse {
-                keys.push(rng.random_range(0..Octree::sentinel())); 
-            }
-            keys.sort();
-    
-            // Upload the new sparse data
-            keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys_sparse", cmd_pool, *vk_core.compute_queue()).unwrap();
-        }
-    });
-}
 
 pub fn validate_leaf_data(
     node_keys: &[u32],
     node_first_child: &[u32],
     leaf_data: &[glam::UVec2],
     sorted_keys: &[u32],
-    max_levels: usize,
+    max_levels: usize, // e.g., 10
 ) {
     let total_nodes = node_keys.len();
     assert_eq!(leaf_data.len(), total_nodes, "LeafData array length mismatch");
@@ -485,38 +538,54 @@ pub fn validate_leaf_data(
     let mut total_particles_in_leaves = 0;
 
     for i in 0..total_nodes {
-        // If CO is 0, this node is a leaf!
+        // If first child index is 0, this node is a leaf
         if node_first_child[i] == 0 { 
             let start_idx = leaf_data[i].x as usize;
             let count = leaf_data[i].y as usize;
             
-            // 1. Decode the Warren-Salmon Key to find its spatial boundaries
             let key = node_keys[i];
             let key_level = ((31 - key.leading_zeros()) / 3) as usize;
-            let shift = 3 * (max_levels - key_level); 
             
+            // 1. Calculate the 3D bounding box of this leaf node in grid units
             let placeholder = 1 << (3 * key_level);
             let path = key ^ placeholder;
             
-            let left_bound = path << shift;
-            let right_bound = left_bound + (1 << shift);
+            // Align the leaf's path to the maximum depth (30-bit)
+            let shift = 3 * (max_levels - key_level); 
+            let min_30bit_code = path << shift;
             
-            // 2. Verify that every particle in this range actually belongs in this leaf!
+            // Decode the bottom-left-down corner of the leaf node in 3D grid coordinates
+            let mut node_min_3d = decode_hilbert_3d_cpu(min_30bit_code, Octree::max_levels());
+            
+            // The size of this node in grid units (e.g., level 10 = size 1, level 9 = size 2, etc.)
+            let node_size_3d = 1u32 << (max_levels - key_level);
+            let mask = !(node_size_3d - 1);
+            node_min_3d.x &= mask;
+            node_min_3d.y &= mask;
+            node_min_3d.z &= mask;
+            let node_max_3d = node_min_3d + glam::UVec3::splat(node_size_3d);
+            
+            // 2. Verify that every particle assigned to this leaf physically sits inside this 3D box
             for p in 0..count {
                 let particle_key = sorted_keys[start_idx + p];
+                
+                // Decode the particle's 30-bit key into 3D grid coordinates
+                let particle_3d = decode_hilbert_3d_cpu(particle_key, Octree::max_levels());
+                
+                // Assert spatial containment in all three dimensions
                 assert!(
-                    particle_key >= left_bound && particle_key < right_bound,
-                    "Particle at index {} (Key: {}) in leaf {} (Level {}) is out of spatial bounds[{}, {})",
-                    start_idx + p, particle_key, i, key_level, left_bound, right_bound
+                    particle_3d.x >= node_min_3d.x && particle_3d.x < node_max_3d.x &&
+                    particle_3d.y >= node_min_3d.y && particle_3d.y < node_max_3d.y &&
+                    particle_3d.z >= node_min_3d.z && particle_3d.z < node_max_3d.z,
+                    "Particle at index {} (3D Pos: {:?}) in leaf {} (Level {}) is physically outside the 3D bounds [min: {:?}, max: {:?})",
+                    start_idx + p, particle_3d, i, key_level, node_min_3d, node_max_3d
                 );
             }
             
-            // Track total particles to ensure no one was left behind
             total_particles_in_leaves += count;
         }
     }
     
-    // 3. Verify the whole tree accounts for every single particle
     assert_eq!(
         total_particles_in_leaves, 
         sorted_keys.len(),
@@ -524,8 +593,9 @@ pub fn validate_leaf_data(
         total_particles_in_leaves, sorted_keys.len()
     );
     
-    println!("LeafData Validation Passed! O(1) particle lookups are mathematically perfect.");
+    println!("3D Geometric LeafData Validation Passed!");
 }
+
 
 fn verify_spatial_integrity(
     sentinel: u32,
@@ -709,4 +779,108 @@ pub fn validate_octree_topology(
     assert_eq!(internal_count, (leaf_count - 1) / 7, "Final tree traversal counts violate 8-ary tree math!");
 
     println!("Topology Validation Passed! LO and CO arrays perfectly map the spatial hierarchy.");
+}
+
+pub fn validate_bounding_box_queries(
+    node_keys: &[u32],
+    node_first_child: &[u32],
+    leaf_data: &[glam::UVec2],
+    keys: &[u32],
+    max_levels: usize,
+) {
+    let mut rng = rand::rng();
+    let grid_size = 1u32 << max_levels; // e.g., 1024 for 10 levels
+
+    // Perform multiple random query trials to ensure robust coverage
+    for trial in 0..20 {
+        // 1. Generate a random query bounding box in the 3D grid space
+        let min_x = rng.random_range(0..grid_size);
+        let min_y = rng.random_range(0..grid_size);
+        let min_z = rng.random_range(0..grid_size);
+
+        let max_x = rng.random_range(min_x..grid_size);
+        let max_y = rng.random_range(min_y..grid_size);
+        let max_z = rng.random_range(min_z..grid_size);
+
+        let query_min = glam::UVec3::new(min_x, min_y, min_z);
+        let query_max = glam::UVec3::new(max_x, max_y, max_z);
+
+        // 2. Naive Ground Truth: Perform a linear scan over all particles
+        let mut expected_indices = Vec::new();
+        for (idx, &key) in keys.iter().enumerate() {
+            let pos = decode_hilbert_3d_cpu(key, Octree::max_levels());
+            if pos.x >= query_min.x && pos.x <= query_max.x &&
+               pos.y >= query_min.y && pos.y <= query_max.y &&
+               pos.z >= query_min.z && pos.z <= query_max.z {
+                expected_indices.push(idx);
+            }
+        }
+
+        // 3. Hierarchical Query: Traverse the tree starting from the root (node 0)
+        let mut actual_indices = Vec::new();
+        let mut stack = vec![0usize];
+
+        while let Some(node_idx) = stack.pop() {
+            let key = node_keys[node_idx];
+            let key_level = ((31 - key.leading_zeros()) / 3) as usize;
+
+            // Decode the current node's 3D bounds
+            let placeholder = 1 << (3 * key_level);
+            let path = key ^ placeholder;
+            let shift = 3 * (max_levels - key_level);
+            let min_30bit_code = path << shift;
+
+            let mut node_min = decode_hilbert_3d_cpu(min_30bit_code, Octree::max_levels());
+            let node_size = 1u32 << (max_levels - key_level);
+            let mask = !(node_size - 1);
+            node_min.x &= mask;
+            node_min.y &= mask;
+            node_min.z &= mask;
+            let node_max = node_min + glam::UVec3::splat(node_size - 1);
+
+            // Check for AABB intersection between the query box and the node box
+            let overlaps = node_min.x <= query_max.x && node_max.x >= query_min.x &&
+                           node_min.y <= query_max.y && node_max.y >= query_min.y &&
+                           node_min.z <= query_max.z && node_max.z >= query_min.z;
+
+            if overlaps {
+                let fci = node_first_child[node_idx] as usize;
+                if fci == 0 {
+                    // Leaf Node: Check individual particles contained inside
+                    let start = leaf_data[node_idx].x as usize;
+                    let count = leaf_data[node_idx].y as usize;
+
+                    for offset in 0..count {
+                        let particle_idx = start + offset;
+                        let particle_key = keys[particle_idx];
+                        let pos = decode_hilbert_3d_cpu(particle_key, Octree::max_levels());
+
+                        if pos.x >= query_min.x && pos.x <= query_max.x &&
+                           pos.y >= query_min.y && pos.y <= query_max.y &&
+                           pos.z >= query_min.z && pos.z <= query_max.z {
+                            actual_indices.push(particle_idx);
+                        }
+                    }
+                } else {
+                    // Internal Node: Recurse into children
+                    for octant in 0..8 {
+                        stack.push(fci + octant);
+                    }
+                }
+            }
+        }
+
+        expected_indices.sort();
+        actual_indices.sort();
+
+        // 4. Assert that the hierarchical search matches the flat scan exactly
+        assert_eq!(
+            actual_indices, 
+            expected_indices,
+            "AABB Query mismatch at trial {}!\nQuery Box: [min: {:?}, max: {:?}]\nHierarchical traversal found {} particles, but ground truth found {}.",
+            trial, query_min, query_max, actual_indices.len(), expected_indices.len()
+        );
+    }
+
+    println!("Hierarchical AABB query validation passed for all random trials.");
 }

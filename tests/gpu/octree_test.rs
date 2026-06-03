@@ -4,7 +4,7 @@ use ash::vk;
 use engine::{components::{HilbertKey}, compute::ComputeEngine, utils::{data_structures::octree::{octree::Octree}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
 use rand::rngs::ThreadRng;
 use rand::Rng;
-use crate::gpu::neighbor_list_test::BoundingBox;
+use engine::physics_engine::{BoundingBox};
 
 #[test]
 pub fn octree_test(){

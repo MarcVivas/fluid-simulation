@@ -1,6 +1,6 @@
-use std::{sync::Arc};
+use std::{ops::Div, sync::Arc};
 
-use engine::{components::Position, compute::ComputeEngine, physics_engine::{PhysicsEngine, integration::{Integrator, UpdateVelocitiesSystem}, neighbor_list::{NeighborList, SuperCluster, SuperClusterNeighbors}}, utils::{data_structures::octree::octree::Octree, gpu_algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort}, gpu_profiler::GpuProfiler}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::CommandBuffer}, world::world_objects::particles::{Particles, RearrangingSystem}};
+use engine::{components::Position, compute::ComputeEngine, physics_engine::{BoundingBox, integration::{Integrator, UpdateVelocitiesSystem}, neighbor_list::{NeighborList, SuperCluster, SuperClusterNeighbors}}, utils::{data_structures::octree::octree::Octree, gpu_algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::CommandBuffer}, world::world_objects::particles::{Particles, RearrangingSystem}};
 use glam::Vec4Swizzles;
 
 use crate::gpu::octree_test::{decode_hilbert_3d_cpu, decode_warren_salmon_key};
@@ -115,11 +115,11 @@ impl NeighborListTest {
         let node_keys = self.octree.data().node_keys().read_back(vk_core, command_pool).unwrap();
         let leaf_indexes = self.octree.leaf_indexes(vk_core, command_pool);
         let node_first_child = self.octree.data().node_first_child().read_back(vk_core, command_pool).unwrap();
-
+        let clusters_bounding_boxes = self.neighbor_list.cluster_bounding_boxes().read_back(vk_core, command_pool).unwrap();
  
         // Perform neighbor-list matching.
         self.validate_octree_geometry(vk_core, engine);
-        self.validate_neighbor_list(&super_clusters, &super_cluster_neighbors, &positions, &node_keys, &leaf_indexes, &node_first_child);        
+        self.validate_neighbor_list(&super_clusters, &super_cluster_neighbors, &positions, &node_keys, &leaf_indexes, &node_first_child, &clusters_bounding_boxes);        
     }
 
     pub fn validate_octree_geometry(
@@ -212,13 +212,13 @@ impl NeighborListTest {
         positions: &[Position],
         node_keys: &[u32],
         leaf_indexes: &[u32],
-        node_first_child: &[u32]
+        node_first_child: &[u32],
+        clusters_bounding_boxes: &[BoundingBox],
     ){
         let num_particles = self.particles.len();
-        let num_super_clusters = num_particles / self.neighbor_list.super_cluster_size() as usize;
-        let num_clusters = num_particles / NeighborList::cluster_size() as usize;
+        let num_super_clusters = num_particles.div_ceil(self.neighbor_list.super_cluster_size() as usize);
+        let num_clusters = num_particles.div_ceil(NeighborList::cluster_size() as usize);
 
-        let active_positions = &positions[0..num_particles];
 
         // Expected leaves
         let leaf_bounding_boxes: Vec<BoundingBox> = leaf_indexes
@@ -230,7 +230,7 @@ impl NeighborListTest {
             .collect();
         let mut cpu_super_clusters: Vec<SuperCluster> = Vec::with_capacity(super_clusters.len());
         let mut cpu_super_cluster_neighbors: Vec<SuperClusterNeighbors> = Vec::with_capacity(super_cluster_neighbors.len());
-        let cpu_super_cluster_bounding_boxes = self.build_cpu_super_cluster_bounding_boxes(active_positions, num_super_clusters);
+        let cpu_super_cluster_bounding_boxes = self.build_cpu_super_cluster_bounding_boxes(positions, num_super_clusters);
 
         
         let mut first_neighbor = 0;
@@ -325,14 +325,38 @@ impl NeighborListTest {
                 println!("SuperCluster Particle Indices: [{} .. {}]", start, end);
                 println!("First 5 particle positions in this SuperCluster:");
                 for p in start..(start + 5).min(end) {
-                    if p < active_positions.len() {
-                        println!("  Particle {}: {:?}", p, active_positions[p]);
+                    if p < positions.len() {
+                        println!("  Particle {}: {:?}", p, positions[p]);
                     }
                 }
                 println!("====================================================");
                 break; 
             }
         }
+
+        let clusters_per_super_cluster = self.neighbor_list.super_cluster_size() / NeighborList::cluster_size();
+
+        let eps = 0.5f32;
+        for (i, gpu_cluster_bounding_box) in clusters_bounding_boxes.iter().enumerate(){
+            let super_cluster_id = i / clusters_per_super_cluster as usize;
+            let cluster_idx_within_super_cluster = i % clusters_per_super_cluster as usize;
+            let cpu_super_cluster = &cpu_super_cluster_bounding_boxes[super_cluster_id];
+            let cpu_cluster_bounding_box = cpu_super_cluster.cluster_bounding_boxes[cluster_idx_within_super_cluster];
+            // Assert that the maximum absolute difference along any axis is within tolerance
+            assert!(
+                (gpu_cluster_bounding_box.min.xyz() - cpu_cluster_bounding_box.min.xyz()).abs().max_element() <= eps,
+                "Min mismatch at index {} exceeding tolerance {}. GPU: {:?}, CPU: {:?}",
+                i, eps, gpu_cluster_bounding_box.min, cpu_cluster_bounding_box.min
+            );
+           
+            assert!(
+                (gpu_cluster_bounding_box.max.xyz() - cpu_cluster_bounding_box.max.xyz()).abs().max_element() <= eps,
+                "Max mismatch at index {} exceeding tolerance {}. GPU: {:?}, CPU: {:?}",
+                i, eps, gpu_cluster_bounding_box.max, cpu_cluster_bounding_box.max
+            );
+        }
+
+       
         assert_eq!(super_clusters.len(), cpu_super_clusters.len());
         let mut total_neighbors = 0;
         for (gpu_super_cluster, cpu_super_cluster) in super_clusters.iter().zip(&cpu_super_clusters){
@@ -363,22 +387,7 @@ impl NeighborListTest {
 }
 
 
-
-pub struct BoundingBox{
-    pub min: glam::Vec4,
-    pub max: glam::Vec4,
-}
-
-impl BoundingBox {
-    pub fn new(min: &glam::Vec4, max: &glam::Vec4) -> Self{
-        Self { min: *min, max: *max }
-    }
-
-    pub fn intersects(&self, other_bounding_box: &BoundingBox) -> bool {
-        self.min.xyz().cmple(other_bounding_box.max.xyz()).all() && self.max.xyz().cmpge(other_bounding_box.min.xyz()).all()
-    }
-}
-
+#[derive(Debug)]
 struct SuperClusterBoundingBox{
     pub bounding_box: BoundingBox,
     pub cluster_bounding_boxes: Vec<BoundingBox>
@@ -386,9 +395,11 @@ struct SuperClusterBoundingBox{
 
 impl SuperClusterBoundingBox {
     pub fn new(positions: &[Position], super_cluster_idx: usize, super_cluster_size: usize, search_radius: f32) -> Self{
-        let cluster_bounding_boxes = Vec::with_capacity(NeighborList::cluster_size() as usize);
-        let mut min = glam::Vec4::INFINITY;
-        let mut max = glam::Vec4::NEG_INFINITY;
+        let mut cluster_bounding_boxes = Vec::with_capacity(NeighborList::cluster_size() as usize);
+        let mut super_cluster_min = glam::Vec4::INFINITY;
+        let mut super_cluster_max = glam::Vec4::NEG_INFINITY;
+        let mut cluster_min = glam::Vec4::INFINITY;
+        let mut cluster_max = glam::Vec4::NEG_INFINITY;
         
         let position_begin = super_cluster_idx * super_cluster_size;
         
@@ -396,18 +407,32 @@ impl SuperClusterBoundingBox {
             let pos_idx = position_begin + i; 
             if pos_idx < positions.len() {
                 let pos = positions[pos_idx];
-                min = min.min(pos);
-                max = max.max(pos);
-            } 
+                super_cluster_min = super_cluster_min.min(pos);
+                super_cluster_max = super_cluster_max.max(pos);
+
+                cluster_min = cluster_min.min(pos);
+                cluster_max = cluster_max.max(pos);
+            }
+
+            if i as u32 % NeighborList::cluster_size() == NeighborList::cluster_size() - 1 {
+                cluster_min -= search_radius;
+                cluster_max += search_radius;
+                cluster_min.w = 0.0;
+                cluster_max.w = 0.0;
+                cluster_bounding_boxes.push(BoundingBox {min:cluster_min, max: cluster_max});
+                cluster_min = glam::Vec4::INFINITY;
+                cluster_max = glam::Vec4::NEG_INFINITY;
+            }
+            
         }
         
-        min.w = 0.0;
-        max.w = 0.0;
+        super_cluster_min.w = 0.0;
+        super_cluster_max.w = 0.0;
 
-        min -= search_radius;
-        max += search_radius;
+        super_cluster_min -= search_radius;
+        super_cluster_max += search_radius;
 
-        let bounding_box = BoundingBox::new(&min, &max);
+        let bounding_box = BoundingBox::new(&super_cluster_min, &super_cluster_max);
 
         Self {
             bounding_box,

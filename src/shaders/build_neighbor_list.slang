@@ -1,4 +1,5 @@
 import HilbertHelpers;
+import BoundingBox;
 
 struct SuperCluster {
   uint neighbor_count;
@@ -26,8 +27,7 @@ struct PushConsts {
   Ptr<uint32_t, Access.ReadWrite> allocator_counter;
   Ptr<uint32_t, Access.ReadWrite> queue_pool;
   Ptr<uint32_t, Access.ReadWrite> target_counter;
-  Ptr<uint32_t, Access.ReadWrite> neighbors;
-  Ptr<uint32_t, Access.ReadWrite> neighbor_counts;
+ 
 
   float world_size;
   float search_radius;
@@ -39,8 +39,8 @@ struct PushConsts {
 [[vk::push_constant]]
 PushConsts pc;
 
-static const float3 GHOST_MIN_POS = float3(-float.maxValue, -float.maxValue, -float.maxValue);
-static const float3 GHOST_MAX_POS = float3(float.maxValue, float.maxValue, float.maxValue);
+static const float4 GHOST_MIN_POS = float4(-float.maxValue);
+static const float4 GHOST_MAX_POS = float4(float.maxValue);
 static const uint LEAF = 0;
 
 
@@ -51,7 +51,7 @@ groupshared uint neighbor_bitmasks[MAX_NEIGHBOR_CAPACITY];
 groupshared uint neighbor_count;
 groupshared uint global_start_idx;
 
-groupshared float3 shared_neighbor_pos[CLUSTER_SIZE];
+groupshared float4 shared_neighbor_pos[CLUSTER_SIZE];
 groupshared uint shared_votes[CLUSTER_SIZE];
 
 
@@ -81,7 +81,7 @@ func main(const uint3 global_id: SV_DispatchThreadID, const uint local_id: SV_Gr
         // Get the paritcle position
         const uint global_particle_idx = super_cluster_index * THREAD_GROUP_SIZE + local_id;
         const bool is_thread_out_of_bounds = global_particle_idx >= pc.num_particles;
-        const float3 pos = is_thread_out_of_bounds ? GHOST_MIN_POS : pc.positions[global_particle_idx].xyz;
+        const float4 pos = is_thread_out_of_bounds ? GHOST_MIN_POS : pc.positions[global_particle_idx];
 
         // Build the bounding box of the super cluster with wave instructions
         BoundingBox super_cluster_bounding_box = calculate_super_cluster_bounding_box(pos, pc.search_radius, is_thread_out_of_bounds);
@@ -200,7 +200,7 @@ func traverse(
             const bool is_internal_node = node_first_child_idx != LEAF;
 
             const uint key = pc.node_keys[node_idx];
-            const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min.xyz);
+            const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min);
 
             const bool intersects = super_cluster_bounding_box.intersects(node_box);
 
@@ -308,7 +308,7 @@ func evaluate_distances_parallel(
     const uint neighbor_cluster_index,
     const float search_radius_sq, 
     const bool is_thread_out_of_bounds,
-    const float3 pos
+    const float4 pos
 ){
     // Load the neighbor cluster positions to shared memory
     load_neighbor_cluster_positions(local_id, neighbor_cluster_index);
@@ -362,23 +362,23 @@ func evaluate_distances_parallel(
 func load_neighbor_cluster_positions(const uint local_id, const uint neighbor_cluster_index){
     if(local_id < CLUSTER_SIZE){
         const uint neighbor_pos_idx = neighbor_cluster_index * CLUSTER_SIZE + local_id; 
-        shared_neighbor_pos[local_id] = neighbor_pos_idx < pc.num_particles ? pc.positions[neighbor_pos_idx].xyz : GHOST_MIN_POS;
+        shared_neighbor_pos[local_id] = neighbor_pos_idx < pc.num_particles ? pc.positions[neighbor_pos_idx] : GHOST_MIN_POS;
         shared_votes[local_id] = 0;
     }
     GroupMemoryBarrierWithGroupSync();
 }
 
 [ForceInline]
-func thread_interstects_cluster(const float3 pos, const bool is_thread_out_of_bounds, const float search_radius_sq) -> bool{
+func thread_interstects_cluster(const float4 pos, const bool is_thread_out_of_bounds, const float search_radius_sq) -> bool{
     if(is_thread_out_of_bounds) return false;
     for(uint i = 0; i < CLUSTER_SIZE; i++){
-        const float3 other_pos = shared_neighbor_pos[i];
+        const float4 other_pos = shared_neighbor_pos[i];
         if (any(other_pos == GHOST_MIN_POS)) {
             // The other position does not exist
             continue;
         }
 
-        const float3 diff = pos - other_pos;
+        const float4 diff = pos - other_pos;
         const float distance_sq = dot(diff, diff);
         if(distance_sq <= search_radius_sq){
             return true;
@@ -412,17 +412,10 @@ func decode_ballot(const uint4 ballot) -> uint{
     return bitmask;
 }
 
-struct BoundingBox {
-    float3 min;
-    float3 max;
 
-    func intersects(BoundingBox other) -> bool{
-        return all(this.min <= other.max) && all(this.max >= other.min);
-    }
-};
 
 [ForceInline]
-func calculate_super_cluster_bounding_box(float3 pos, const float search_radius, const bool is_thread_out_of_bounds) -> BoundingBox{
+func calculate_super_cluster_bounding_box(float4 pos, const float search_radius, const bool is_thread_out_of_bounds) -> BoundingBox{
     BoundingBox bounding_box;
     bounding_box.min = WaveActiveMin(is_thread_out_of_bounds ? GHOST_MAX_POS : pos) - search_radius;
     bounding_box.max = WaveActiveMax(is_thread_out_of_bounds ? GHOST_MIN_POS : pos) + search_radius;
@@ -430,7 +423,7 @@ func calculate_super_cluster_bounding_box(float3 pos, const float search_radius,
 }
 
 [ForceInline]
-func decode_warren_salmon_key(const uint key, const float world_size, const float3 world_min) -> BoundingBox 
+func decode_warren_salmon_key(const uint key, const float world_size, const float4 world_min) -> BoundingBox 
 {
     const uint node_level = firstbithigh(key) / 3;
     const uint path = key ^ (1u << (3u * node_level));
@@ -450,13 +443,13 @@ func decode_warren_salmon_key(const uint key, const float world_size, const floa
     grid_pos.z &= mask_val;
 
     // 4. Calculate physical bounds safely using the constant MAX_LEVELS resolution
-    const float grid_res = float(1u << MAX_LEVELS); // Always 1024.0, never 0.0!
+    const float grid_res = float(1u << MAX_LEVELS); 
     const float cell_size = world_size / grid_res;
     const float physical_node_size = cell_size * float(node_size_3d);
 
     BoundingBox bounding_box;
-    bounding_box.min = world_min + float3(grid_pos) * cell_size;
-    bounding_box.max = bounding_box.min + float3(physical_node_size);
+    bounding_box.min = world_min + float4(grid_pos, 0.0) * cell_size;
+    bounding_box.max = bounding_box.min + float4(physical_node_size);
     
     return bounding_box;
 }

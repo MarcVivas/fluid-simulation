@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Vec3};
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
+use crate::physics_engine::neighbor_list::NeighborList;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
@@ -17,10 +18,12 @@ pub struct ConstraintSolverSystem {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
 struct ConstraintSolverPushConstants {
+    super_clusters: u64,
+    super_cluster_neighbors: u64,
     num_elements: u32,
-    cell_size: f32,
+    kernel_radius: f32,
     rest_density: f32,
     reversed_rest_density: f32,
     poly6_constant: f32,
@@ -29,14 +32,17 @@ struct ConstraintSolverPushConstants {
     k: f32,
     delta_q_squared: f32,
     n: u32,
-    _pad: [u32; 2],
-    world_size: Vec3
 }
 
 impl ConstraintSolverSystem {
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VkCore>, super_cluster_size: u32) -> Result<Self, Box<dyn std::error::Error>> {
         let (constraint_solver_pass, constraint_solver_shader) = ComputeSystemBuilder::new(vk_core.clone(), "constraint_solver")
             .entry_points(&["main"])
+            .compile_time_constants(
+                ShaderCompileTimeConstants::new()
+                    .add("THREAD_GROUP_SIZE", super_cluster_size)
+                    .add("CLUSTER_SIZE", NeighborList::cluster_size())
+            )
             .push_constants::<ConstraintSolverPushConstants>()
             // Read positions 
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
@@ -46,18 +52,15 @@ impl ConstraintSolverSystem {
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             // Fluid lambdas
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Grid texture
-            .add_buffer_binding(vk::DescriptorType::SAMPLED_IMAGE)
             .build_with_single_pass()?;
 
         Ok(Self { constraint_solver_pass, constraint_solver_shader })
     }
 
-    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles, physics_config: &PhysicsConfig, world_size: &Vec3) {
+    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let num_elements = particles.len() as u32;
 
-        let spatial_grid_buffers = spatial_grid.buffers();
 
         let particle_buffers = particles.buffers();
         let (read_positions, write_positions) = particle_buffers.positions_buffer.read_write();
@@ -66,8 +69,10 @@ impl ConstraintSolverSystem {
         let lambdas = particle_buffers.lambdas.vk_buffer();
         
         let push_constants = ConstraintSolverPushConstants {
+            super_clusters: neighbor_list.super_clusters().address(),
+            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
             num_elements,
-            cell_size: spatial_grid.cell_size(),
+            kernel_radius: physics_config.kernel_radius,
             rest_density: physics_config.rest_density,
             reversed_rest_density: physics_config.reversed_rest_density,
             poly6_constant: physics_config.kernel_poly6,
@@ -76,20 +81,13 @@ impl ConstraintSolverSystem {
             k: physics_config.k,
             delta_q_squared: physics_config.delta_q_squared,
             n: physics_config.n,
-            _pad: [0; 2],
-            world_size: *world_size
         };
         
         let buffers = [read_positions, write_positions, densities, lambdas];
-        let images = [
-            ImageDescriptor {
-                image_view: spatial_grid_buffers.grid_texture_view.vk_image_view(),
-                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                descriptor_type: vk::DescriptorType::SAMPLED_IMAGE
-            }
-        ];
+        let images = [];
 
-        let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
+        let thread_group_size = neighbor_list.super_cluster_size();
+        let thread_group_counts = [(num_elements + thread_group_size - 1) / thread_group_size, 1, 1];
         self.constraint_solver_pass.dispatch_compute(
             vk_core,
             command_buffer,

@@ -39,6 +39,7 @@ impl PhysicsEngine {
         particles: &Particles,
         max_levels: u32,
         search_radius: f32,
+        super_cluster_size: u32
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let max_objects: u32 = particles.len() as u32;
         let morton_encoding_system = MortonEncoder::new(vk_core)?;
@@ -46,8 +47,8 @@ impl PhysicsEngine {
         let sorting_system = GpuKVRadixSort::new(vk_core, cmd_pool, max_objects, None)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
         let neighbor_search_system = NeighborSearchSystem::new(vk_core)?;
-        let density_compute_system = DensityComputeSystem::new(vk_core)?;
-        let constraint_solver_system = ConstraintSolverSystem::new(vk_core)?;
+        let density_compute_system = DensityComputeSystem::new(vk_core, super_cluster_size)?;
+        let constraint_solver_system = ConstraintSolverSystem::new(vk_core, super_cluster_size)?;
         let update_velocities_system = UpdateVelocitiesSystem::new(vk_core)?;
         let velocity_refining_system = VelocityRefiningSystem::new(vk_core)?;
         let vorticity_force_compute_system = VorticityForceComputeSystem::new(vk_core)?;
@@ -109,7 +110,7 @@ impl PhysicsEngine {
             self.hilbert_encoder.dispatch(
                 vk_core,
                 particle_data.morton_codes_buffer.len() as u32,
-                glam::Vec4::new(0., 0., 0., 0.),
+                world_min,
                 world_size,
                 particle_data.positions_buffer.current(),
                 &particle_data.morton_codes_buffer,
@@ -147,27 +148,32 @@ impl PhysicsEngine {
         });
        
         
-/*
+
         for _ in 0..self.physics_config.solver_iterations {
-            self.density_compute_system.execute(
-                vk_core,
-                command_buffer,
-                spatial_grid,
-                particles,
-                &self.physics_config,
-                world_size,
-            );
-            self.constraint_solver_system.execute(
-                vk_core,
-                command_buffer,
-                spatial_grid,
-                particles,
-                &self.physics_config,
-                world_size,
-            );
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, "Density compute", ||{
+                self.density_compute_system.execute(
+                    vk_core,
+                    command_buffer,
+                    neighbor_list,
+                    particles,
+                    &self.physics_config,
+                );
+            });
+
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, "Constraint solver", ||{
+                self.constraint_solver_system.execute(
+                    vk_core,
+                    command_buffer,
+                    neighbor_list,
+                    particles,
+                    &self.physics_config,
+                );
+            });
+
             particles.buffers_mut().positions_buffer.swap();
+            
         }
-        */
+        
 
         self.update_velocities_system.execute(
             vk_core,

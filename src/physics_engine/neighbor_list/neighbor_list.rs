@@ -20,7 +20,7 @@ impl NeighborList {
         let data = NeighborListData::new(vk_core, cmd_pool, num_particles, super_cluster_size, CLUSTER_SIZE, MAX_NEIGHBOR_CAPACITY);
 
         let neighbor_search = NeighborSearch::new(vk_core, super_cluster_size, max_levels);
-        let cluster_bounding_boxes = ClustersBoundingBoxes::new(vk_core, num_particles as usize, NeighborList::cluster_size() as usize);
+        let cluster_bounding_boxes = ClustersBoundingBoxes::new(vk_core, NeighborList::cluster_size() as usize);
         
         Self {
             data,

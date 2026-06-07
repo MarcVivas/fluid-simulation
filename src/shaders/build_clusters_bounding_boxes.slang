@@ -22,8 +22,8 @@ func main(const uint3 global_id: SV_DispatchThreadID, const uint local_id: SV_Gr
     const bool is_out_of_bounds = global_id.x >= pc.num_particles;
     const float4 pos = is_out_of_bounds ? GHOST_MIN_POS : pc.positions[global_id.x];
 
-    float3 min = is_out_of_bounds ? float3(GHOST_MAX_POS.x) : pos.xyz - pc.search_radius;
-    float3 max = is_out_of_bounds ? float3(GHOST_MIN_POS.x) : pos.xyz + pc.search_radius;
+    float3 min = is_out_of_bounds ? float3(GHOST_MAX_POS.x) : pos.xyz;
+    float3 max = is_out_of_bounds ? float3(GHOST_MIN_POS.x) : pos.xyz;
     
     
 

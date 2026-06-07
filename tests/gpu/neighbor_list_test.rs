@@ -103,7 +103,6 @@ impl NeighborListTest {
             world_max,
         );
         
-
       
     }
 
@@ -218,42 +217,13 @@ impl NeighborListTest {
         let num_particles = self.particles.len();
         let num_super_clusters = num_particles.div_ceil(self.neighbor_list.super_cluster_size() as usize);
         let num_clusters = num_particles.div_ceil(NeighborList::cluster_size() as usize);
-
-
-        // Expected leaves
-        let leaf_bounding_boxes: Vec<BoundingBox> = leaf_indexes
-            .iter()
-            .map(|&leaf_index| {
-                let node_key = node_keys[leaf_index as usize];
-                decode_warren_salmon_key(node_key, self.world_size, self.world_min.xyz())
-            })
-            .collect();
-        let mut cpu_super_clusters: Vec<SuperCluster> = Vec::with_capacity(super_clusters.len());
-        let mut cpu_super_cluster_neighbors: Vec<SuperClusterNeighbors> = Vec::with_capacity(super_cluster_neighbors.len());
+        let clusters_per_super_cluster = (self.neighbor_list.super_cluster_size() / NeighborList::cluster_size()) as usize;
+        
         let cpu_super_cluster_bounding_boxes = self.build_cpu_super_cluster_bounding_boxes(positions, num_super_clusters);
+        let (cpu_super_clusters, cpu_super_cluster_neighbors): (Vec<SuperCluster>, Vec<SuperClusterNeighbors>) = self.build_cpu_super_cluster_neighbors(&cpu_super_cluster_bounding_boxes, num_super_clusters, self.neighbor_list.super_cluster_neighbors().len(), num_clusters);
 
         
-        let mut first_neighbor = 0;
-        for super_cluster_bounding_box in &cpu_super_cluster_bounding_boxes {
-
-            let mut neighbor_count = 0;
-            
-            for (&leaf_index, leaf_bounding_box) in leaf_indexes.iter().zip(&leaf_bounding_boxes) {
-                if super_cluster_bounding_box.bounding_box.intersects(&leaf_bounding_box) {
-                    neighbor_count += 1;
-                    cpu_super_cluster_neighbors.push(SuperClusterNeighbors { cluster_index: leaf_index, bitmask: 0 });
-                }
-            }
-
-            // Push the SuperCluster
-            cpu_super_clusters.push(SuperCluster { 
-                  neighbor_count, 
-                  neighbor_index: first_neighbor 
-              });
-
-            // Advance the offset 
-            first_neighbor += neighbor_count;
-        }
+        
 
         
         for super_cluster in &cpu_super_clusters{
@@ -261,81 +231,66 @@ impl NeighborListTest {
                 println!("{:?}", super_cluster);
             }
         }
-        
-        for (i, (gpu_sc, cpu_sc)) in super_clusters.iter().zip(&cpu_super_clusters).enumerate() {
-            if gpu_sc.neighbor_count != cpu_sc.neighbor_count {
-                let bbox = &cpu_super_cluster_bounding_boxes[i].bounding_box;
-                println!("====================================================");
-                println!("DIAGNOSTIC MISMATCH AT SUPERCLUSTER INDEX: {}", i);
-                println!("GPU leaf neighbor count: {}", gpu_sc.neighbor_count);
-                println!("CPU leaf neighbor count: {}", cpu_sc.neighbor_count);
-                println!("CPU Bounding Box Min: {:?}", bbox.min);
-                println!("CPU Bounding Box Max: {:?}", bbox.max);
+
+        let cpu_reconstructed_bounding_boxes = self.build_cpu_super_cluster_bounding_boxes(&positions, num_super_clusters);
+        self.validate_clusters_bounding_boxes(&clusters_bounding_boxes, &cpu_reconstructed_bounding_boxes);
+
+        // Reconstruct the expected CPU neighbor list using the GPU-built boxes directly
+        let mut cpu_super_cluster_bounding_boxes = Vec::with_capacity(num_super_clusters);
+        for super_cluster_idx in 0..num_super_clusters {
+            let mut sub_boxes = Vec::with_capacity(clusters_per_super_cluster);
+            let mut super_min = glam::Vec4::INFINITY;
+            let mut super_max = glam::Vec4::NEG_INFINITY;
+    
+            let start_idx = super_cluster_idx * clusters_per_super_cluster;
+            for c_offset in 0..clusters_per_super_cluster {
+                let global_c_idx = start_idx + c_offset;
                 
-                // --- 1. Verify if leaf_indexes contains internal nodes ---
-                let mut internal_node_errors = 0;
-                for &node_idx in leaf_indexes.iter() {
-                    if node_first_child[node_idx as usize] != 0 {
-                        internal_node_errors += 1;
-                    }
-                }
-                if internal_node_errors > 0 {
-                    println!("  ERROR: leaf_indexes contains {} internal nodes!", internal_node_errors);
+                let box_gpu = if global_c_idx < num_clusters {
+                    clusters_bounding_boxes[global_c_idx]
                 } else {
-                    println!("  SUCCESS: leaf_indexes contains 100% leaf nodes.");
-                }
-        
-                // --- 2. Collect all intersected leaves ---
-                let mut intersected_indices = Vec::new();
-                for (idx, (&leaf_index, leaf_bbox)) in leaf_indexes.iter().zip(&leaf_bounding_boxes).enumerate() {
-                    if bbox.intersects(&leaf_bbox) {
-                        intersected_indices.push((idx, leaf_index, leaf_bbox));
+                    BoundingBox {
+                        min: glam::Vec4::splat(f32::INFINITY),
+                        max: glam::Vec4::splat(f32::NEG_INFINITY),
                     }
+                };
+    
+                sub_boxes.push(box_gpu);
+    
+                if box_gpu.min.x != f32::INFINITY {
+                    super_min = super_min.min(box_gpu.min);
+                    super_max = super_max.max(box_gpu.max);
                 }
-        
-                // Print first 5
-                println!("First 5 Intersected Leaves:");
-                for k in 0..5.min(intersected_indices.len()) {
-                    let (idx, leaf_index, leaf_bbox) = &intersected_indices[k];
-                    let key = node_keys[*leaf_index as usize];
-                    let level = key.ilog2() / 3;
-                    println!(
-                        "  Intersected Leaf {}: Index={}, Key={}, Level={}, Min: {:?}, Max: {:?}", 
-                        idx, leaf_index, key, level, leaf_bbox.min, leaf_bbox.max
-                    );
-                }
-        
-                // Print last 5
-                println!("Last 5 Intersected Leaves:");
-                let len = intersected_indices.len();
-                for k in (len.saturating_sub(5)..len).rev() {
-                    let (idx, leaf_index, leaf_bbox) = &intersected_indices[k];
-                    let key = node_keys[*leaf_index as usize];
-                    let level = key.ilog2() / 3;
-                    println!(
-                        "  Intersected Leaf {}: Index={}, Key={}, Level={}, Min: {:?}, Max: {:?}", 
-                        idx, leaf_index, key, level, leaf_bbox.min, leaf_bbox.max
-                    );
-                }
-                
-                let super_cluster_size = self.neighbor_list.super_cluster_size() as usize;
-                let start = i * super_cluster_size;
-                let end = start + super_cluster_size;
-                
-                println!("SuperCluster Particle Indices: [{} .. {}]", start, end);
-                println!("First 5 particle positions in this SuperCluster:");
-                for p in start..(start + 5).min(end) {
-                    if p < positions.len() {
-                        println!("  Particle {}: {:?}", p, positions[p]);
-                    }
-                }
-                println!("====================================================");
-                break; 
             }
+    
+            super_min -= self.search_radius;
+            super_max += self.search_radius;
+            super_min.w = 0.0;
+            super_max.w = 0.0;
+    
+            cpu_super_cluster_bounding_boxes.push(SuperClusterBoundingBox {
+                bounding_box: BoundingBox::new(&super_min, &super_max),
+                cluster_bounding_boxes: sub_boxes,
+            });
         }
+    
+        // Generate expected CPU lists from these aligned boxes
+        let (cpu_super_clusters, cpu_super_cluster_neighbors) = self.build_cpu_super_cluster_neighbors(
+            &cpu_super_cluster_bounding_boxes, 
+            num_super_clusters, 
+            self.neighbor_list.super_cluster_neighbors().len(),
+            num_clusters
+        );
 
+       
+        // Validate the GPU results against this bit-exact CPU expected state
+        //self.validate_neighbor_counts(&super_clusters, &cpu_super_clusters, cpu_super_cluster_neighbors.len());
+        self.validate_neighbor_contents(&super_clusters, &cpu_super_clusters, &super_cluster_neighbors, &cpu_super_cluster_neighbors, num_super_clusters);      
+    }
+
+    /// Compare GPU and CPU cluster bounding boxes
+    fn validate_clusters_bounding_boxes(&self, clusters_bounding_boxes: &[BoundingBox], cpu_super_cluster_bounding_boxes: &[SuperClusterBoundingBox]){
         let clusters_per_super_cluster = self.neighbor_list.super_cluster_size() / NeighborList::cluster_size();
-
         let eps = 0.5f32;
         for (i, gpu_cluster_bounding_box) in clusters_bounding_boxes.iter().enumerate(){
             let super_cluster_id = i / clusters_per_super_cluster as usize;
@@ -355,21 +310,146 @@ impl NeighborListTest {
                 i, eps, gpu_cluster_bounding_box.max, cpu_cluster_bounding_box.max
             );
         }
-
-       
-        assert_eq!(super_clusters.len(), cpu_super_clusters.len());
-        let mut total_neighbors = 0;
-        for (gpu_super_cluster, cpu_super_cluster) in super_clusters.iter().zip(&cpu_super_clusters){
-            assert_eq!(gpu_super_cluster.neighbor_count, cpu_super_cluster.neighbor_count, "Total leaves {:?}", leaf_indexes.len());
-            total_neighbors += gpu_super_cluster.neighbor_count;
-        }
-        assert_eq!(total_neighbors as usize, cpu_super_cluster_neighbors.len());
-        //assert_eq!(super_cluster_neighbors, cpu_super_cluster_neighbors);
-        
-
-      
     }
 
+    fn validate_neighbor_counts(&self, super_clusters: &[SuperCluster], cpu_super_clusters: &[SuperCluster], num_cpu_cluster_neighbors: usize){
+        assert_eq!(super_clusters.len(), cpu_super_clusters.len());
+        let mut total_neighbors = 0;
+        let mut total_wrong = 0;
+        for (gpu_super_cluster, cpu_super_cluster) in super_clusters.iter().zip(cpu_super_clusters){
+            total_wrong += (gpu_super_cluster.neighbor_count != cpu_super_cluster.neighbor_count) as u32;
+            //assert_eq!(gpu_super_cluster.neighbor_count, cpu_super_cluster.neighbor_count);
+            total_neighbors += gpu_super_cluster.neighbor_count;
+        }
+        dbg!(total_wrong);
+        dbg!(num_cpu_cluster_neighbors);
+        assert_eq!(total_neighbors as usize, num_cpu_cluster_neighbors);
+    }
+
+    fn validate_neighbor_contents(
+        &self, 
+        super_clusters: &[SuperCluster],
+        cpu_super_clusters: &[SuperCluster],
+        super_cluster_neighbors: &[SuperClusterNeighbors],
+        cpu_super_cluster_neighbors: &[SuperClusterNeighbors],
+        num_super_clusters: usize,
+        
+    ){
+        for i in 0..num_super_clusters {
+            let gpu_info = &super_clusters[i];
+            let cpu_info = &cpu_super_clusters[i];
+        
+            let gpu_start = gpu_info.neighbor_index as usize;
+            let gpu_end = gpu_start + gpu_info.neighbor_count as usize;
+            let mut gpu_slice = super_cluster_neighbors[gpu_start..gpu_end].to_vec();
+        
+            let cpu_start = cpu_info.neighbor_index as usize;
+            let cpu_end = cpu_start + cpu_info.neighbor_count as usize;
+            let mut cpu_slice = cpu_super_cluster_neighbors[cpu_start..cpu_end].to_vec();
+        
+            // Sort both by cluster_index to ignore traversal order differences
+            gpu_slice.sort_by_key(|n| n.cluster_index);
+            cpu_slice.sort_by_key(|n| n.cluster_index);
+
+            
+            if gpu_slice != cpu_slice {
+                println!("====================================================");
+                println!("MISMATCH FOUND IN SUPER-CLUSTER {}", i);
+                println!("GPU Neighbor Count: {} (Capacity limit is {})", gpu_info.neighbor_count, 1024); // Assuming 1024 is your MAX_NEIGHBOR_CAPACITY
+                println!("CPU Neighbor Count: {}", cpu_info.neighbor_count);
+                
+                // 1. Check for neighbors the CPU found but the GPU missed
+                for cpu_n in &cpu_slice {
+                    if let Some(gpu_n) = gpu_slice.iter().find(|n| n.cluster_index == cpu_n.cluster_index) {
+                        if gpu_n.bitmask != cpu_n.bitmask {
+                            println!("  [BITMASK MISMATCH] Cluster {}: GPU bitmask = {:b}, CPU bitmask = {:b}", 
+                                cpu_n.cluster_index, gpu_n.bitmask, cpu_n.bitmask);
+                        }
+                    } else {
+                        println!("  [MISSING FROM GPU] Cluster {} was found by CPU but missed by GPU! (CPU Bitmask: {:b})", 
+                            cpu_n.cluster_index, cpu_n.bitmask);
+                    }
+                }
+
+                // 2. Check for extra neighbors the GPU found that the CPU didn't
+                for gpu_n in &gpu_slice {
+                    if !cpu_slice.iter().any(|n| n.cluster_index == gpu_n.cluster_index) {
+                        println!("  [EXTRA ON GPU] Cluster {} was found by GPU but NOT by CPU! (GPU Bitmask: {:b})", 
+                            gpu_n.cluster_index, gpu_n.bitmask);
+                    }
+                }
+                println!("====================================================");
+            }
+        
+            assert_eq!(
+                gpu_slice, 
+                cpu_slice, 
+                "Mismatched neighbor data for super-cluster index {}", 
+                i
+            );
+        }
+        
+    }
+
+    fn build_cpu_super_cluster_neighbors(&self, cpu_super_cluster_bounding_boxes: &[SuperClusterBoundingBox], num_super_clusters: usize, num_super_cluster_neighbors: usize, num_clusters: usize) -> (Vec<SuperCluster>, Vec<SuperClusterNeighbors>) {
+        let mut cpu_super_clusters: Vec<SuperCluster> = Vec::with_capacity(num_super_clusters);
+        let mut cpu_super_cluster_neighbors: Vec<SuperClusterNeighbors> = Vec::with_capacity(num_super_cluster_neighbors);
+        let clusters_per_super_cluster = self.neighbor_list.super_cluster_size() / NeighborList::cluster_size(); 
+        
+        let mut first_neighbor = 0;
+        // For each super-cluster get the neighors
+        for super_cluster_bounding_box in cpu_super_cluster_bounding_boxes {
+
+            let mut neighbor_count = 0;
+
+            // For each other super cluster
+            for (neighbor_super_cluster_index, neighbor_super_cluster) in cpu_super_cluster_bounding_boxes.iter().enumerate() {
+                let neighbor_bounding_box = &neighbor_super_cluster.bounding_box;
+                // Continue if the super clusters don't intersect
+                if !super_cluster_bounding_box.bounding_box.intersects(neighbor_bounding_box){continue;}
+                
+                for (neighbor_local_index, neighbor_cluster) in neighbor_super_cluster.cluster_bounding_boxes.iter().enumerate() {
+                    let global_cluster_index = neighbor_super_cluster_index  * clusters_per_super_cluster as usize + neighbor_local_index;
+                                        
+                    if global_cluster_index >= num_clusters {
+                        continue;
+                    }
+                    let neighbor_cluster_expanded = BoundingBox {
+                        min: neighbor_cluster.min - self.search_radius,
+                        max: neighbor_cluster.max + self.search_radius,
+                    };
+                    
+                    let mut bitmask = 0u32;
+                    for (i, cluster) in super_cluster_bounding_box.cluster_bounding_boxes.iter().enumerate() {
+                        if cluster.intersects(&neighbor_cluster_expanded) {
+                            bitmask |= 1u32 << i;
+                        }
+
+                    }
+                    
+                    // If the clusters intersect means they are neighbors!
+                    // Count them                    
+                    if bitmask != 0 {
+                        let global_cluster_index: u32 = neighbor_super_cluster_index as u32 * clusters_per_super_cluster + neighbor_local_index as u32;
+                        cpu_super_cluster_neighbors.push(
+                            SuperClusterNeighbors { cluster_index: global_cluster_index, bitmask }
+                        );
+                        neighbor_count += 1u32;                          
+                    }
+                }
+            }
+
+            cpu_super_clusters.push(
+                SuperCluster { neighbor_count, neighbor_index: first_neighbor }
+            );
+
+            first_neighbor += neighbor_count;
+
+        }
+
+        (cpu_super_clusters, cpu_super_cluster_neighbors)
+    }
+    
     fn build_cpu_super_cluster_bounding_boxes(&self, positions: &[Position], num_super_clusters: usize) -> Vec<SuperClusterBoundingBox> {
         let mut super_cluster_bounding_boxes = Vec::with_capacity(num_super_clusters);
         let super_cluster_size = self.neighbor_list.super_cluster_size() as usize;
@@ -415,8 +495,6 @@ impl SuperClusterBoundingBox {
             }
 
             if i as u32 % NeighborList::cluster_size() == NeighborList::cluster_size() - 1 {
-                cluster_min -= search_radius;
-                cluster_max += search_radius;
                 cluster_min.w = 0.0;
                 cluster_max.w = 0.0;
                 cluster_bounding_boxes.push(BoundingBox {min:cluster_min, max: cluster_max});
@@ -426,11 +504,11 @@ impl SuperClusterBoundingBox {
             
         }
         
-        super_cluster_min.w = 0.0;
-        super_cluster_max.w = 0.0;
-
         super_cluster_min -= search_radius;
         super_cluster_max += search_radius;
+
+        super_cluster_min.w = 0.0;
+        super_cluster_max.w = 0.0;
 
         let bounding_box = BoundingBox::new(&super_cluster_min, &super_cluster_max);
 
@@ -444,8 +522,9 @@ impl SuperClusterBoundingBox {
 
 #[test]
 pub fn test_neighbor_list_building() {
+ 
     VkHeadless::run(|engine, vk_core, _|{
-        let num_particles = 340000;
+        let num_particles = 1070000;
         let search_radius = 1.0f32;
         let world_size = 512.0;
         let world_min = glam::Vec3::new(0.0, 0.0, 0.0);

@@ -133,7 +133,7 @@ impl ApplicationHandler for App {
                     .unwrap_or_default();
                 for (label, time) in timings {
                     if time != 0.0 {
-                        //println!("Pass {}: {:.4} ms", label, time);
+                        println!("Pass {}: {:.4} ms", label, time);
                     }
                 }
 

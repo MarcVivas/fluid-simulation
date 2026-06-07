@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
+use crate::physics_engine::neighbor_list::{NeighborList, neighbor_list};
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
@@ -17,25 +18,30 @@ pub struct DensityComputeSystem{
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
 struct DensityComputePushConstants {
+    super_clusters: u64, 
+    super_cluster_neighbors: u64,
     num_elements: u32,
-    cell_size: f32,
+    kernel_radius: f32,
     rest_density: f32,
     reversed_rest_density: f32,
     poly6_constant: f32,
     kernel_radius_2: f32,
     spiky_constant: f32,
     epsilon: f32,
-    world_size: Vec3
 }
 
 impl DensityComputeSystem{
 
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VkCore>, super_cluster_size: u32) -> Result<Self, Box<dyn std::error::Error>> {
 
         let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute")
             .entry_points(&["main"])
+            .compile_time_constants(ShaderCompileTimeConstants::new()
+                .add("CLUSTER_SIZE", NeighborList::cluster_size())
+                .add("THREAD_GROUP_SIZE", super_cluster_size)
+            )
             .push_constants::<DensityComputePushConstants>()
             // Packed positions
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
@@ -45,8 +51,6 @@ impl DensityComputeSystem{
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             // Fluid lambdas
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Grid texture
-            .add_buffer_binding(vk::DescriptorType::SAMPLED_IMAGE)
             .build_with_single_pass()?;
         Ok(
             Self {
@@ -56,21 +60,23 @@ impl DensityComputeSystem{
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, spatial_grid: &SpatialGrid, particles: &Particles, physics_config: &PhysicsConfig, world_size: &Vec3) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
 
         let push_constants = DensityComputePushConstants {
             num_elements,
-            cell_size: spatial_grid.cell_size(),
+            kernel_radius: physics_config.kernel_radius,
             rest_density: physics_config.rest_density,
             reversed_rest_density: physics_config.reversed_rest_density,
             poly6_constant: physics_config.kernel_poly6,
             kernel_radius_2: physics_config.kernel_radius_2,
             spiky_constant: physics_config.kernel_spiky_grad,
             epsilon: physics_config.lambda_density_epsilon,
-            world_size: *world_size
+            super_clusters: neighbor_list.super_clusters().address(),
+            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
+            ..Default::default()
         };
 
         // Describe the buffers we want to bind
@@ -88,14 +94,10 @@ impl DensityComputeSystem{
         ];
 
         let images = [
-            ImageDescriptor{
-                image_view: spatial_grid.buffers().grid_texture_view.vk_image_view(),
-                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
-            }
         ];
 
-        let thread_group_counts = [((num_elements + 63) / 64), 1, 1];
+        let thread_group_size = neighbor_list.super_cluster_size(); 
+        let thread_group_counts = [((num_elements + thread_group_size-1) / thread_group_size), 1, 1];
         self.density_compute_pass.dispatch_compute(
             vk_core,
             command_buffer,

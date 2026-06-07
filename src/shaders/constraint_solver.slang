@@ -1,18 +1,18 @@
-import HashMap;
 import MortonHelpers;
-import SpatialGrid;
 import SmoothedParticleHydrodynamics;
+import SuperCluster;
+import SuperClusterNeighbors;
 
-static const uint GROUP_SIZE = 64;
 
 
 [[vk::binding(0, 0)]] StructuredBuffer<float4> read_positions;
 [[vk::binding(1, 0)]] RWStructuredBuffer<float4> write_positions;
 [[vk::binding(2, 0)]] StructuredBuffer<float> densities;
 [[vk::binding(3, 0)]] StructuredBuffer<float> lambdas;
-[[vk::binding(4, 0)]] SpatialGrid grid;
 
 struct ConstraintSolverPushConstants {
+    Ptr<SuperCluster, Access.Read> super_clusters;
+    Ptr<SuperClusterNeighbors, Access.Read> super_cluster_neighbors;
     uint num_elements;
     float cell_size;
     float rest_density;
@@ -23,27 +23,34 @@ struct ConstraintSolverPushConstants {
     float k;
     float delta_q_squared;
     uint n;
-    float3 world_size;
 };
 
 [[vk::push_constant]] ConstraintSolverPushConstants push_constants;
 
 
 [shader("compute")]
-[numthreads(GROUP_SIZE, 1, 1)]
+[numthreads(THREAD_GROUP_SIZE, 1, 1)]
 void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_GroupIndex, const uint group_id : SV_GroupID){
 
-    if (global_id >= push_constants.num_elements) {
+    const uint super_cluster_id = group_id;
+    const uint global_cluster_id = global_id / CLUSTER_SIZE;
+    const uint local_cluster_id = local_id / CLUSTER_SIZE;
+    
+    const SuperCluster super_cluster = push_constants.super_clusters[super_cluster_id];
+
+    // If the super cluster doesn't have neighbors we don't compute
+    if(super_cluster.neighbor_count == 0){
         return;
     }
 
-    const float4 p = read_positions[global_id];
+    const bool is_valid_position = global_id < push_constants.num_elements;
+    
+
+
+    const float4 p = is_valid_position ? read_positions[global_id]: float4(0.f);
     const float3 pos = p.xyz;
     const float radius = p.w;
 
-    const uint3 center_grid_cell = position_to_grid(pos, push_constants.cell_size);
-
-    uint neighbor_bits = grid.get_neighbor_bits(center_grid_cell);
 
     const float lambda_i = lambdas[global_id];
     const float rest_density = push_constants.rest_density;
@@ -56,49 +63,50 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
 
     float3 total_displacement = float3(0, 0, 0);
 
-    while(neighbor_bits != 0){
-        // Get the position of the first active bit
-        const uint bit = firstbitlow(neighbor_bits);
-        // Remove the bit from the neighbor bits
-        neighbor_bits = neighbor_bits & (neighbor_bits - 1);
+    // Iterate all super cluster neighbors
+    const uint neighbor_end = super_cluster.neighbor_count + super_cluster.neighbor_index;
+    for(uint neighbor_cluster_id = super_cluster.neighbor_index; neighbor_cluster_id < neighbor_end; neighbor_cluster_id++){
 
-        const uint3 neighbor_cell = center_grid_cell + CELL_OFFSETS[bit];
+        const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[neighbor_cluster_id];
 
-        // Get the cell start
-        const uint cell_start = grid.get_start_index(neighbor_cell);
-        const uint cell_end = grid.get_end_index(neighbor_cell);
+        const bool should_compute = neighbor.bitmask & (1 << local_cluster_id);
+        
+        if(should_compute){
+           const uint start = neighbor.cluster_index * CLUSTER_SIZE; 
+           for(uint j = start; j < start + CLUSTER_SIZE; j++){
+               if (j >= push_constants.num_elements) continue;
+               
+               const float4 neighbor_j = read_positions[j];
+               const float3 vec = pos - neighbor_j.xyz;
+               const float dist_squared = dot(vec, vec);
 
-
-        for(uint j = cell_start; j < cell_end; j++){
-            const float4 neighbor_j = read_positions[j];
-            const float3 vec = pos - neighbor_j.xyz;
-            const float dist_squared = dot(vec, vec);
-            
-            // Compute W(r_ij, h)
-            const float w_r = poly6_kernel(push_constants.poly6_constant, dist_squared, push_constants.kernel_radius_2);
-
-            // Compute s_corr (Equation 13)
-            const float s_corr = -k * pow(w_r / w_delta_q, n);
-            
-            // Compute lambda sum
-            const float lambda_j = lambdas[j];
-            const float lambda_sum = lambda_i + lambda_j + s_corr;
-
-            const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
-
-            const float neighbor_mass = 1;
-            total_displacement += lambda_sum * gradient_vec * neighbor_mass;
+               if(dist_squared > push_constants.kernel_radius_2) continue;
+               
+               // Compute W(r_ij, h)
+               const float w_r = poly6_kernel(push_constants.poly6_constant, dist_squared, push_constants.kernel_radius_2);
+   
+               // Compute s_corr (Equation 13)
+               const float s_corr = -k * pow(w_r / w_delta_q, n);
+               
+               // Compute lambda sum
+               const float lambda_j = lambdas[j];
+               const float lambda_sum = lambda_i + lambda_j + s_corr;
+   
+               const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
+   
+               const float neighbor_mass = 1;
+               total_displacement += lambda_sum * gradient_vec * neighbor_mass;
+           } 
         }
-
-        //total_displacement += solve_constraints(cell_start, cell_end, pos, radius, global_id);
     }
-
 
     total_displacement *= push_constants.reversed_rest_density;
 
     // Compute new pos
     const float3 new_pos = pos + total_displacement;
 
+    // Write to global memory
+    if(!is_valid_position) return;
     write_positions[global_id] = float4(new_pos, radius);
 }
 

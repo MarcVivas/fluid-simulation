@@ -1,8 +1,8 @@
-use std::{default, sync::Arc};
+use std::{sync::Arc};
 
 use bytemuck::bytes_of;
 
-use crate::{compute::{ComputePass, ComputeSystemBuilder}, physics_engine::{BoundingBox, neighbor_list::{NeighborListData, neighbor_list_push_constants::BuildClusterBoundingBoxesPushConstants}}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, VkBuffer, global_sync_compute, shader_constants::ShaderCompileTimeConstants}}, world::world_objects::particles::ParticleData};
+use crate::{compute::{ComputePass, ComputeSystemBuilder}, physics_engine::{neighbor_list::{NeighborListData, neighbor_list_push_constants::BuildClusterBoundingBoxesPushConstants}}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, VkBuffer, global_sync_compute, shader_constants::ShaderCompileTimeConstants}}, world::world_objects::particles::ParticleData};
 
 const THREAD_GROUP_SIZE: u32 = 64;
 
@@ -15,7 +15,7 @@ pub struct ClustersBoundingBoxes {
 }
 
 impl ClustersBoundingBoxes {
-    pub fn new(vk_core: &Arc<VkCore>, num_particles: usize, cluster_size: usize) -> Self {
+    pub fn new(vk_core: &Arc<VkCore>, cluster_size: usize) -> Self {
         let (build_cluster_bounding_boxes, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "build_clusters_bounding_boxes")
             .entry_points(&["main"])
             .push_constants::<BuildClusterBoundingBoxesPushConstants>()

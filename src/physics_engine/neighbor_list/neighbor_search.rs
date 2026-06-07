@@ -70,6 +70,8 @@ impl NeighborSearch {
             search_radius,
             num_particles,
             num_thread_groups: num_groups,
+            total_num_clusters: neighbor_list_data.cluster_bounding_boxes().len() as u32,
+            clusters_bounding_boxes: neighbor_list_data.cluster_bounding_boxes().address(),
             ..Default::default()
         };
 

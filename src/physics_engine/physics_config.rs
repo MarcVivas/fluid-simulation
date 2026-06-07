@@ -13,6 +13,7 @@ pub struct PhysicsConfig {
 
     // Runtime constants
     pub search_radius: f32,
+    pub kernel_radius: f32,
     pub kernel_radius_2: f32,
     pub kernel_poly6: f32,
     pub kernel_spiky_grad: f32,
@@ -31,6 +32,7 @@ impl PhysicsConfig {
         let delta_q_squared = delta_q_factor * delta_q_factor;
 
         Self {
+            kernel_radius,
             rest_density,
             reversed_rest_density: 1.0 / rest_density,
             lambda_density_epsilon: 1e-6f32,

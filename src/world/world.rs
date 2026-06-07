@@ -34,15 +34,15 @@ impl World{
             compute_engine.command_pool(),
         ).expect("Failed to create particle system");
 
-        let search_radius = 1.8f32;
+        let search_radius = 2.0f32;
 
         let cmd_pool = compute_engine.command_pool();
         
         let octree = Octree::new(vk_core, cmd_pool, particle_system.len() as u32);
-        
-        let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius).unwrap();
-
         let neighbor_list = NeighborList::new(vk_core, cmd_pool, NUM_PARTICLES as u32, vk_core.subgroup_size(), Octree::max_levels());
+
+        let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius, neighbor_list.super_cluster_size()).unwrap();
+
 
         Self {
             particle_system,

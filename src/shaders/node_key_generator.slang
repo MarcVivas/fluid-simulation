@@ -1,7 +1,4 @@
-struct LeafData {
-    uint32_t start_idx; 
-    uint32_t count;
-}
+import LeafData;
 
 struct PushConsts {
     Ptr<uint32_t, Access.Read> num_leaves;
@@ -44,10 +41,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
 
     // Convert to Warren-Salmon placeholder-bit format
     pc.node_keys[num_internal_nodes + global_id] = convert_key_to_warren_salmon(key_i, leaf_level);
-    LeafData ld;
-    ld.start_idx = pc.leaf_offsets[global_id];
-    ld.count = pc.leaves_histogram[global_id];
-    pc.leaf_data[num_internal_nodes + global_id] = ld;
+    pc.leaf_data[num_internal_nodes + global_id] = LeafData(pc.leaf_offsets[global_id], pc.leaves_histogram[global_id]);;
 
     // The last thread stops here
     if(global_id >= num_leaves - 1) return; 

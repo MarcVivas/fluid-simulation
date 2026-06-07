@@ -62,45 +62,59 @@ void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_G
     const float w_delta_q = poly6_kernel(push_constants.poly6_constant, delta_q_sq, push_constants.kernel_radius_2);
 
     float3 total_displacement = float3(0, 0, 0);
-
-    // Iterate all super cluster neighbors
+    
     const uint neighbor_end = super_cluster.neighbor_count + super_cluster.neighbor_index;
-    for(uint neighbor_cluster_id = super_cluster.neighbor_index; neighbor_cluster_id < neighbor_end; neighbor_cluster_id++){
-
-        const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[neighbor_cluster_id];
-
-        const bool should_compute = neighbor.bitmask & (1 << local_cluster_id);
-        
-        if(should_compute){
-           const uint start = neighbor.cluster_index * CLUSTER_SIZE; 
-           for(uint j = start; j < start + CLUSTER_SIZE; j++){
-               if (j >= push_constants.num_elements) continue;
-               
-               const float4 neighbor_j = read_positions[j];
-               const float3 vec = pos - neighbor_j.xyz;
-               const float dist_squared = dot(vec, vec);
-
-               if(dist_squared > push_constants.kernel_radius_2) continue;
-               
-               // Compute W(r_ij, h)
-               const float w_r = poly6_kernel(push_constants.poly6_constant, dist_squared, push_constants.kernel_radius_2);
-   
-               // Compute s_corr (Equation 13)
-               const float s_corr = -k * pow(w_r / w_delta_q, n);
-               
-               // Compute lambda sum
-               const float lambda_j = lambdas[j];
-               const float lambda_sum = lambda_i + lambda_j + s_corr;
-   
-               const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
-   
-               const float neighbor_mass = 1;
-               total_displacement += lambda_sum * gradient_vec * neighbor_mass;
-           } 
+    
+    for(uint neighbor_cluster_id = super_cluster.neighbor_index;
+        neighbor_cluster_id < neighbor_end;
+        neighbor_cluster_id++)
+    {
+        const SuperClusterNeighbors neighbor =
+            push_constants.super_cluster_neighbors[neighbor_cluster_id];
+    
+        const bool should_compute =
+            neighbor.bitmask & (1 << local_cluster_id);
+    
+        if(!should_compute)
+            continue;
+    
+        const uint start = neighbor.cluster_index * CLUSTER_SIZE;
+    
+        for(uint j = start; j < start + CLUSTER_SIZE; j++)
+        {
+            if(j >= push_constants.num_elements)
+                continue;
+    
+            if(j == global_id)
+                continue;
+    
+            const float4 other = read_positions[j];
+    
+            const float3 diff = pos - other.xyz;
+    
+            const float dist_sq = dot(diff, diff);
+    
+            const float min_dist = radius + other.w;
+            const float min_dist_sq = min_dist * min_dist;
+    
+            if(dist_sq >= min_dist_sq)
+                continue;
+    
+            // Prevent NaNs
+            if(dist_sq < 1e-8f)
+                continue;
+    
+            const float dist = sqrt(dist_sq);
+    
+            const float penetration = min_dist - dist;
+    
+            const float3 normal = diff / dist;
+    
+            // Each particle resolves half
+            total_displacement += normal * (penetration * 0.5f);
         }
     }
 
-    total_displacement *= push_constants.reversed_rest_density;
 
     // Compute new pos
     const float3 new_pos = pos + total_displacement;

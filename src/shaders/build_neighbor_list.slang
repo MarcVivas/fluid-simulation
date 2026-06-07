@@ -2,11 +2,8 @@ import HilbertHelpers;
 import BoundingBox;
 import SuperCluster;
 import SuperClusterNeighbors;
+import LeafData;
 
-struct LeafData {
-    uint first_particle_index;
-    uint particle_count;
-}
 
 struct PushConsts {
   Ptr<uint32_t, Access.Read> node_keys;

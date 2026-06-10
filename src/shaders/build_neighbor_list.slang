@@ -3,7 +3,7 @@ import BoundingBox;
 import SuperCluster;
 import SuperClusterNeighbors;
 import LeafData;
-
+import WarrenSalmonKey;
 
 struct PushConsts {
   Ptr<uint32_t, Access.Read> node_keys;
@@ -146,7 +146,7 @@ func traverse(
             const bool is_internal_node = node_first_child_idx != LEAF;
 
             const uint key = pc.node_keys[node_idx];
-            const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min);
+            const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min, MAX_LEVELS);
 
             const bool intersects = super_cluster_bounding_box.intersects(node_box);
 
@@ -378,39 +378,6 @@ func calculate_super_cluster_bounding_box(float4 pos, const float search_radius,
     bounding_box.max = WaveActiveMax(is_thread_out_of_bounds ? GHOST_MIN_POS : float4(pos.xyz, 0.0)) + search_radius;
     return bounding_box;
 }
-
-[ForceInline]
-func decode_warren_salmon_key(const uint key, const float world_size, const float4 world_min) -> BoundingBox 
-{
-    const uint node_level = firstbithigh(key) / 3;
-    const uint path = key ^ (1u << (3u * node_level));
-    
-    // Shift the path left to align it with the 30-bit maximum depth (MAX_LEVELS)
-    const uint shift_amt = 3u * (MAX_LEVELS - node_level);
-    const uint min_30bit_code = path << shift_amt;
-
-    // Decode at full MAX_LEVELS resolution
-    uint3 grid_pos = decode_hilbert_3d(min_30bit_code, MAX_LEVELS);
-
-    // Round coordinates down to the nearest multiple of the node size
-    const uint node_size_3d = 1u << (MAX_LEVELS - node_level);
-    const uint mask_val = ~(node_size_3d - 1u);
-    grid_pos.x &= mask_val;
-    grid_pos.y &= mask_val;
-    grid_pos.z &= mask_val;
-
-    // Calculate physical bounds safely using the constant MAX_LEVELS resolution
-    const float grid_res = float(1u << MAX_LEVELS); 
-    const float cell_size = world_size / grid_res;
-    const float physical_node_size = cell_size * float(node_size_3d);
-
-    BoundingBox bounding_box;
-    bounding_box.min = world_min + float4(grid_pos, 0.0) * cell_size;
-    bounding_box.max = bounding_box.min + float4(physical_node_size);
-    
-    return bounding_box;
-}
-
 
 [ForceInline]
 func ring_address(const uint i) -> uint {

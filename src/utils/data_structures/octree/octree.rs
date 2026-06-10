@@ -32,7 +32,7 @@ pub struct Octree {
 impl Octree {
     pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_elements: u32) -> Self {
         
-        let max_elements_per_leaf = 8;
+        let max_elements_per_leaf = 64;
         let max_leaves = Self::max_leaves(num_elements, max_elements_per_leaf);
         let max_internal_nodes = Self::max_internal_nodes(max_leaves);
         let max_nodes = max_leaves + max_internal_nodes;

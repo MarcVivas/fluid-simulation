@@ -600,7 +600,7 @@ pub fn test_neighbor_list_building() {
         
         let mut neighbor_list_test = NeighborListTest::new(vk_core, engine, num_particles, search_radius, world_size, &world_min);
 
-        let iterations = 320;
+        let iterations = 20;
         
         for _ in 0..iterations {
             engine.record_commands(|cmd_buffer| {

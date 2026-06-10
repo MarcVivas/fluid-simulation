@@ -1,4 +1,5 @@
 import LeafData;
+import WarrenSalmonKey;
 
 struct PushConsts {
     Ptr<uint32_t, Access.Read> num_leaves;
@@ -40,7 +41,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
     const uint32_t leaf_level = MAX_LEVELS - firstbithigh(delta_i) / 3;
 
     // Convert to Warren-Salmon placeholder-bit format
-    pc.node_keys[num_internal_nodes + global_id] = convert_key_to_warren_salmon(key_i, leaf_level);
+    pc.node_keys[num_internal_nodes + global_id] = convert_key_to_warren_salmon(key_i, leaf_level, MAX_BITS);
     pc.leaf_data[num_internal_nodes + global_id] = LeafData(pc.leaf_offsets[global_id], pc.leaves_histogram[global_id]);;
 
     // The last thread stops here
@@ -54,7 +55,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
     if(diveregence % 3 != 0) return;    // The thread is not responsible of generating an internal node
 
     const uint32_t internal_node_level = diveregence / 3;
-    const uint32_t internal_node_key = convert_key_to_warren_salmon(key_i, internal_node_level);
+    const uint32_t internal_node_key = convert_key_to_warren_salmon(key_i, internal_node_level, MAX_BITS);
 
     // Calculate the final write index and write to global memory the new internal node
     const uint32_t write_idx = calculate_internal_node_idx(internal_node_level, key_i, int(global_id));
@@ -62,14 +63,6 @@ func main(const uint global_id : SV_DispatchThreadID) {
 }
 
 
-[ForceInline]
-func convert_key_to_warren_salmon(const uint32_t key, const uint32_t level) -> uint32_t {
-    // Bit shift to the right the key
-    const uint32_t leaf_octal_path = key >> (MAX_BITS - 3 * level);
-    // Append a 1
-    const uint32_t new_key = (1 << (3*level)) | leaf_octal_path;
-    return new_key;
-}
 
 [ForceInline]
 func calculate_internal_node_idx(const uint32_t internal_node_level, const uint32_t key, const int global_id) -> uint32_t {

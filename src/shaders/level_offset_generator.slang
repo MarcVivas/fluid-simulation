@@ -1,3 +1,5 @@
+import WarrenSalmonKey;
+
 struct PushConsts {
     Ptr<uint32_t, Access.Read> node_count;
     Ptr<uint32_t, Access.Read> node_keys;
@@ -26,7 +28,7 @@ func main(const uint global_id : SV_DispatchThreadID){
     }
 
     // Compute the smallest possible Warren-Salmon key for this level
-    const uint32_t target_key = 1u << (3 * level);
+    const uint32_t target_key = smallest_key_in_level(level);
 
     // Binary search
     uint32_t low = 0; 

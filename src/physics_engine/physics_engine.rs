@@ -150,20 +150,23 @@ impl PhysicsEngine {
         
 
         for _ in 0..self.physics_config.solver_iterations {
+            
             gpu_profiler.profile_scope(device, vk_cmd_buffer, "Density compute", ||{
                 self.density_compute_system.execute(
                     vk_core,
                     command_buffer,
+                    octree,
                     neighbor_list,
                     particles,
                     &self.physics_config,
                 );
             });
-
+            
             gpu_profiler.profile_scope(device, vk_cmd_buffer, "Constraint solver", ||{
                 self.constraint_solver_system.execute(
                     vk_core,
                     command_buffer,
+                    octree,
                     neighbor_list,
                     particles,
                     &self.physics_config,

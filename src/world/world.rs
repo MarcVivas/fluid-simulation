@@ -2,7 +2,6 @@ use std::sync::Arc;
 use ash::vk;
 use glam::{Vec3};
 use crate::physics_engine::neighbor_list::{NeighborList};
-use crate::renderer::renderer::Renderer;
 use crate::utils::data_structures::octree::octree::Octree;
 use crate::utils::gpu_profiler::GpuProfiler;
 use crate::world::world_objects::particles::{Particles, ParticleRenderData};

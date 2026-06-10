@@ -5,6 +5,7 @@ use glam::Vec3;
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
 use crate::physics_engine::neighbor_list::{NeighborList, neighbor_list};
+use crate::utils::data_structures::octree::octree::Octree;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
@@ -22,6 +23,7 @@ pub struct DensityComputeSystem{
 struct DensityComputePushConstants {
     super_clusters: u64, 
     super_cluster_neighbors: u64,
+    leaf_data: u64, 
     num_elements: u32,
     kernel_radius: f32,
     rest_density: f32,
@@ -60,7 +62,7 @@ impl DensityComputeSystem{
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, octree: &Octree, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
@@ -76,6 +78,7 @@ impl DensityComputeSystem{
             epsilon: physics_config.lambda_density_epsilon,
             super_clusters: neighbor_list.super_clusters().address(),
             super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
+            leaf_data: octree.data().leaf_data().address(),
             ..Default::default()
         };
 

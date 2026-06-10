@@ -5,6 +5,7 @@ use glam::{Vec3};
 use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
 use crate::physics_engine::neighbor_list::NeighborList;
+use crate::utils::data_structures::octree::octree::Octree;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::utils::data_structures::spatial_grid::SpatialGrid;
@@ -22,6 +23,7 @@ pub struct ConstraintSolverSystem {
 struct ConstraintSolverPushConstants {
     super_clusters: u64,
     super_cluster_neighbors: u64,
+    leaf_data: u64,
     num_elements: u32,
     kernel_radius: f32,
     rest_density: f32,
@@ -57,7 +59,7 @@ impl ConstraintSolverSystem {
         Ok(Self { constraint_solver_pass, constraint_solver_shader })
     }
 
-    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, octree: &Octree, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let num_elements = particles.len() as u32;
 
@@ -81,6 +83,7 @@ impl ConstraintSolverSystem {
             k: physics_config.k,
             delta_q_squared: physics_config.delta_q_squared,
             n: physics_config.n,
+            leaf_data: octree.data().leaf_data().address()
         };
         
         let buffers = [read_positions, write_positions, densities, lambdas];

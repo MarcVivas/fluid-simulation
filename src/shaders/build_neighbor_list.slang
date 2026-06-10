@@ -34,16 +34,11 @@ static const float4 GHOST_MAX_POS = float4(float.maxValue);
 static const uint LEAF = 0;
 
 // High-speed array-based LDS storage
-groupshared uint neighbor_clusters[MAX_NEIGHBOR_CAPACITY];
+groupshared uint neighbor_leaves[MAX_NEIGHBOR_CAPACITY];
 groupshared uint neighbor_bitmasks[MAX_NEIGHBOR_CAPACITY];
 groupshared uint neighbor_count;
 groupshared uint global_start_idx;
 
-// LDS caches for bounding boxes and write alignment
-groupshared float4 shared_neighbor_box_mins[CLUSTER_SIZE];
-groupshared float4 shared_neighbor_box_maxs[CLUSTER_SIZE];
-groupshared uint shared_keep_entry[MAX_NEIGHBOR_CAPACITY];
-groupshared uint shared_write_idx[MAX_NEIGHBOR_CAPACITY];
 
 // Persistent kernel
 [shader("compute")]
@@ -157,9 +152,27 @@ func traverse(
 
             node_split = intersects && is_internal_node;
             is_direct = intersects && !is_internal_node; 
+            
+            if(is_direct){
+                
+                LeafData leaf_data = pc.leaf_data[node_idx];
+
+                // Only for testing purposes, store the leaves we intersect with
+                uint write_idx;
+                InterlockedAdd(neighbor_count, 1, write_idx);
+                if(write_idx < MAX_NEIGHBOR_CAPACITY){
+                    neighbor_leaves[write_idx] = node_idx;                    
+                }
+                
+                if(leaf_data.particle_count > 0){
+                    first_cluster = leaf_data.first_particle_index / CLUSTER_SIZE;
+                    last_cluster = (leaf_data.first_particle_index + leaf_data.particle_count - 1) / CLUSTER_SIZE;
+                }
+            }
         }
 
-
+        GroupMemoryBarrierWithGroupSync();
+        /*
         // Process leaves in parallel
         uint4 ballot = WaveActiveBallot(is_direct);
 
@@ -281,13 +294,15 @@ func traverse(
             ballot = WaveActiveBallot(is_direct);         
             GroupMemoryBarrierWithGroupSync();   
         }
-
+*/
         // Assing queue slots for the next level's children
         const uint child_idx = old_nodes + num_nodes + new_nodes + WavePrefixCountBits(node_split);
         
         // Push internal nodes to the queue
+        if (child_idx - old_nodes < QUEUE_MEMORY_PER_WORKGROUP) {
         if(node_split){
             queue[ring_address(child_idx)] = node_first_child_idx;
+        }
         }
 
         // Advance the stack pointer for the current level
@@ -308,88 +323,40 @@ func traverse(
 
 
 func write_results_to_global_memory(const uint local_id, const uint super_cluster_index){
-    const uint lane = WaveGetLaneIndex();
-    const uint wave_size = WaveGetLaneCount();
+    const uint clamped_neighbor_count = min(neighbor_count, MAX_NEIGHBOR_CAPACITY);
     
-    // 1. Align the loop boundary to be uniform for all lanes
-    const uint safe_count = min(neighbor_count, MAX_NEIGHBOR_CAPACITY);
-    const uint aligned_count = ((safe_count + wave_size - 1) / wave_size) * wave_size;
-    
-    // Initialize the shared keep array for safety
-    for (uint i = lane; i < aligned_count; i += wave_size) {
-        if (i < MAX_NEIGHBOR_CAPACITY) {
-            shared_keep_entry[i] = 0u;
-        }
-    }
-    GroupMemoryBarrierWithGroupSync();
-
-    // 2. Identify duplicates in a completely uniform loop
-    for (uint i = lane; i < aligned_count; i += wave_size) {
-        const bool is_valid_index = (i < safe_count);
-        bool is_duplicate = false;
-        
-        if (is_valid_index) {
-            uint my_cluster = neighbor_clusters[i];
-            // Search all earlier entries in the list
-            for (uint j = 0; j < i; j++) {
-                if (neighbor_clusters[j] == my_cluster) {
-                    // Merge this duplicate's bitmask into the first occurrence
-                    InterlockedOr(neighbor_bitmasks[j], neighbor_bitmasks[i]);
-                    is_duplicate = true;
-                    break;
-                }
-            }
-            shared_keep_entry[i] = is_duplicate ? 0u : 1u;
-        }
-    }
-    
-    // Sync to guarantee all merged bitmasks and keep flags are written back to LDS
-    GroupMemoryBarrierWithGroupSync();
-    
-    // 3. Perform a block-by-block wave scan (now 100% safe and uniform!)
-    uint total_unique = 0;
-    for (uint i = lane; i < aligned_count; i += wave_size) {
-        const bool is_valid_index = (i < safe_count);
-        bool keep = false;
-        if (is_valid_index) {
-            keep = shared_keep_entry[i] != 0;
-        }
-        
-        uint block_prefix = WavePrefixCountBits(keep);
-        uint block_total = WaveActiveCountBits(keep);
-        
-        if (is_valid_index) {
-            shared_write_idx[i] = total_unique + block_prefix;
-        }
-        total_unique += block_total;
-    }
-    
-    // 4. Allocate global memory ONCE
-    if (lane == 0) {
+    // Write the neighbors to Global VRAM
+    if(local_id == 0){
         SuperCluster super_cluster;
-        if (total_unique > 0) {
-            InterlockedAdd(*pc.allocator_counter, total_unique, global_start_idx);
-            super_cluster.neighbor_count = total_unique;
+        if(neighbor_count > 0){
+            InterlockedAdd(*pc.allocator_counter, clamped_neighbor_count, global_start_idx);
+            super_cluster.neighbor_count = clamped_neighbor_count;
             super_cluster.neighbor_index = global_start_idx;
-        } else {
+            //printf("Neighbor count: %i\nSuper cluster index: %i", neighbor_count, super_cluster_index);
+        }
+        else {
             super_cluster.neighbor_count = 0;
             super_cluster.neighbor_index = 0;
         }
         pc.super_clusters[super_cluster_index] = super_cluster;
     }
-    
-    global_start_idx = WaveReadLaneAt(global_start_idx, 0);
-    
-    // 5. Write the unique entries directly to global VRAM
-    for (uint i = lane; i < aligned_count; i += wave_size) {
-        if (i < safe_count && shared_keep_entry[i] != 0) {
-            uint global_write_idx = global_start_idx + shared_write_idx[i];
-            SuperClusterNeighbors neighbor;
-            neighbor.cluster_index = neighbor_clusters[i];
-            neighbor.bitmask = neighbor_bitmasks[i];
-            pc.super_cluster_neighbors[global_write_idx] = neighbor;
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // Write back all neighbors contiguously (supports neighbor_count > 64)
+    for(uint i = local_id; i < clamped_neighbor_count; i+=THREAD_GROUP_SIZE){
+        if(i < neighbor_count){
+            SuperClusterNeighbors super_cluster_neighbors;
+            // Just for testing purposes, store the leaves that we intersected with
+            super_cluster_neighbors.cluster_index = neighbor_leaves[i];
+            //super_cluster_neighbors.cluster_index = neighbor_clusters[i];
+            //super_cluster_neighbors.bitmask = neighbor_bitmasks[i];
+            super_cluster_neighbors.bitmask = 0;
+            pc.super_cluster_neighbors[global_start_idx + i] = super_cluster_neighbors;
         }
     }
+    GroupMemoryBarrierWithGroupSync();
+
 }
 
 [ForceInline]

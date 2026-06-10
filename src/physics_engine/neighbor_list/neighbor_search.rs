@@ -83,6 +83,7 @@ impl NeighborSearch {
             cmd_buffer, 
             thread_groups, &[], &[], bytes_of(&push_constants)
         );
-        
+        global_sync_compute(device, cmd_buffer);
+
     }
 }

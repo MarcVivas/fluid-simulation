@@ -1,7 +1,7 @@
 import SmoothedParticleHydrodynamics;
 import SuperCluster;
 import SuperClusterNeighbors;
-
+import LeafData;
 
 
 [[vk::binding(0, 0)]] StructuredBuffer<float4> packed_positions;
@@ -12,6 +12,7 @@ import SuperClusterNeighbors;
 struct DensityPushConstants {
     Ptr<SuperCluster, Access.Read> super_clusters;
     Ptr<SuperClusterNeighbors, Access.Read> super_cluster_neighbors;
+    Ptr<LeafData, Access.Read> leaf_data;
     uint num_elements;
     float cell_size;
     float rest_density;
@@ -67,14 +68,17 @@ func main(const uint global_id: SV_DispatchThreadID, const uint group_id: SV_Gro
     // Iterate all super cluster neighbors
     const uint neighbor_end = super_cluster.neighbor_count + super_cluster.neighbor_index;
     for(uint neighbor_cluster_id = super_cluster.neighbor_index; neighbor_cluster_id < neighbor_end; neighbor_cluster_id++){
-
         const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[neighbor_cluster_id];
-
-        const bool should_compute = neighbor.bitmask & (1 << local_cluster_id);
         
-        if(should_compute){
-           const uint start = neighbor.cluster_index * CLUSTER_SIZE; 
-           for(uint j = start; j < start + CLUSTER_SIZE; j++){
+    
+        const uint start = neighbor.cluster_index;
+        
+
+        const LeafData leaf_data = push_constants.leaf_data[start];
+     
+       
+        for(uint j = leaf_data.first_particle_index; j < leaf_data.first_particle_index + leaf_data.particle_count; j++)
+        {
                if (j >= push_constants.num_elements) continue;
                
                const float4 other_particle = packed_positions[j];
@@ -101,7 +105,7 @@ func main(const uint global_id: SV_DispatchThreadID, const uint group_id: SV_Gro
            } 
         }
         
-    }
+    
     
     
     const float denominator = dot(gradient, gradient) + sum_gradient_squared;

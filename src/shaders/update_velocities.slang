@@ -1,6 +1,6 @@
 static const uint GROUP_SIZE = 64;
 // Be careful with velocity daming, it kills the fluid energy
-static const float DAMPING = 0.999999999;
+static const float DAMPING = 0.99999999;
 static const float MAX_VELOCITY = 5000.0;
 static const float MAX_VELOCITY_2 = MAX_VELOCITY * MAX_VELOCITY;
 // Virtual Boundary Pressure Constants

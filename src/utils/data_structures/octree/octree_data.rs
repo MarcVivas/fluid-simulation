@@ -43,6 +43,7 @@ pub struct OctreeData {
    /// last n_leaves entries are leaves (copied from cornerstone_array).
    /// Size: (max_internal + max_leaves) × u64
    node_keys: VkBuffer<MortonCode>,
+   unsorted_node_keys: VkBuffer<MortonCode>,
 
    /// CO[i]: index of first child of node i. Range [CO[i], CO[i]+8)
    /// gives all 8 children. CO[i] = 0 means node i is a leaf.
@@ -67,6 +68,7 @@ pub struct OctreeData {
    /// leaf_data.x = first particle index
    /// leaf_data.y = particle count
    leaf_data: VkBuffer<glam::UVec2>,
+   unsorted_leaf_data: VkBuffer<glam::UVec2>,
 
    // ── Metadata ─────────────────────────────────────────────────────────
 
@@ -108,12 +110,14 @@ impl OctreeData {
         let rebalance_prefix = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; (max_leaves + 1) as usize], "Rebalance prefix", cmd_pool, queue).unwrap();
         
         let node_keys = VkBuffer::new_gpu_only(vk_core, &vec![0xffffffff as u32; total_nodes as usize], "node_keys", cmd_pool, queue).unwrap();
+        let unsorted_node_keys = VkBuffer::new_gpu_only(vk_core, &vec![0xffffffff as u32; total_nodes as usize], "node_keys", cmd_pool, queue).unwrap();
         let node_first_child = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; total_nodes as usize], "node_first_child", cmd_pool, queue).unwrap();
         let level_offsets = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; (max_levels + 2) as usize], "level_offsets", cmd_pool, queue).unwrap();
         
         let leaf_offsets = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; (max_leaves + 1) as usize], "level_offsets", cmd_pool, queue).unwrap();
         let leaf_data = VkBuffer::new_gpu_only(vk_core, &vec![glam::UVec2::default(); total_nodes as usize], "leaf_data", cmd_pool, queue).unwrap();
-        
+        let unsorted_leaf_data = VkBuffer::new_gpu_only(vk_core, &vec![glam::UVec2::default(); total_nodes as usize], "leaf_data", cmd_pool, queue).unwrap();
+
         let leaf_count = create_ping_pong_buffer(vk_core, &vec![1 as u32; 1 as usize], "leaf_count", cmd_pool, queue).unwrap();
         let node_count = VkBuffer::new_gpu_only(vk_core, &vec![1 as u32; 1 as usize], "node_count", cmd_pool, queue).unwrap();
         
@@ -128,11 +132,13 @@ impl OctreeData {
             rebalance_prefix,
 
             node_keys,
+            unsorted_node_keys,
             node_first_child,
             level_offsets,
 
             leaf_offsets,
             leaf_data,
+            unsorted_leaf_data,
 
             leaf_count,
             node_count,
@@ -187,6 +193,10 @@ impl OctreeData {
         &self.node_keys
     }
 
+    pub fn unsorted_node_keys(&self) -> &VkBuffer<MortonCode> {
+        &self.unsorted_node_keys
+    }
+
     pub fn node_count(&self) -> &VkBuffer<u32> {
         &self.node_count
     }
@@ -205,5 +215,9 @@ impl OctreeData {
 
     pub fn leaf_data(&self) -> &VkBuffer<glam::UVec2> {
         &self.leaf_data
+    }
+
+    pub fn unsorted_leaf_data(&self) -> &VkBuffer<glam::UVec2> {
+        &self.unsorted_leaf_data
     }
 }

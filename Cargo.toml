@@ -17,6 +17,7 @@ bytemuck = { version = "1.24.0", features = ["derive", "min_const_generics"] }
 rayon = "1.11.0"
 shader-slang = "0.1.0"
 criterion = "0.8.2"
+crossbeam-channel = "0.5.15"
 
 
 [build-dependencies]

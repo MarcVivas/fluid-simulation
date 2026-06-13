@@ -5,6 +5,7 @@ use crate::utils::input_manager;
 use crate::vulkan::vk_core::init_with_window;
 use crate::vulkan::vk_core::VkCore;
 use crate::world::World;
+use crate::world::world_objects::particles::ParticleRenderData;
 use glam::Vec3;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -26,11 +27,18 @@ pub struct App {
     compute_engine: Option<ComputeEngine>,
     gpu_profiler: Option<GpuProfiler>,
     mouse_position: dpi::PhysicalPosition<f64>,
-    total_frames_proccessed: u64
+    total_frames_proccessed: u64,
+
+    render_sender: crossbeam_channel::Sender<ParticleRenderData>,
+    render_receiver: crossbeam_channel::Receiver<ParticleRenderData>,
+    current_render_data: Option<ParticleRenderData>,
 }
 
 impl App {
     pub fn new() -> Self {
+        // Create a bounded channel with a capacity of 1
+        let (render_sender, render_receiver) = crossbeam_channel::bounded(1);
+
         Self {
             window: None,
             vk_core: None,
@@ -41,7 +49,10 @@ impl App {
             paused: true,
             mouse_position: dpi::PhysicalPosition::default(),
             compute_engine: None,
-            total_frames_proccessed: 0
+            total_frames_proccessed: 0,
+            render_sender,
+            render_receiver,
+            current_render_data: None
         }
     }
 }
@@ -83,6 +94,9 @@ impl ApplicationHandler for App {
             &world_size,
             self.compute_engine.as_ref().unwrap(),
         ));
+
+        let initial_render_data = self.world.as_ref().unwrap().extract_render_data();
+        self.render_sender.try_send(initial_render_data).unwrap();
 
         self.vk_core = Some(vk_core);
         self.window = Some(window);
@@ -141,8 +155,6 @@ impl ApplicationHandler for App {
                 // Reset query pool
                 self.gpu_profiler.as_ref().unwrap().reset_on_host(vk_core.device());
                 
-                // Extract the rendering data
-                let render_data = world.extract_render_data(self.paused);
 
                 // Record commands to the gpu
                 rayon::join(
@@ -150,15 +162,28 @@ impl ApplicationHandler for App {
                         if !self.paused {
                             let first_frame = self.total_frames_proccessed == 0;
                             world.update(vk_core, compute_engine, first_frame, self.gpu_profiler.as_ref().unwrap());
+
+                            let render_data = world.extract_render_data();
+
+                            let _ = self.render_receiver.try_recv();
+                            let _ = self.render_sender.try_send(render_data);
                         } 
                     },
                     ||{
-                        renderer.record_draw_commands(
-                            &render_data,
-                            image_index,
-                            current_frame_idx,
-                            self.paused
-                        );
+                        // Receive the latest stable frame from the channel
+                        if let Ok(latest_render_data) = self.render_receiver.try_recv() {
+                            self.current_render_data = Some(latest_render_data);
+                        }
+
+                        if let Some(ref render_data) = self.current_render_data {
+                            renderer.record_draw_commands(
+                                render_data,
+                                image_index,
+                                current_frame_idx,
+                                self.paused
+                            );
+                        }
+                       
                     }
                 );
 

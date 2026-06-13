@@ -18,7 +18,7 @@ pub struct World{
     neighbor_list: NeighborList,
 }
 
-const NUM_PARTICLES: usize = 400000; //8193;
+const NUM_PARTICLES: usize = 1000000; //8193;
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, world_max: &Vec3, compute_engine: &ComputeEngine) -> Self{
@@ -38,7 +38,7 @@ impl World{
         let cmd_pool = compute_engine.command_pool();
         
         let octree = Octree::new(vk_core, cmd_pool, particle_system.len() as u32);
-        let neighbor_list = NeighborList::new(vk_core, cmd_pool, NUM_PARTICLES as u32, vk_core.subgroup_size(), Octree::max_levels());
+        let neighbor_list = NeighborList::new(vk_core, cmd_pool, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
 
         let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius, neighbor_list.super_cluster_size()).unwrap();
 
@@ -110,8 +110,7 @@ impl World{
       
     }
 
-    pub fn extract_render_data(&self, compute_paused: bool) -> ParticleRenderData {
-        let iterations = self.physics_engine.solver_iterations() as usize;
-        self.particle_system.extract_render_data(iterations, compute_paused)
+    pub fn extract_render_data(&self) -> ParticleRenderData {
+        self.particle_system.extract_render_data()
     }
 }

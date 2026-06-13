@@ -7,7 +7,7 @@ use crate::{compute::{ComputePass, ComputeSystemBuilder}, utils::data_structures
 const THREAD_GROUP_SIZE: u32 = 64;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Zeroable, Pod)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod, Default)]
 struct NodeKeyGeneratorPushConstants {
     leaf_count: u64,
     cornerstone_array: u64,
@@ -15,7 +15,9 @@ struct NodeKeyGeneratorPushConstants {
     node_count: u64,
     leaf_data: u64,
     leaf_offsets: u64,
-    leaves_histogram: u64
+    leaves_histogram: u64,
+    unsorted_node_keys: u64,
+    unsorted_leaf_data: u64,
 }
 
 pub struct NodeKeyGenerator {
@@ -53,6 +55,8 @@ impl NodeKeyGenerator {
             leaf_data: octree_data.leaf_data().address(),
             leaf_offsets: octree_data.leaf_offsets().address(),
             leaves_histogram: octree_data.leaves_histogram().address(),
+            unsorted_node_keys: octree_data.unsorted_node_keys().address(),
+            unsorted_leaf_data: octree_data.unsorted_leaf_data().address(),
         };
         
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves().vk_buffer();

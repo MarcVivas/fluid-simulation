@@ -47,10 +47,10 @@ pub struct NeighborListData {
 
 impl NeighborListData {
 
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_particles: u32, super_cluster_size: u32, cluster_size: u32, max_expected_neighbors_per_element: u32) -> Self {
+    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, max_expected_leaves: u32, super_cluster_size: u32, max_expected_neighbors_per_element: u32) -> Self {
 
-        let total_super_clusters: usize = num_particles.div_ceil(super_cluster_size).try_into().unwrap(); 
-        let total_clusters: usize = num_particles.div_ceil(cluster_size).try_into().unwrap(); 
+        let total_super_clusters: usize = max_expected_leaves.try_into().unwrap(); 
+        let total_clusters: usize = max_expected_leaves.try_into().unwrap(); 
         let total_super_cluster_neighbors: usize = max_expected_neighbors_per_element as usize * total_clusters;
         
         let super_clusters: VkBuffer<SuperCluster> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_clusters, "SuperClusters").unwrap();

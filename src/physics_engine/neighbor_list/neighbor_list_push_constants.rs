@@ -5,10 +5,13 @@ use bytemuck::{Pod, Zeroable};
 pub struct NeighborSearchPushConstants {
     // Read only buffers
     pub node_keys: u64, 
+    pub unsorted_node_keys: u64,
     pub node_first_child: u64, 
     pub leaf_data: u64,
+    pub unsorted_leaf_data: u64,
     pub positions: u64,
     pub clusters_bounding_boxes: u64, 
+    pub leaf_count: u64,
 
     // Read write buffers
     pub super_clusters: u64, 
@@ -19,13 +22,13 @@ pub struct NeighborSearchPushConstants {
 
     
     // Metadata
-    pub world_min: glam::Vec4,
     pub world_size: f32,
     pub search_radius: f32,
+    pub world_min: glam::Vec4,
     pub num_particles: u32,
     pub num_thread_groups: u32,
     pub total_num_clusters: u32,
-    pub _padding: [u32; 3]
+    pub _padding: [u32; 1]
 }
 
 

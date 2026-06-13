@@ -7,10 +7,13 @@ import WarrenSalmonKey;
 
 struct PushConsts {
   Ptr<uint32_t, Access.Read> node_keys;
+  Ptr<uint32_t, Access.Read> unsorted_node_keys;
   Ptr<uint32_t, Access.Read> node_first_child;
   Ptr<LeafData, Access.Read> leaf_data;
+  Ptr<LeafData, Access.Read> unsorted_leaf_data;
   Ptr<float4, Access.Read> positions;
   Ptr<BoundingBox, Access.Read> cluster_bounding_boxes;
+  Ptr<uint32_t, Access.Read> leaf_count;
 
   Ptr<SuperCluster, Access.ReadWrite> super_clusters;
   Ptr<SuperClusterNeighbors, Access.ReadWrite> super_cluster_neighbors;
@@ -18,11 +21,11 @@ struct PushConsts {
   Ptr<uint32_t, Access.ReadWrite> queue_pool;
   Ptr<uint32_t, Access.ReadWrite> target_counter;
  
-  float4 world_min;
   float world_size;
   float search_radius;
+  float4 world_min;
   uint32_t num_particles;
-  uint32_t num_groups;
+  uint32_t num_thread_groups;
   uint32_t total_num_clusters;
 }
 
@@ -35,7 +38,6 @@ static const uint LEAF = 0;
 
 // High-speed array-based LDS storage
 groupshared uint neighbor_leaves[MAX_NEIGHBOR_CAPACITY];
-groupshared uint neighbor_bitmasks[MAX_NEIGHBOR_CAPACITY];
 groupshared uint neighbor_count;
 groupshared uint global_start_idx;
 
@@ -47,36 +49,68 @@ func main(const uint3 global_id: SV_DispatchThreadID, const uint local_id: SV_Gr
     // Each workgroup gets its own fixed queue slice
     const uint queue_offset = group_id.x * QUEUE_MEMORY_PER_WORKGROUP;
     Ptr<uint32_t, Access.ReadWrite> queue = pc.queue_pool + queue_offset;
-    const uint cluster_index = local_id / CLUSTER_SIZE;
 
-    while(true){
-        // Claim the next super-cluster
-        uint super_cluster_index;
-        if(local_id == 0){
-            InterlockedAdd(*pc.target_counter, 1u, super_cluster_index);
-        }
-        // Broadcast to all threads of the wave the super cluster index
-        super_cluster_index = WaveReadLaneAt(super_cluster_index, 0);
+    const uint num_leaves = *pc.leaf_count;
+    // Grid stride loop
+    // This loop processes all leaves and finds their neighbors
+    for(uint i = group_id.x; i < num_leaves; i+=pc.num_thread_groups){
 
-        if(super_cluster_index >= pc.num_groups) break;
+        // Get the leaf
+        const LeafData leaf_data = pc.unsorted_leaf_data[i];
 
-        // Get the paritcle position
-        const uint global_particle_idx = super_cluster_index * THREAD_GROUP_SIZE + local_id;
-        const uint cluster_idx = global_particle_idx / CLUSTER_SIZE;
-        const bool is_cluster_valid = (cluster_idx * CLUSTER_SIZE) < pc.num_particles;
-        const BoundingBox cluster_bounding_box = is_cluster_valid ? pc.cluster_bounding_boxes[cluster_idx] : BoundingBox(float4(float.maxValue), float4(-float.maxValue));
-        const uint local_cluster_idx = local_id / CLUSTER_SIZE;
-        const bool is_thread_out_of_bounds = global_particle_idx >= pc.num_particles;
-        const float4 pos = is_thread_out_of_bounds ? GHOST_MIN_POS : pc.positions[global_particle_idx];
 
-        // Build the bounding box of the super cluster with wave instructions (tight 1.01x search bounds)
-        BoundingBox super_cluster_bounding_box = calculate_super_cluster_bounding_box(pos, pc.search_radius, is_thread_out_of_bounds);
-
+        // Build the bounding box of the leaf
+        const BoundingBox leaf_bounding_box = build_leaf_bounding_box(leaf_data);
+        
         initialize_shared_queue(local_id, queue);
-        traverse(queue, local_id, super_cluster_bounding_box, group_id.x, cluster_bounding_box, local_cluster_idx, is_cluster_valid);
+        traverse(queue, local_id, leaf_bounding_box, group_id.x);
+        write_results_to_global_memory(local_id, i);
+    }
+}
 
-        write_results_to_global_memory(local_id, super_cluster_index);            
-    }    
+
+// Builds the bounding box of a leaf in parallel
+[ForceInline]
+func build_leaf_bounding_box(const LeafData leaf_data) -> BoundingBox {
+    const uint wave_size = WaveGetLaneCount();
+
+    // Loop variables
+    const uint leaf_start = leaf_data.first_particle_index + WaveGetLaneIndex();
+    const uint leaf_end = leaf_data.first_particle_index + leaf_data.particle_count;
+
+    // We add padding to the loop because of wave instructions
+    const uint num_wave_iterations = (leaf_data.particle_count + wave_size - 1) / wave_size;
+    const uint loop_end = leaf_data.first_particle_index + num_wave_iterations * wave_size;
+
+    // Variables to store the result
+    float3 min_val = float3(float.maxValue);
+    float3 max_val = float3(-float.maxValue);
+    
+    
+    for(uint i = leaf_start; i < loop_end; i+=wave_size){
+        const bool is_out_of_bounds = i >= leaf_end;
+        
+        const uint safe_i = is_out_of_bounds ? leaf_data.first_particle_index : i;
+        const float3 pos = pc.positions[safe_i].xyz; 
+
+        const float3 lane_min = is_out_of_bounds ? float3(float.maxValue) : pos;
+        const float3 lane_max = is_out_of_bounds ? float3(-float.maxValue) : pos;  
+     
+        min_val = min(min_val, WaveActiveMin(lane_min));
+        max_val = max(max_val, WaveActiveMax(lane_max));
+    }
+
+    // Add the search radius
+    min_val -= pc.search_radius;
+    max_val += pc.search_radius;
+
+    
+    BoundingBox leaf_bounding_box = BoundingBox(
+        float4(min_val, 0.f),
+        float4(max_val, 0.f)
+    );
+
+    return leaf_bounding_box;
 }
 
 
@@ -96,16 +130,12 @@ func spread_8(uint val) -> uint
 func traverse(
     Ptr<uint32_t, Access.ReadWrite> queue,
     const uint local_id,
-    const BoundingBox super_cluster_bounding_box,
-    const uint group_id,
-    const BoundingBox cluster_bounding_box,
-    const uint local_cluster_idx,
-    const bool is_cluster_valid
+    const BoundingBox leaf_bounding_box,
+    const uint group_id
 ){
     const uint lane = WaveGetLaneIndex();
-    const uint sub_lane_idx = lane % CLUSTER_SIZE;
     const uint wave_size = WaveGetLaneCount();
-    const uint num_loaders = wave_size / CLUSTER_SIZE;
+    const uint num_loaders = wave_size / 8;
 
     uint num_nodes   = 1; // Start with 1 node (the root)
     uint old_nodes   = 0;
@@ -117,7 +147,6 @@ func traverse(
     // Which means you process 8 (num_loaders) x 8 (octree octants) = 64 
     while(num_nodes > 0){
        
-
         // calculate the queue index for this lane
         const uint queue_load_idx = queue_node_offset + lane; 
         uint node_idx = 0;
@@ -148,7 +177,7 @@ func traverse(
             const uint key = pc.node_keys[node_idx];
             const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min, MAX_LEVELS);
 
-            const bool intersects = super_cluster_bounding_box.intersects(node_box);
+            const bool intersects = leaf_bounding_box.intersects(node_box);
 
             node_split = intersects && is_internal_node;
             is_direct = intersects && !is_internal_node; 
@@ -157,152 +186,25 @@ func traverse(
                 
                 LeafData leaf_data = pc.leaf_data[node_idx];
 
-                // Only for testing purposes, store the leaves we intersect with
-                uint write_idx;
-                InterlockedAdd(neighbor_count, 1, write_idx);
-                if(write_idx < MAX_NEIGHBOR_CAPACITY){
-                    neighbor_leaves[write_idx] = node_idx;                    
-                }
-                
                 if(leaf_data.particle_count > 0){
-                    first_cluster = leaf_data.first_particle_index / CLUSTER_SIZE;
-                    last_cluster = (leaf_data.first_particle_index + leaf_data.particle_count - 1) / CLUSTER_SIZE;
+                    // Store the leaves we intersect with
+                    uint write_idx;
+                    InterlockedAdd(neighbor_count, 1, write_idx);
+                    if(write_idx < MAX_NEIGHBOR_CAPACITY){
+                        neighbor_leaves[write_idx] = node_idx;                    
+                    }
                 }
             }
         }
-
         GroupMemoryBarrierWithGroupSync();
-        /*
-        // Process leaves in parallel
-        uint4 ballot = WaveActiveBallot(is_direct);
 
-        while(any(ballot != 0)) {
-
-            // Get the leader lane
-            uint leader_lane;
-            if(ballot.x != 0){
-                leader_lane = firstbitlow(ballot.x);
-            }
-            else if(ballot.y != 0){
-                leader_lane = 32 + firstbitlow(ballot.y);
-            }
-            else if(ballot.z != 0){
-                leader_lane = 64 + firstbitlow(ballot.z);
-            }
-            else {
-                leader_lane = 96 + firstbitlow(ballot.w);
-            }
-
-            // Get the first and last cluster of the leader lane
-            LeafData leaf_data;
-            uint first_cluster_id = 0;
-            uint last_cluster_id = 0;
-            bool has_particles = false;
-            if(WaveGetLaneIndex() == leader_lane){
-                leaf_data = pc.leaf_data[node_idx];
-                if(leaf_data.particle_count > 0){
-                    first_cluster_id = leaf_data.first_particle_index / CLUSTER_SIZE;
-                    last_cluster_id = (leaf_data.first_particle_index + leaf_data.particle_count - 1) / CLUSTER_SIZE;
-                    has_particles = true;
-                }
-                is_direct = false; 
-            }
-
-            // Broadcast first if it has particles
-            has_particles = WaveReadLaneAt(has_particles, leader_lane);
-
-            if(has_particles){
-                // Broadcast the first and last cluster of the leader. 
-                first_cluster_id = WaveReadLaneAt(first_cluster_id, leader_lane);
-                last_cluster_id = WaveReadLaneAt(last_cluster_id, leader_lane);
-    
-                // For each neighbor cluster of the leader
-                // Check intersections in parallel 
-                for(uint offset = 0; first_cluster_id + offset <= last_cluster_id; offset+=CLUSTER_SIZE){
-    
-                    const uint neighbor_idx = first_cluster_id + offset + sub_lane_idx;
-                    
-                    // Robust boundary validation for neighbor_idx
-                    const bool is_valid = (neighbor_idx <= last_cluster_id) && 
-                                          ((neighbor_idx * CLUSTER_SIZE) < pc.num_particles);
-    
-                    // 1. Only the first sub-cluster of threads loads and writes to LDS
-                    if (local_cluster_idx == 0 && is_valid) {
-                        BoundingBox loaded_box = pc.cluster_bounding_boxes[neighbor_idx];
-                        shared_neighbor_box_mins[sub_lane_idx] = loaded_box.min;
-                        shared_neighbor_box_maxs[sub_lane_idx] = loaded_box.max;
-                    }
-
-                    // 2. Synchronize to make the LDS writes visible to the entire wave
-                    GroupMemoryBarrierWithGroupSync();
-
-                    // 3. Every sub-cluster now reads and dynamically expands the loaded box
-                    BoundingBox neighbor_box = BoundingBox(float4(0.0), float4(0.0));
-                    if (is_valid) {
-                        neighbor_box.min = shared_neighbor_box_mins[sub_lane_idx];
-                        neighbor_box.max = shared_neighbor_box_maxs[sub_lane_idx];
-                        
-                        // Add safe float epsilon to absorb GPU FMA instruction variance
-                        const float safe_radius = pc.search_radius + 0.00021;
-                        neighbor_box.min.xyz -= safe_radius;
-                        neighbor_box.max.xyz += safe_radius;
-                    }
-                    
-                    bool intersects = false;
-                    if(is_valid && is_cluster_valid){
-                        intersects = cluster_bounding_box.intersects(neighbor_box);
-                    }
-                    uint bitmask = 0;
-                    if(intersects){
-                        bitmask = 1 <<  local_cluster_idx;
-                    }
-                    // Combine bitmasks
-                    [ForceUnroll]
-                    for(uint stride = CLUSTER_SIZE; stride < WAVE_SIZE; stride<<=1){
-                        bitmask |= WaveReadLaneAt(bitmask, lane ^ stride);
-                    }
-    
-                    // 4. Clean, high-speed array-based append
-                    const bool is_writer_thread = local_cluster_idx == 0;
-                    const bool needs_allocation = is_writer_thread && bitmask != 0 && is_valid;
-                    const uint total_to_allocate = WaveActiveCountBits(needs_allocation);
-                    const uint relative_write_idx = WavePrefixCountBits(needs_allocation);
-    
-                    uint wave_start_idx = 0;
-                    if(total_to_allocate > 0){
-                        if(WaveGetLaneIndex() == 0){
-                            // Safe non-atomic groupshared increment
-                            wave_start_idx = neighbor_count;
-                            neighbor_count += total_to_allocate;
-                        }
-                        wave_start_idx = WaveReadLaneAt(wave_start_idx, 0);
-                    }
-    
-                    if(needs_allocation){
-                        uint write_idx = wave_start_idx + relative_write_idx;
-                        if (write_idx < MAX_NEIGHBOR_CAPACITY) {
-                            neighbor_clusters[write_idx] = neighbor_idx;
-                            neighbor_bitmasks[write_idx] = bitmask;
-                        }    
-                    }
-
-                    // Sync point to ensure LDS is safe before the next offset step
-                    GroupMemoryBarrierWithGroupSync();
-                }
-            }
-            
-            ballot = WaveActiveBallot(is_direct);         
-            GroupMemoryBarrierWithGroupSync();   
-        }
-*/
+       
         // Assing queue slots for the next level's children
         const uint child_idx = old_nodes + num_nodes + new_nodes + WavePrefixCountBits(node_split);
         
         // Push internal nodes to the queue
-        if (child_idx - old_nodes < QUEUE_MEMORY_PER_WORKGROUP) {
-        if(node_split){
+        if (node_split && child_idx - old_nodes < QUEUE_MEMORY_PER_WORKGROUP) {
             queue[ring_address(child_idx)] = node_first_child_idx;
-        }
         }
 
         // Advance the stack pointer for the current level
@@ -322,38 +224,35 @@ func traverse(
 }
 
 
-func write_results_to_global_memory(const uint local_id, const uint super_cluster_index){
+func write_results_to_global_memory(const uint local_id, const uint leaf_index){
     const uint clamped_neighbor_count = min(neighbor_count, MAX_NEIGHBOR_CAPACITY);
     
     // Write the neighbors to Global VRAM
+    // Thread 0 allocates space in global memory
     if(local_id == 0){
         SuperCluster super_cluster;
-        if(neighbor_count > 0){
+        if(clamped_neighbor_count > 0){
             InterlockedAdd(*pc.allocator_counter, clamped_neighbor_count, global_start_idx);
             super_cluster.neighbor_count = clamped_neighbor_count;
             super_cluster.neighbor_index = global_start_idx;
-            //printf("Neighbor count: %i\nSuper cluster index: %i", neighbor_count, super_cluster_index);
+            //printf("Neighbor count: %i\nLeaf index: %i", clamped_neighbor_count, leaf_index);
         }
         else {
             super_cluster.neighbor_count = 0;
             super_cluster.neighbor_index = 0;
         }
-        pc.super_clusters[super_cluster_index] = super_cluster;
+        pc.super_clusters[leaf_index] = super_cluster;
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     // Write back all neighbors contiguously (supports neighbor_count > 64)
     for(uint i = local_id; i < clamped_neighbor_count; i+=THREAD_GROUP_SIZE){
-        if(i < neighbor_count){
-            SuperClusterNeighbors super_cluster_neighbors;
-            // Just for testing purposes, store the leaves that we intersected with
-            super_cluster_neighbors.cluster_index = neighbor_leaves[i];
-            //super_cluster_neighbors.cluster_index = neighbor_clusters[i];
-            //super_cluster_neighbors.bitmask = neighbor_bitmasks[i];
-            super_cluster_neighbors.bitmask = 0;
-            pc.super_cluster_neighbors[global_start_idx + i] = super_cluster_neighbors;
-        }
+        SuperClusterNeighbors neighbor;
+        // Just for testing purposes, store the leaves that we intersected with
+        neighbor.cluster_index = neighbor_leaves[i];
+        neighbor.bitmask = 0;
+        pc.super_cluster_neighbors[global_start_idx + i] = neighbor;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -370,14 +269,6 @@ func initialize_shared_queue(const uint local_id, Ptr<uint32_t, Access.ReadWrite
     GroupMemoryBarrierWithGroupSync();
 }
 
-
-[ForceInline]
-func calculate_super_cluster_bounding_box(float4 pos, const float search_radius, const bool is_thread_out_of_bounds) -> BoundingBox{
-    BoundingBox bounding_box;
-    bounding_box.min = WaveActiveMin(is_thread_out_of_bounds ? GHOST_MAX_POS : float4(pos.xyz, 0.0)) - search_radius;
-    bounding_box.max = WaveActiveMax(is_thread_out_of_bounds ? GHOST_MIN_POS : float4(pos.xyz, 0.0)) + search_radius;
-    return bounding_box;
-}
 
 [ForceInline]
 func ring_address(const uint i) -> uint {

@@ -4,7 +4,7 @@ use ash::vk;
 
 use crate::{physics_engine::{BoundingBox, neighbor_list::{clusters_bounding_boxes::ClustersBoundingBoxes, neighbor_list_data::*, neighbor_search::NeighborSearch}}, traits::GpuTask, utils::data_structures::octree::octree::Octree, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, VkBuffer, global_sync_compute, shader_constants::ShaderCompileTimeConstants}}, world::world_objects::particles::ParticleData};
 
-const MAX_NEIGHBOR_CAPACITY: u32 = 500;
+const MAX_NEIGHBOR_CAPACITY: u32 = 256;
 const CLUSTER_SIZE: u32 = 8;
 
 pub struct NeighborList {
@@ -16,8 +16,8 @@ pub struct NeighborList {
 
 
 impl NeighborList {
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_particles: u32, super_cluster_size: u32, max_levels: u32) -> Self {
-        let data = NeighborListData::new(vk_core, cmd_pool, num_particles, super_cluster_size, CLUSTER_SIZE, MAX_NEIGHBOR_CAPACITY);
+    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, max_expected_leaves: u32, super_cluster_size: u32, max_levels: u32) -> Self {
+        let data = NeighborListData::new(vk_core, cmd_pool, max_expected_leaves, super_cluster_size, MAX_NEIGHBOR_CAPACITY);
 
         let neighbor_search = NeighborSearch::new(vk_core, super_cluster_size, max_levels);
         let cluster_bounding_boxes = ClustersBoundingBoxes::new(vk_core, NeighborList::cluster_size() as usize);

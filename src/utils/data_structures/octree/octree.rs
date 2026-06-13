@@ -25,6 +25,8 @@ pub struct Octree {
      
     
     max_elements_per_leaf: u32,
+
+    max_leaves: u32,
     
     octree_constructor: OctreeConstructor
 }
@@ -32,7 +34,7 @@ pub struct Octree {
 impl Octree {
     pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_elements: u32) -> Self {
         
-        let max_elements_per_leaf = 64;
+        let max_elements_per_leaf = vk_core.subgroup_size();
         let max_leaves = Self::max_leaves(num_elements, max_elements_per_leaf);
         let max_internal_nodes = Self::max_internal_nodes(max_leaves);
         let max_nodes = max_leaves + max_internal_nodes;
@@ -43,7 +45,8 @@ impl Octree {
         Self {
             octree_data,
             max_elements_per_leaf,
-            octree_constructor
+            octree_constructor,
+            max_leaves
         }
     }
 
@@ -57,6 +60,11 @@ impl Octree {
     /// Worst-case leaf count: every leaf has exactly 1 particle, no merges.
     fn max_leaves(num_elements: u32, max_elements_per_leaf: u32) -> u32 {
         (24 * num_elements / (max_elements_per_leaf + 1)).max(1024)
+    }
+
+
+    pub fn max_expected_leaves(&self) -> u32 {
+        self.max_leaves
     }
     
     /// Internal node count is exact given leaf count:

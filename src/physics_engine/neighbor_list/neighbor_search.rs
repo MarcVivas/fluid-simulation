@@ -53,7 +53,10 @@ impl NeighborSearch {
         global_sync_compute(device, cmd_buffer);
         
         let num_particles = particles.positions_buffer.current().len() as u32;
-        let num_groups = (num_particles + vk_core.subgroup_size() - 1) / vk_core.subgroup_size();
+
+        let thread_group_size = neighbor_list_data.super_cluster_size();
+        let num_workgroups = vk_core.num_persistent_workgroups(thread_group_size);
+        
         let octree_data = octree.data();
         let push_constants = NeighborSearchPushConstants {
             node_keys: octree_data.node_keys().address(),
@@ -69,14 +72,16 @@ impl NeighborSearch {
             world_size,
             search_radius,
             num_particles,
-            num_thread_groups: num_groups,
+            num_thread_groups: num_workgroups,
             total_num_clusters: neighbor_list_data.cluster_bounding_boxes().len() as u32,
             clusters_bounding_boxes: neighbor_list_data.cluster_bounding_boxes().address(),
+            leaf_count: octree_data.leaf_count().address(),
+            unsorted_leaf_data: octree_data.unsorted_leaf_data().address(),
+            unsorted_node_keys: octree_data.unsorted_node_keys().address(),
             ..Default::default()
         };
 
-        let thread_group_size = neighbor_list_data.super_cluster_size();
-        let num_workgroups = vk_core.num_persistent_workgroups(thread_group_size);
+
         let thread_groups = [num_workgroups, 1, 1];
         self.build_neighbor_list.dispatch_compute(
             vk_core, 

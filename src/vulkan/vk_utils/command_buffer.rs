@@ -203,6 +203,20 @@ impl CommandBuffer {
             device.cmd_fill_buffer(self.cmd_buffer, buffer, offset, size, data);
         }
     }
+
+
+    #[allow(unused)]
+    pub fn copy_buffer(
+        &self,
+        device: &ash::Device,
+        src_buffer: vk::Buffer,
+        dst_buffer: vk::Buffer,
+        regions: &[vk::BufferCopy]
+    ) {
+        unsafe {
+            device.cmd_copy_buffer(self.cmd_buffer, src_buffer, dst_buffer, regions);
+        }
+    }
     
     pub fn dispatch(&self, 
         device: &ash::Device,

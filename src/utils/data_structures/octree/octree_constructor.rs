@@ -90,6 +90,7 @@ impl OctreeConstructor {
         global_sync_compute(device, cmd_buffer);
         sync_compute_to_indirect(device, cmd_buffer);
 
+
         self.node_key_sorter.sort_indirect(vk_core, octree_data.node_count().address(), octree_data.node_keys(), octree_data.leaf_data(), cmd_buffer);
 
         self.level_offset_generator.dispatch(vk_core, cmd_buffer, octree_data);

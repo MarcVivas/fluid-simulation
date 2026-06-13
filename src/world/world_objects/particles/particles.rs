@@ -55,7 +55,7 @@ impl ParticleData {
         }
 
         // Simulate final velocity swap
-        vel_idx = (vel_idx + 1) % 2;
+        //vel_idx = (vel_idx + 1) % 2;
 
         (pos_idx, vel_idx)
 
@@ -72,7 +72,7 @@ impl Particles {
         let mut random_number_generator = rand::rng();
 
         let mut max_radius :f32  = 0.0;
-
+        
         let mut positions: Vec<Position> = Vec::with_capacity(num_particles);
         let mut previous_positions: Vec<Position> = Vec::with_capacity(num_particles);
         let mut velocities: Vec<Velocity> = Vec::with_capacity(num_particles);
@@ -158,22 +158,10 @@ impl Particles {
         self.max_radius
     }
 
-    pub fn extract_render_data(&self, solver_iterations: usize, compute_paused: bool) -> ParticleRenderData{
-        if compute_paused{
-            // Return current
-            return ParticleRenderData {
-                positions_buffer: self.buffers().positions_buffer.current().vk_buffer(),
-                velocities: self.buffers.velocities.current().vk_buffer(),
-                total_particles: self.total_particles
-            };
-        }
-        let (pos_idx, vel_idx) = self.buffers.predict_final_indices(solver_iterations);
-        let final_positions_buffer = self.buffers.positions_buffer.from_index(pos_idx);
-
-        let final_velocities_buffer = self.buffers.velocities.from_index(vel_idx);
+    pub fn extract_render_data(&self) -> ParticleRenderData{
         ParticleRenderData {
-            positions_buffer: final_positions_buffer.vk_buffer(),
-            velocities: final_velocities_buffer.vk_buffer(),
+            positions_buffer: self.buffers().positions_buffer.current().vk_buffer(),
+            velocities: self.buffers().velocities.next().vk_buffer(),
             total_particles: self.total_particles,
         }
     }

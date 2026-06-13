@@ -8,7 +8,6 @@ use crate::physics_engine::neighbor_list::{NeighborList, neighbor_list};
 use crate::utils::data_structures::octree::octree::Octree;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
-use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};
 
@@ -24,6 +23,9 @@ struct DensityComputePushConstants {
     super_clusters: u64, 
     super_cluster_neighbors: u64,
     leaf_data: u64, 
+    unsorted_leaf_data: u64, 
+    leaf_count: u64, 
+    num_workgroups: u32,
     num_elements: u32,
     kernel_radius: f32,
     rest_density: f32,
@@ -32,6 +34,7 @@ struct DensityComputePushConstants {
     kernel_radius_2: f32,
     spiky_constant: f32,
     epsilon: f32,
+    _padding: u32
 }
 
 impl DensityComputeSystem{
@@ -67,6 +70,10 @@ impl DensityComputeSystem{
         let particle_data = particles.buffers();
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
 
+        let thread_group_size = neighbor_list.super_cluster_size();
+        let num_workgroups = vk_core.num_persistent_workgroups(thread_group_size);
+
+        
         let push_constants = DensityComputePushConstants {
             num_elements,
             kernel_radius: physics_config.kernel_radius,
@@ -79,6 +86,9 @@ impl DensityComputeSystem{
             super_clusters: neighbor_list.super_clusters().address(),
             super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
             leaf_data: octree.data().leaf_data().address(),
+            unsorted_leaf_data: octree.data().unsorted_leaf_data().address(),
+            leaf_count: octree.data().leaf_count().address(),
+            num_workgroups,
             ..Default::default()
         };
 
@@ -99,12 +109,10 @@ impl DensityComputeSystem{
         let images = [
         ];
 
-        let thread_group_size = neighbor_list.super_cluster_size(); 
-        let thread_group_counts = [((num_elements + thread_group_size-1) / thread_group_size), 1, 1];
         self.density_compute_pass.dispatch_compute(
             vk_core,
             command_buffer,
-            thread_group_counts,
+            [num_workgroups, 1, 1],
             &buffers,
             &images,
             bytemuck::bytes_of(&push_constants)

@@ -89,7 +89,7 @@ func solve_particle_neighborhood_interactions(
 
         // Get the neighbor
         const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[j];
-        const LeafData neighbor_leaf = push_constants.leaf_data[neighbor.cluster_index];
+        const LeafData neighbor_leaf = push_constants.leaf_data[neighbor.neighbor_leaf_idx];
 
         total_displacement += solve_particle_interactions_with_neighbor(particle_idx, pos, radius, lambda, w_delta_q, neighbor_leaf);
         

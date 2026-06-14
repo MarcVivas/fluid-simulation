@@ -250,8 +250,7 @@ func write_results_to_global_memory(const uint local_id, const uint leaf_index){
     for(uint i = local_id; i < clamped_neighbor_count; i+=THREAD_GROUP_SIZE){
         SuperClusterNeighbors neighbor;
         // Just for testing purposes, store the leaves that we intersected with
-        neighbor.cluster_index = neighbor_leaves[i];
-        neighbor.bitmask = 0;
+        neighbor.neighbor_leaf_idx = neighbor_leaves[i];
         pc.super_cluster_neighbors[global_start_idx + i] = neighbor;
     }
     GroupMemoryBarrierWithGroupSync();

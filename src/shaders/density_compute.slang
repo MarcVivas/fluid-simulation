@@ -106,7 +106,7 @@ func solve_particle_neighborhood_interactions(
 
         // Get the neighbor
         const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[j];
-        const LeafData neighbor_leaf = push_constants.leaf_data[neighbor.cluster_index];
+        const LeafData neighbor_leaf = push_constants.leaf_data[neighbor.neighbor_leaf_idx];
         
         solve_particle_interactions_with_neighbor(particle_sph, neighbor_leaf);
     }

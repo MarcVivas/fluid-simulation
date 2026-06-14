@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer, compute_buffer_barrier, transfer_to_compute_barrier}};
+use crate::vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer, transfer_to_compute_barrier}};
 
 
 pub struct ExclusivePrefixSumData {

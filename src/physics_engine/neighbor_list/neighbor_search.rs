@@ -22,7 +22,6 @@ impl NeighborSearch {
                     .add("THREAD_GROUP_SIZE", super_cluster_size)
                     .add("MAX_LEVELS", max_levels)
                     .add("MAX_NEIGHBOR_CAPACITY", NeighborList::max_neighbors())
-                    .add("CLUSTER_SIZE", NeighborList::cluster_size())
                     .add("WAVE_SIZE", vk_core.subgroup_size())
                     .add("QUEUE_MEMORY_PER_WORKGROUP", NeighborListData::queue_memory_per_workgroup())
             )

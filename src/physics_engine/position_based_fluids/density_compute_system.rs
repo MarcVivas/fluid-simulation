@@ -1,10 +1,9 @@
 use std::sync::Arc;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
-use glam::Vec3;
-use crate::compute::{ComputePass, ComputeSystemBuilder, ImageDescriptor};
+use crate::compute::{ComputePass, ComputeSystemBuilder};
 use crate::physics_engine::PhysicsConfig;
-use crate::physics_engine::neighbor_list::{NeighborList, neighbor_list};
+use crate::physics_engine::neighbor_list::{NeighborList};
 use crate::utils::data_structures::octree::octree::Octree;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
@@ -44,7 +43,6 @@ impl DensityComputeSystem{
         let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute")
             .entry_points(&["main"])
             .compile_time_constants(ShaderCompileTimeConstants::new()
-                .add("CLUSTER_SIZE", NeighborList::cluster_size())
                 .add("THREAD_GROUP_SIZE", super_cluster_size)
             )
             .push_constants::<DensityComputePushConstants>()

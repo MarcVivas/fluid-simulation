@@ -45,7 +45,6 @@ impl ConstraintSolverSystem {
             .compile_time_constants(
                 ShaderCompileTimeConstants::new()
                     .add("THREAD_GROUP_SIZE", super_cluster_size)
-                    .add("CLUSTER_SIZE", NeighborList::cluster_size())
             )
             .push_constants::<ConstraintSolverPushConstants>()
             // Read positions 

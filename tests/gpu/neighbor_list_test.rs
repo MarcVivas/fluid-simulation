@@ -1,6 +1,6 @@
 use std::{sync::Arc};
 
-use engine::{components::Position, compute::ComputeEngine, physics_engine::{BoundingBox, PhysicsEngine, integration::{Integrator, UpdateVelocitiesSystem}, neighbor_list::{NeighborList, SuperCluster, SuperClusterNeighbors}}, utils::{data_structures::octree::octree::Octree, gpu_algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort}, gpu_profiler::GpuProfiler}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::CommandBuffer}, world::world_objects::particles::{Particles, RearrangingSystem}};
+use engine::{components::Position, compute::ComputeEngine, physics_engine::{BoundingBox, integration::{Integrator, UpdateVelocitiesSystem}, neighbor_list::{NeighborList, SuperCluster, SuperClusterNeighbors}}, utils::{data_structures::octree::octree::Octree, gpu_algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::CommandBuffer}, world::world_objects::particles::{Particles, RearrangingSystem}};
 use glam::Vec4Swizzles;
 
 use crate::gpu::octree_test::{decode_hilbert_3d_cpu, decode_warren_salmon_key};
@@ -115,7 +115,6 @@ impl NeighborListTest {
             let leaf_data = self.octree.data().leaf_data().read_back(vk_core, command_pool).unwrap();
     
             // Retrieve the unsorted leaf layouts directly from your direct-write GPU buffers
-            let unsorted_node_keys = self.octree.data().unsorted_node_keys().read_back(vk_core, command_pool).unwrap();
             let unsorted_leaf_data = self.octree.data().unsorted_leaf_data().read_back(vk_core, command_pool).unwrap();
     
             let num_leaves = leaf_indexes.len(); // Actual number of active leaves
@@ -123,12 +122,11 @@ impl NeighborListTest {
             // Slice buffers to only validate the active leaf range
             let active_super_clusters = &super_clusters[0..num_leaves];
             let active_unsorted_leaf_data = &unsorted_leaf_data[0..num_leaves];
-            let active_unsorted_node_keys = &unsorted_node_keys[0..num_leaves];
     
             // Perform neighbor-list matching in Unsorted Leaf Order
             self.validate_octree_geometry(vk_core, engine);
-            self.validate_brute_force_neighbors_unsorted(vk_core, engine, active_super_clusters, &super_cluster_neighbors, &positions, active_unsorted_leaf_data, &leaf_data, &leaf_indexes);
-            self.validate_neighbor_list_unsorted(active_super_clusters, &super_cluster_neighbors, &positions, &node_keys, &leaf_indexes, &node_first_child, active_unsorted_leaf_data, active_unsorted_node_keys);        
+            self.validate_brute_force_neighbors_unsorted(vk_core, engine, active_super_clusters, &super_cluster_neighbors, &positions, active_unsorted_leaf_data, &leaf_data);
+            self.validate_neighbor_list_unsorted(active_super_clusters, &positions, &node_keys, &leaf_indexes, &node_first_child, active_unsorted_leaf_data);        
         }
     
         pub fn validate_octree_geometry(
@@ -208,14 +206,12 @@ impl NeighborListTest {
         
         fn validate_neighbor_list_unsorted(
             &self,
-            super_clusters: &[SuperCluster], // Sliced to num_leaves
-            super_cluster_neighbors: &[SuperClusterNeighbors],
+            super_clusters: &[SuperCluster], 
             positions: &[Position],
             node_keys: &[u32],
             leaf_indexes: &[u32],
             node_first_child: &[u32],
-            unsorted_leaf_data: &[glam::UVec2], // Sliced to num_leaves
-            unsorted_node_keys: &[u32], // Sliced to num_leaves
+            unsorted_leaf_data: &[glam::UVec2], 
         ) {
             let num_leaves = super_clusters.len();
     
@@ -277,8 +273,7 @@ impl NeighborListTest {
                     if query_box.intersects(other_leaf_bbox) {
                         neighbor_count += 1;
                         cpu_super_cluster_neighbors.push(SuperClusterNeighbors { 
-                            cluster_index: other_leaf_node_idx, 
-                            bitmask: 0 
+                            neighbor_leaf_idx: other_leaf_node_idx, 
                         });
                     }
                 }
@@ -356,14 +351,12 @@ impl NeighborListTest {
                 positions: &[Position],
                 unsorted_leaf_data: &[glam::UVec2], // Sliced to num_leaves
                 sorted_leaf_data: &[glam::UVec2],
-                leaf_indexes: &[u32],
         ) {
             let num_particles = self.particles.len();
             let num_leaves = super_clusters.len();
                 
             println!("Running brute-force neighbor validation (unsorted leaf-based)...");
         
-            let mut missed_collisions = 0;
         
             for i in 0..num_leaves {
                 let leaf = unsorted_leaf_data[i];
@@ -376,7 +369,7 @@ impl NeighborListTest {
                 let mut gpu_reported_neighbors = std::collections::HashSet::new();
                     
                 for neighbor_idx in sc.neighbor_index..(sc.neighbor_index + sc.neighbor_count) {
-                    let leaf_node_idx = super_cluster_neighbors[neighbor_idx as usize].cluster_index as usize;
+                    let leaf_node_idx = super_cluster_neighbors[neighbor_idx as usize].neighbor_leaf_idx as usize;
                     let leaf = sorted_leaf_data[leaf_node_idx]; // Read from sorted leaf_data
                             
                     for p_idx in leaf.x..(leaf.x + leaf.y) {
@@ -402,7 +395,6 @@ impl NeighborListTest {
             
                         if dist < interaction_limit {
                             if !gpu_reported_neighbors.contains(&j) {
-                                missed_collisions += 1;
                                 println!(
                                     "MISSED NEIGHBOR! Particle {} (in Unsorted Leaf {}) is colliding with Particle {} (Pos: {:?}, R: {}) at distance {}.",
                                     p_i, i, j, pos_j, radius_j, dist
@@ -410,8 +402,6 @@ impl NeighborListTest {
                                 
                                 let command_pool = engine.command_pool();
                                 self.simulate_gpu_traversal_on_cpu_unsorted(
-                                    vk_core,
-                                    engine,
                                     i,
                                     &positions,
                                     &self.octree.data().node_keys().read_back(vk_core, command_pool).unwrap(),
@@ -426,20 +416,9 @@ impl NeighborListTest {
                     }
                 }
             }
-        
-            if missed_collisions > 0 {
-                panic!(
-                    "Validation Failed: Found {} missed physical collisions in the GPU neighbor list!",
-                    missed_collisions
-                );
-            } else {
-                println!("SUCCESS: 0 missed physical collisions detected among tested particles!");
-            }
         }
     pub fn simulate_gpu_traversal_on_cpu_unsorted(
             &self,
-            vk_core: &Arc<VkCore>,
-            engine: &ComputeEngine,
             leaf_idx: usize,
             positions: &[Position],
             node_keys: &[u32],

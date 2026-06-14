@@ -1,7 +1,5 @@
 use std::sync::Arc;
 use engine::utils::gpu_algorithms::hilbert_encoding::HilbertEncoder;
-use glam::Vec4;
-
 use engine::compute::ComputeEngine;
 use engine::utils::gpu_algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
 use engine::vulkan::headless::VkHeadless;

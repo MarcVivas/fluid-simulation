@@ -26,7 +26,8 @@ impl GpuProfilingZones {
         self.next_index += 2;
         index      
     }
-    
+
+    #[allow(unused)]
     pub fn get_zone_index(&self, label: &str) -> Option<&u32> {
         self.zone_map.get(label)
     }

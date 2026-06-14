@@ -15,8 +15,7 @@ pub struct SuperCluster {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SuperClusterNeighbors {
-    pub cluster_index: u32, // The index of the neighbor (a cluster is a group of 8 elements)
-    pub bitmask: u32,   // 8 bit mask showing which of the 8 cluster in the super cluster overlap with this neighbor
+    pub neighbor_leaf_idx: u32, // The index of the neighbor leaf
 }
 
 

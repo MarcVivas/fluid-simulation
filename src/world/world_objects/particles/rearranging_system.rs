@@ -2,7 +2,6 @@ use std::sync::Arc;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use crate::compute::{ComputePass, ComputeSystemBuilder};
-use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::ParticleData};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{CommandBuffer, ShaderModule, compute_buffer_barrier};

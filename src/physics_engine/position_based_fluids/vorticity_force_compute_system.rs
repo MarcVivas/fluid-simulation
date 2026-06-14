@@ -1,9 +1,8 @@
 use std::sync::Arc;
 use ash::vk;
-use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
+use crate::compute::{ComputeSystemBuilder, ComputePass};
 use crate::physics_engine::PhysicsConfig;
 use crate::utils::data_structures::octree::octree::Octree;
-use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{compute_to_graphics_memory_barrier, CommandBuffer, ShaderModule};
@@ -92,14 +91,9 @@ impl VorticityForceComputeSystem {
             )
         ];
 
-        let range = vk::ImageSubresourceRange::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .level_count(1)
-            .layer_count(1);
+ 
 
-        let image_barrier = [
-            
-        ];
+        let image_barrier = [];
         command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &image_barrier);
     }
 }

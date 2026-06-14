@@ -1,9 +1,8 @@
 use std::sync::Arc;
 use ash::vk;
-use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
+use crate::compute::{ComputeSystemBuilder, ComputePass};
 use crate::physics_engine::PhysicsConfig;
 use crate::utils::data_structures::octree::octree::Octree;
-use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};

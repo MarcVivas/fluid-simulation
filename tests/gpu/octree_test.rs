@@ -338,7 +338,6 @@ fn validate_leaf_data_alignment(
 ) {
     struct DecodedLeaf {
         node_idx: usize,
-        key: u32,
         level: usize,
         path: u32,
         start_idx: usize,
@@ -362,7 +361,6 @@ fn validate_leaf_data_alignment(
 
             decoded_leaves.push(DecodedLeaf {
                 node_idx: i,
-                key,
                 level,
                 path,
                 start_idx,

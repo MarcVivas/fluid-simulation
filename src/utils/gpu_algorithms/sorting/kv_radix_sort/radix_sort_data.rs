@@ -9,7 +9,6 @@ pub struct RadixSortData<T: RadixSortPayload> {
     #[allow(unused)]
     pub keys_bit_count: u32, // The maximum bits the keys use,
     pub num_passes: u32, // Number of passes to sort the keys
-    pub num_keys: u32,
     pub histogram_buffer: VkBuffer<u32>,
     pub keys_b: VkBuffer<u32>,
     pub payload_b: VkBuffer<T>,
@@ -73,7 +72,6 @@ impl <T: RadixSortPayload> RadixSortData<T> {
         Ok(Self {
             keys_bit_count,
             num_passes,
-            num_keys: max_keys,
             histogram_buffer,
             keys_b: keys_b_buffer,
             payload_b: payload_b_buffer,

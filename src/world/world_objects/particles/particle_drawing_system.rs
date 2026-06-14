@@ -5,7 +5,6 @@ use crate::renderer::GraphicsPipeline;
 use crate::world::world_objects::{particles::ParticleRenderData};
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{CommandBuffer, PipelineLayout, ShaderModule, pipeline_layout::DescriptorSetLayoutConfig};
-use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::renderer::WindowRenderTarget;
 
 #[allow(unused)]

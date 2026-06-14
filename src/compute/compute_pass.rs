@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use ash::vk;
 use crate::vulkan::vk_core::VkCore;
-use crate::vulkan::vk_utils::{CommandBuffer, IndirectBuffer, PipelineLayout};
+use crate::vulkan::vk_utils::{CommandBuffer, PipelineLayout};
 
 pub struct ComputePass {
     vk_core: Arc<VkCore>,

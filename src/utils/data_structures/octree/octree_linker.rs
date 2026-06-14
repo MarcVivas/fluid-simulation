@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
-use crate::{compute::{ComputePass, ComputeSystemBuilder}, utils::data_structures::octree::octree_data::OctreeData, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, VkBuffer, shader_constants::ShaderCompileTimeConstants}}};
+use crate::{compute::{ComputePass, ComputeSystemBuilder}, utils::data_structures::octree::octree_data::OctreeData, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, shader_constants::ShaderCompileTimeConstants}}};
 
 pub struct OctreeLinker {
     octree_linker: ComputePass,

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
-use crate::{components::MortonCode, compute::{ComputePass, ComputeSystemBuilder}, utils::data_structures::octree::octree_data::OctreeData, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, VkBuffer, shader_constants::ShaderCompileTimeConstants}}};
+use crate::{components::HilbertKey, compute::{ComputePass, ComputeSystemBuilder}, utils::data_structures::octree::octree_data::OctreeData, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, ShaderModule, VkBuffer, shader_constants::ShaderCompileTimeConstants}}};
 
 pub struct LeavesHistogram {
     leaf_particle_count_pass: ComputePass,
@@ -42,7 +42,7 @@ impl LeavesHistogram {
         }
     }
     
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<MortonCode>, octree_data: &OctreeData){
+    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<HilbertKey>, octree_data: &OctreeData){
         let push_constants = LeavesHistogramPushConstants {
             leaf_count: octree_data.leaf_count().address(),
             cornerstone_array: octree_data.cornerstone_array().address(),

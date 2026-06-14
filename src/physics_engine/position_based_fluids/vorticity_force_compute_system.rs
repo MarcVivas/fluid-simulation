@@ -2,9 +2,9 @@ use std::sync::Arc;
 use ash::vk;
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
+use crate::utils::data_structures::octree::octree::Octree;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
-use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{compute_to_graphics_memory_barrier, CommandBuffer, ShaderModule};
 
@@ -45,14 +45,14 @@ impl VorticityForceComputeSystem {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, spatial_grid: &SpatialGrid, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, physics_config: &PhysicsConfig) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
 
         let push_constants = VorticityForceComputePushConstants {
             num_elements,
-            cell_size: spatial_grid.cell_size(),
+            cell_size: physics_config.search_radius,
             delta_time: physics_config.time_step,
             spiky_constant: physics_config.kernel_spiky_grad,
             vorticity_epsilon: physics_config.vorticity_epsilon
@@ -68,11 +68,7 @@ impl VorticityForceComputeSystem {
         
         let buffers = [positions, velocities, vorticity, densities];
         let images = [
-            ImageDescriptor {
-                descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
-                image_view: spatial_grid.buffers().grid_texture_view.vk_image_view(),
-                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-            }
+            
         ];
 
 
@@ -101,17 +97,8 @@ impl VorticityForceComputeSystem {
             .level_count(1)
             .layer_count(1);
 
-        // Barrier from SHADER_READ_ONLY_OPTIMAL to TRANSFER_DST_OPTIMAL layout
         let image_barrier = [
-            vk::ImageMemoryBarrier2::default()
-                .image(spatial_grid.buffers().grid_texture.vk_image())
-                .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
-                .dst_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
-                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                .dst_stage_mask(vk::PipelineStageFlags2::CLEAR)
-                .subresource_range(range)
+            
         ];
         command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &image_barrier);
     }

@@ -2,9 +2,9 @@ use std::sync::Arc;
 use ash::vk;
 use crate::compute::{ComputeSystemBuilder, ComputePass, ImageDescriptor};
 use crate::physics_engine::PhysicsConfig;
+use crate::utils::data_structures::octree::octree::Octree;
 use crate::vulkan::vk_utils::shader_constants::ShaderCompileTimeConstants;
 use crate::world::world_objects::{particles::Particles};
-use crate::utils::data_structures::spatial_grid::SpatialGrid;
 use crate::vulkan::vk_core::VkCore;
 use crate::vulkan::vk_utils::{compute_buffer_barrier, CommandBuffer, ShaderModule};
 
@@ -48,14 +48,14 @@ impl VelocityRefiningSystem {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, spatial_grid: &SpatialGrid, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, physics_config: &PhysicsConfig) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.morton_codes_buffer.len() as u32;
 
         let push_constants = VelocityRefiningPushConstants {
             num_elements,
-            cell_size: spatial_grid.cell_size(),
+            cell_size: physics_config.search_radius,
             poly6_constant: physics_config.kernel_poly6,
             kernel_radius_2: physics_config.kernel_radius_2,
             spiky_constant: physics_config.kernel_spiky_grad,
@@ -69,13 +69,7 @@ impl VelocityRefiningSystem {
         let (read_velocities, write_velocities) = particle_data.velocities.read_write();
 
         let buffers = [positions, read_velocities.vk_buffer(), write_velocities.vk_buffer(), particle_data.vorticity.vk_buffer(), particle_data.densities.vk_buffer()];
-        let images = [
-            ImageDescriptor {
-                descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
-                image_view: spatial_grid.buffers().grid_texture_view.vk_image_view(),
-                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL
-            }
-        ];
+        let images = [];
 
 
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];

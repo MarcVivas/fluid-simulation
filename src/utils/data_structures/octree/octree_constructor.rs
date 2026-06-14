@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::{components::MortonCode, utils::{data_structures::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::{LevelOffsetGenerator}, node_key_generator::{self, NodeKeyGenerator}, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, gpu_algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::{kv_radix_sort::GpuKVRadixSort}}}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer, global_sync_compute, sync_compute_to_indirect}}};
+use crate::{components::HilbertKey, utils::{data_structures::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::LevelOffsetGenerator, node_key_generator::{self, NodeKeyGenerator}, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, gpu_algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::kv_radix_sort::GpuKVRadixSort}}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer, global_sync_compute, sync_compute_to_indirect}}};
 
 pub struct OctreeConstructor {
     
@@ -53,7 +53,7 @@ impl OctreeConstructor {
         }
     }
     
-    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<MortonCode>, octree_data: &mut OctreeData, max_levels: u32, maintenance_mode: bool){
+    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<HilbertKey>, octree_data: &mut OctreeData, max_levels: u32, maintenance_mode: bool){
 
         let device = vk_core.device();
     

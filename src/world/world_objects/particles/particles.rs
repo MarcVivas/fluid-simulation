@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use glam::{Vec3};
 use rand::Rng;
-use crate::components::{Density, FluidLambda, MortonCode, Position, Velocity, Vorticity};
+use crate::components::{Density, FluidLambda, HilbertKey, Position, Velocity, Vorticity};
 use crate::vulkan::vk_core::VkCore;
 use crate::utils::data_structures::{ping_pong::PingPong};
 use crate::vulkan::vk_utils::{create_ping_pong_buffer, VkBuffer};
@@ -23,7 +23,7 @@ pub struct ParticleData {
     pub lambdas: VkBuffer<FluidLambda>,
     pub densities: VkBuffer<Density>,
     pub vorticity: VkBuffer<Vorticity>,
-    pub morton_codes_buffer: VkBuffer<MortonCode>,
+    pub morton_codes_buffer: VkBuffer<HilbertKey>,
     pub object_indices_buffer: VkBuffer<u32>,
 }
 

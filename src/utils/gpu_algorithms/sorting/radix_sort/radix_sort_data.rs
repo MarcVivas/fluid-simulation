@@ -1,6 +1,5 @@
 use crate::vulkan::vk_utils::VkBuffer;
 use std::sync::Arc;
-use crate::components::MortonCode;
 use crate::vulkan::vk_core::VkCore;
 
 pub struct RadixSortData {
@@ -9,7 +8,7 @@ pub struct RadixSortData {
     pub num_passes: u32, // Number of passes to sort the keys
     pub num_keys: u32,
     pub histogram_buffer: VkBuffer<u32>,
-    pub keys_b: VkBuffer<MortonCode>,
+    pub keys_b: VkBuffer<u32>,
     pub reduce_table: VkBuffer<u32>,
     pub scan_scratch: VkBuffer<u32>,
 }

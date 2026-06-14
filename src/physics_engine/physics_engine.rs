@@ -7,8 +7,7 @@ use crate::utils::gpu_algorithms::hilbert_encoding::HilbertEncoder;
 use crate::utils::gpu_profiler::GpuProfiler;
 use crate::vulkan::vk_utils::CommandBuffer;
 use crate::world::world_objects::{particles::Particles, particles::RearrangingSystem};
-use crate::utils::data_structures::spatial_grid::*;
-use crate::utils::gpu_algorithms::{sorting::kv_radix_sort::GpuKVRadixSort, morton_encoding::MortonEncoder};
+use crate::utils::gpu_algorithms::{sorting::kv_radix_sort::GpuKVRadixSort};
 use crate::physics_engine::integration::{Integrator, UpdateVelocitiesSystem};
 use crate::physics_engine::position_based_fluids::{DensityComputeSystem, VelocityRefiningSystem, VorticityForceComputeSystem};
 use crate::physics_engine::position_based_dynamics::{ConstraintSolverSystem};
@@ -19,11 +18,9 @@ use std::sync::Arc;
 
 pub struct PhysicsEngine {
     physics_config: PhysicsConfig,
-    morton_encoding_system: MortonEncoder,
     sorting_system: GpuKVRadixSort<u32>,
     integration_system: Integrator,
     rearranging_system: RearrangingSystem,
-    neighbor_search_system: NeighborSearchSystem,
     density_compute_system: DensityComputeSystem,
     constraint_solver_system: ConstraintSolverSystem,
     update_velocities_system: UpdateVelocitiesSystem,
@@ -42,11 +39,9 @@ impl PhysicsEngine {
         super_cluster_size: u32
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let max_objects: u32 = particles.len() as u32;
-        let morton_encoding_system = MortonEncoder::new(vk_core)?;
         let integration_system = Integrator::new(vk_core)?;
         let sorting_system = GpuKVRadixSort::new(vk_core, cmd_pool, max_objects, None)?;
         let rearranging_system = RearrangingSystem::new(vk_core)?;
-        let neighbor_search_system = NeighborSearchSystem::new(vk_core)?;
         let density_compute_system = DensityComputeSystem::new(vk_core, super_cluster_size)?;
         let constraint_solver_system = ConstraintSolverSystem::new(vk_core, super_cluster_size)?;
         let update_velocities_system = UpdateVelocitiesSystem::new(vk_core)?;
@@ -59,11 +54,9 @@ impl PhysicsEngine {
         Ok(Self {
             physics_config,
             integration_system,
-            morton_encoding_system,
             sorting_system,
             rearranging_system,
             constraint_solver_system,
-            neighbor_search_system,
             update_velocities_system,
             density_compute_system,
             velocity_refining_system,

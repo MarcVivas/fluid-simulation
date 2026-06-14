@@ -1,7 +1,7 @@
 use std::{sync::Arc};
 use ash::vk::{self, CommandPool};
 
-use crate::{components::MortonCode, utils::data_structures::octree::{octree_constructor::OctreeConstructor, octree_data::OctreeData}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer}}};
+use crate::{components::HilbertKey, utils::data_structures::octree::{octree_constructor::OctreeConstructor, octree_data::OctreeData}, vulkan::{vk_core::VkCore, vk_utils::{CommandBuffer, VkBuffer}}};
 
 /// Based on: 
 /// "Cornerstone: Octree Construction Algorithms for Scalable Particle Simulations" 
@@ -50,7 +50,7 @@ impl Octree {
         }
     }
 
-    pub fn build(&mut self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<MortonCode>, maintenance_mode: bool){
+    pub fn build(&mut self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<HilbertKey>, maintenance_mode: bool){
         
         self.octree_constructor.build(vk_core, cmd_buffer, keys, &mut self.octree_data, MAX_LEVELS, maintenance_mode);
         
@@ -81,7 +81,7 @@ impl Octree {
         &self.octree_data
     }
 
-    pub fn sentinel() -> MortonCode {
+    pub fn sentinel() -> HilbertKey {
         SENTINEL_VALUE
     }
 

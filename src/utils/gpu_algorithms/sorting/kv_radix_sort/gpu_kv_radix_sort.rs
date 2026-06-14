@@ -1,4 +1,3 @@
-use crate::components::MortonCode;
 use crate::compute::{ComputePass, ComputeSystemBuilder};
 use crate::traits::GpuTask;
 use crate::utils::gpu_algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
@@ -131,7 +130,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
     pub fn sort(
         &self,
         vk_core: &Arc<VkCore>,
-        keys: &VkBuffer<MortonCode>,
+        keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
         command_buffer: &CommandBuffer,
         num_elements_to_sort: usize,
@@ -283,7 +282,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
         &self,
         vk_core: &Arc<VkCore>,
         count_buffer_address: u64,
-        keys: &VkBuffer<MortonCode>,
+        keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
         command_buffer: &CommandBuffer, 
     ) {

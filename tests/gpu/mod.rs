@@ -1,4 +1,3 @@
-mod morton_encoder_test;
 mod kv_radix_sort_test;
 mod exclusive_prefix_sum_test;
 mod octree_test;

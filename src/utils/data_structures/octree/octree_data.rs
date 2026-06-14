@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::{components::MortonCode, utils::data_structures::ping_pong::PingPong, vulkan::{vk_core::VkCore, vk_utils::{IndirectBuffer, VkBuffer, create_ping_pong_buffer}}};
+use crate::{components::HilbertKey, utils::data_structures::ping_pong::PingPong, vulkan::{vk_core::VkCore, vk_utils::{IndirectBuffer, VkBuffer, create_ping_pong_buffer}}};
 
 pub struct OctreeData {
     // ── Cornerstone array (leaf boundaries) ─────────────────
@@ -11,7 +11,7 @@ pub struct OctreeData {
    /// Has n_leaves + 1 entries (the +1 is the end sentinel = 8^L).
    /// Size: (max_leaves + 1) × u64
    /// Invariant: K[i+1] - K[i] must equal 8^l for some integer l.
-   cornerstone_array: PingPong<VkBuffer<MortonCode>>,
+   cornerstone_array: PingPong<VkBuffer<HilbertKey>>,
 
    // ── f-operation output (histogram) ──────────────────────────
 
@@ -42,8 +42,8 @@ pub struct OctreeData {
    /// format. First n_internal entries are internal nodes (breadth-first),
    /// last n_leaves entries are leaves (copied from cornerstone_array).
    /// Size: (max_internal + max_leaves) × u64
-   node_keys: VkBuffer<MortonCode>,
-   unsorted_node_keys: VkBuffer<MortonCode>,
+   node_keys: VkBuffer<HilbertKey>,
+   unsorted_node_keys: VkBuffer<HilbertKey>,
 
    /// CO[i]: index of first child of node i. Range [CO[i], CO[i]+8)
    /// gives all 8 children. CO[i] = 0 means node i is a leaf.
@@ -156,11 +156,11 @@ impl OctreeData {
         &self.indirect_dispatch_buffer_nodes
     }
     
-    pub fn cornerstone_array(&self) -> &VkBuffer<MortonCode> {
+    pub fn cornerstone_array(&self) -> &VkBuffer<HilbertKey> {
         self.cornerstone_array.current()
     }
 
-    pub fn cornerstone_array_read_write(&self) -> (&VkBuffer<MortonCode>, &VkBuffer<MortonCode>) {
+    pub fn cornerstone_array_read_write(&self) -> (&VkBuffer<HilbertKey>, &VkBuffer<HilbertKey>) {
         self.cornerstone_array.read_write()
     } 
 
@@ -189,11 +189,11 @@ impl OctreeData {
         &self.rebalance_prefix
     }
 
-    pub fn node_keys(&self) -> &VkBuffer<MortonCode> {
+    pub fn node_keys(&self) -> &VkBuffer<HilbertKey> {
         &self.node_keys
     }
 
-    pub fn unsorted_node_keys(&self) -> &VkBuffer<MortonCode> {
+    pub fn unsorted_node_keys(&self) -> &VkBuffer<HilbertKey> {
         &self.unsorted_node_keys
     }
 

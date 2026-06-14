@@ -3,7 +3,6 @@ use ash::vk;
 use crate::utils::gpu_algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
 use crate::vulkan::vk_utils::{IndirectBuffer, VkBuffer};
 use std::sync::Arc;
-use crate::components::MortonCode;
 use crate::vulkan::vk_core::VkCore;
 
 pub struct RadixSortData<T: RadixSortPayload> {
@@ -12,7 +11,7 @@ pub struct RadixSortData<T: RadixSortPayload> {
     pub num_passes: u32, // Number of passes to sort the keys
     pub num_keys: u32,
     pub histogram_buffer: VkBuffer<u32>,
-    pub keys_b: VkBuffer<MortonCode>,
+    pub keys_b: VkBuffer<u32>,
     pub payload_b: VkBuffer<T>,
     pub reduce_table: VkBuffer<u32>,
     pub scan_scratch: VkBuffer<u32>,

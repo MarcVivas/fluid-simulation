@@ -22,4 +22,8 @@ impl ShaderCompileTimeConstants {
         }
         header
     }
+
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, String> {
+        self.entries.iter()
+    }
 }

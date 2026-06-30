@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use engine::{compute::ComputeEngine, utils::gpu_algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
+use engine::{vulkan::compute::ComputeEngine, algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{headless::VkHeadless, core::VkCore, resources::buffer::VkBuffer}};
 use rand::{Rng, rngs::ThreadRng};
 
 

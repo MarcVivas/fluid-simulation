@@ -1,3 +1,4 @@
 mod world;
 pub use world::World;
-pub mod world_objects;
+
+pub mod particles;

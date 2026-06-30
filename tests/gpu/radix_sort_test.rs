@@ -1,4 +1,4 @@
-use engine::{utils::gpu_algorithms::sorting::radix_sort::RadixSort, vulkan::{headless::VkHeadless, vk_utils::VkBuffer}};
+use engine::{algorithms::sorting::radix_sort::RadixSort, vulkan::{headless::VkHeadless, resources::buffer::VkBuffer}};
 use rand::Rng;
 
 #[test]

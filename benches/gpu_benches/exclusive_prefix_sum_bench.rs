@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 use criterion::{BenchmarkId, Criterion, Throughput};
-use engine::{compute::ComputeEngine, traits::GpuTask, utils::{gpu_algorithms::exclusive_prefix_sum::ExclusivePrefixSum, gpu_profiler::GpuProfiler}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
+use engine::{algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{compute::ComputeEngine, headless::VkHeadless, profiler::GpuProfiler, core::VkCore, resources::buffer::VkBuffer}};
 use rand::{Rng, rngs::ThreadRng};
-
-use crate::gpu_benches::gpu_bench_utils::measure_gpu_work;
+use engine::vulkan::shaders::traits::GpuTask; 
+use crate::gpu_benches::gpu_bench_utils::execute_and_profile;
 
 pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion){
     
@@ -12,26 +12,33 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion){
         let profiler = GpuProfiler::new(vk_core.clone(), 10, 1);
         
         let mut group = criterion.benchmark_group("GPU_Exclusive_prefix_sum");
-        group.measurement_time(std::time::Duration::from_secs(2));
+        group.warm_up_time(Duration::from_secs(1));
+        group.measurement_time(Duration::from_secs(1));
+
+        let label = ExclusivePrefixSum::profiling_label();
+
+        let max_size = 1 << 24;
+        let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, max_size);
+
         
         for exponent in 10u32..=24u32 {
             let size = 1 << exponent; // 2^10, 2^11... 2^24
+
+            let benchmark_id = BenchmarkId::new(label, size);
             group.throughput(Throughput::Bytes(size as u64 * size_of::<u32>() as u64));
             
-            
-            // Create resources outside the timing loop
-            let (data_buffer, _exclusive_prefix_sum) = prepare_gpu_resources(vk_core, engine, &mut rng, size);
-            let label = ExclusivePrefixSum::profiling_label();
+            let data_buffer = prepare_gpu_resources(vk_core, engine, &mut rng, size);
 
-            group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, &_| {
+
+            group.bench_with_input(benchmark_id, &size, |b, &_| {
                 
                 // Using iter_custom to report only GPU time
                 b.iter_custom(|iters| {
                     let mut total_gpu_ms = 0.0;
 
                     for _ in 0..iters {
-                        total_gpu_ms += measure_gpu_work(vk_core, engine, &profiler, label, |cmd_buffer|{
-                            _exclusive_prefix_sum.dispatch(vk_core, cmd_buffer, &data_buffer, &data_buffer);
+                        total_gpu_ms += execute_and_profile(vk_core, engine, &profiler, label, |cmd_buffer|{
+                            exclusive_prefix_sum.dispatch(vk_core, cmd_buffer, &data_buffer, &data_buffer);
                         });
                     }
 
@@ -55,7 +62,7 @@ fn prepare_gpu_resources(
     engine: &ComputeEngine, 
     rng: &mut ThreadRng,
     num_elements: u32
-) -> (VkBuffer<u32>, ExclusivePrefixSum) {
+) -> VkBuffer<u32> {
     let rng_data: Vec<u32> = (0..num_elements).map(|_| rng.random_range(0..=1)).collect();
     
     let buffer = VkBuffer::new_gpu_only(
@@ -64,9 +71,6 @@ fn prepare_gpu_resources(
         "Bench Buffer",
         engine.command_pool(),
         *vk_core.compute_queue()
-    ).unwrap();
-
-    let algo = ExclusivePrefixSum::new(vk_core, num_elements);
-    
-    (buffer, algo)
+    ).unwrap();    
+    buffer
 }

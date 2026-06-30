@@ -1,7 +1,7 @@
 use std::{sync::Arc};
 
-use engine::{components::Position, compute::ComputeEngine, physics_engine::{BoundingBox, integration::{Integrator, UpdateVelocitiesSystem}, neighbor_list::{NeighborList, SuperCluster, SuperClusterNeighbors}}, utils::{data_structures::octree::octree::Octree, gpu_algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::CommandBuffer}, world::world_objects::particles::{Particles, RearrangingSystem}};
-use glam::Vec4Swizzles;
+use engine::{algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort}, simulation::{bounding_box::BoundingBox, integration::{Integrator, VelocityUpdater}, neighbor_list::{NeighborList, SuperCluster, SuperClusterNeighbors}, octree::{LeafParticles, octree::Octree}}, vulkan::{compute::ComputeEngine, core::VkCore, headless::VkHeadless, resources::CommandBuffer}, world::particles::{ParticleReorderer, Particles}};
+use glam::{Vec4, Vec4Swizzles};
 
 use crate::gpu::octree_test::{decode_hilbert_3d_cpu, decode_warren_salmon_key};
 
@@ -14,9 +14,9 @@ struct NeighborListTest {
     world_size: f32,
     world_min: glam::Vec4,
     particle_sorter: GpuKVRadixSort<u32>,
-    particle_rearranger: RearrangingSystem,
+    particle_rearranger: ParticleReorderer,
     particle_integrator: Integrator,
-    particle_velocity_updater: UpdateVelocitiesSystem,
+    particle_velocity_updater: VelocityUpdater,
 }
 
 
@@ -31,8 +31,8 @@ impl NeighborListTest {
         let neighbor_list = NeighborList::new(vk_core, cmd_pool, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
         let hilbert_encoder = HilbertEncoder::new(vk_core, Octree::max_levels()).unwrap();
         let particle_sorter = GpuKVRadixSort::new(vk_core, cmd_pool, particles.len() as u32, None).unwrap();
-        let particle_rearranger = RearrangingSystem::new(vk_core).unwrap();
-        let particle_velocity_updater = UpdateVelocitiesSystem::new(vk_core).unwrap();
+        let particle_rearranger = ParticleReorderer::new(vk_core).unwrap();
+        let particle_velocity_updater = VelocityUpdater::new(vk_core).unwrap();
         let particle_integrator = Integrator::new(vk_core).unwrap();
         Self {  
             particles,
@@ -68,21 +68,21 @@ impl NeighborListTest {
            
         self.hilbert_encoder.dispatch(
             vk_core,
-            particle_data.morton_codes_buffer.len() as u32,
+            particle_data.hilbert_keys.len() as u32,
             self.world_min,
             self.world_size,
             particle_data.positions_buffer.current(),
-            &particle_data.morton_codes_buffer,
-            &particle_data.object_indices_buffer,
+            &particle_data.hilbert_keys,
+            &particle_data.particle_indexes,
             cmd_buffer,
         );
         
         self.particle_sorter.sort(
             vk_core,
-            &particle_data.morton_codes_buffer,
-            &particle_data.object_indices_buffer,
+            &particle_data.hilbert_keys,
+            &particle_data.particle_indexes,
             cmd_buffer,
-            particle_data.morton_codes_buffer.len()
+            particle_data.hilbert_keys.len()
         );   
         
             
@@ -91,7 +91,7 @@ impl NeighborListTest {
         self.particles.buffers_mut().swap();
 
         
-        self.octree.build(vk_core, cmd_buffer, &self.particles.buffers().morton_codes_buffer, false);
+        self.octree.build(vk_core, cmd_buffer, &self.particles.buffers().hilbert_keys, false);
 
         self.neighbor_list.build(vk_core, cmd_buffer, &self.octree, self.particles.buffers(), self.search_radius, self.world_min, self.world_size);
         
@@ -112,10 +112,10 @@ impl NeighborListTest {
             let node_keys = self.octree.data().node_keys().read_back(vk_core, command_pool).unwrap();
             let leaf_indexes = self.octree.leaf_indexes(vk_core, command_pool);
             let node_first_child = self.octree.data().node_first_child().read_back(vk_core, command_pool).unwrap();
-            let leaf_data = self.octree.data().leaf_data().read_back(vk_core, command_pool).unwrap();
+            let leaf_particles = self.octree.data().leaf_particles().read_back(vk_core, command_pool).unwrap();
     
             // Retrieve the unsorted leaf layouts directly from your direct-write GPU buffers
-            let unsorted_leaf_data = self.octree.data().unsorted_leaf_data().read_back(vk_core, command_pool).unwrap();
+            let unsorted_leaf_data = self.octree.data().unsorted_leaf_particles().read_back(vk_core, command_pool).unwrap();
     
             let num_leaves = leaf_indexes.len(); // Actual number of active leaves
             
@@ -125,7 +125,7 @@ impl NeighborListTest {
     
             // Perform neighbor-list matching in Unsorted Leaf Order
             self.validate_octree_geometry(vk_core, engine);
-            self.validate_brute_force_neighbors_unsorted(vk_core, engine, active_super_clusters, &super_cluster_neighbors, &positions, active_unsorted_leaf_data, &leaf_data);
+            self.validate_brute_force_neighbors_unsorted(vk_core, engine, active_super_clusters, &super_cluster_neighbors, &positions, active_unsorted_leaf_data, &leaf_particles);
             self.validate_neighbor_list_unsorted(active_super_clusters, &positions, &node_keys, &leaf_indexes, &node_first_child, active_unsorted_leaf_data);        
         }
     
@@ -137,7 +137,7 @@ impl NeighborListTest {
             let command_pool = engine.command_pool();
             let node_keys = self.octree.data().node_keys().read_back(vk_core, command_pool).unwrap();
             let node_first_child = self.octree.data().node_first_child().read_back(vk_core, command_pool).unwrap();
-            let leaf_data = self.octree.data().leaf_data().read_back(vk_core, command_pool).unwrap(); 
+            let leaf_particles = self.octree.data().leaf_particles().read_back(vk_core, command_pool).unwrap(); 
             let positions = self.particles.buffers().positions_buffer.current().read_back(vk_core, command_pool).unwrap();
             
             let leaf_indices: Vec<u32> = (0..node_first_child.len() as u32)
@@ -147,18 +147,18 @@ impl NeighborListTest {
             println!("Checking geometry of {} leaf nodes...", leaf_indices.len());
         
             let eps = 0.5f32; // Tolerates up to 0.5 units of post-build physics solver / nudge drift
-            let gpu_keys = self.particles.buffers().morton_codes_buffer.read_back(vk_core, command_pool).unwrap();
+            let gpu_keys = self.particles.buffers().hilbert_keys.read_back(vk_core, command_pool).unwrap();
             
             for &leaf_idx in &leaf_indices {
                 let key = node_keys[leaf_idx as usize];
                 let bbox = decode_warren_salmon_key(key, self.world_size, self.world_min.xyz());
-                let leaf = leaf_data[leaf_idx as usize];
+                let leaf = leaf_particles[leaf_idx as usize];
             
-                if leaf.y == 0 {
+                if leaf.count == 0 {
                     continue;
                 }
             
-                for p_idx in leaf.x..(leaf.x + leaf.y) {
+                for p_idx in leaf.start_idx..(leaf.start_idx + leaf.count) {
                     let mut pos = positions[p_idx as usize].xyz();
             
                     // 1. Clamp to world boundaries
@@ -181,10 +181,10 @@ impl NeighborListTest {
                         
                         println!("Leaf Key: {}, Level: {}, Decoded Grid Pos: {:?}", key, level, grid_pos);
                         println!("Leaf Bounding Box Min: {:?}, Max: {:?}", bbox.min, bbox.max);
-                        println!("Leaf Particle Range in Sorted Buffer: [{} .. {}]", leaf.x, leaf.x + leaf.y);
+                        println!("Leaf Particle Range in Sorted Buffer: [{} .. {}]", leaf.start_idx, leaf.start_idx + leaf.count);
                         
                         println!("Particles inside this leaf:");
-                        for idx in leaf.x..(leaf.x + leaf.y) {
+                        for idx in leaf.start_idx..(leaf.start_idx + leaf.count) {
                             let p_pos = positions[idx as usize].xyz();
                             
                             let grid_pos_p = position_to_grid_cpu(p_pos, self.world_min.xyz(), self.world_size, 10);
@@ -207,11 +207,11 @@ impl NeighborListTest {
         fn validate_neighbor_list_unsorted(
             &self,
             super_clusters: &[SuperCluster], 
-            positions: &[Position],
+            positions: &[Vec4],
             node_keys: &[u32],
             leaf_indexes: &[u32],
             node_first_child: &[u32],
-            unsorted_leaf_data: &[glam::UVec2], 
+            unsorted_leaf_data: &[LeafParticles], 
         ) {
             let num_leaves = super_clusters.len();
     
@@ -229,7 +229,7 @@ impl NeighborListTest {
             for i in 0..num_leaves {
                 let leaf = unsorted_leaf_data[i];
                 
-                if leaf.y == 0 {
+                if leaf.count == 0 {
                     // Empty leaf placeholder
                     cpu_leaf_query_boxes.push(BoundingBox { min: glam::Vec4::ZERO, max: glam::Vec4::ZERO });
                     continue;
@@ -238,7 +238,7 @@ impl NeighborListTest {
                 let mut min = glam::Vec4::INFINITY;
                 let mut max = glam::Vec4::NEG_INFINITY;
                 
-                for p_idx in leaf.x..(leaf.x + leaf.y) {
+                for p_idx in leaf.start_idx..(leaf.start_idx + leaf.count) {
                     let pos = positions[p_idx as usize];
                     let pos_vec4 = glam::Vec4::new(pos.x, pos.y, pos.z, 0.0);
                     min = min.min(pos_vec4);
@@ -260,7 +260,7 @@ impl NeighborListTest {
             for (i, query_box) in cpu_leaf_query_boxes.iter().enumerate() {
                 let leaf = unsorted_leaf_data[i];
                 
-                if leaf.y == 0 {
+                if leaf.count == 0 {
                     cpu_super_clusters.push(SuperCluster { 
                         neighbor_count: 0, 
                         neighbor_index: 0 
@@ -346,11 +346,11 @@ impl NeighborListTest {
                 &self,
                 vk_core: &Arc<VkCore>,
                 engine: &ComputeEngine,
-                super_clusters: &[SuperCluster], // Sliced to num_leaves
+                super_clusters: &[SuperCluster],
                 super_cluster_neighbors: &[SuperClusterNeighbors],
-                positions: &[Position],
-                unsorted_leaf_data: &[glam::UVec2], // Sliced to num_leaves
-                sorted_leaf_data: &[glam::UVec2],
+                positions: &[Vec4],
+                unsorted_leaf_particles: &[LeafParticles], 
+                sorted_leaf_particles: &[LeafParticles],
         ) {
             let num_particles = self.particles.len();
             let num_leaves = super_clusters.len();
@@ -359,8 +359,8 @@ impl NeighborListTest {
         
         
             for i in 0..num_leaves {
-                let leaf = unsorted_leaf_data[i];
-                if leaf.y == 0 {
+                let leaf = unsorted_leaf_particles[i];
+                if leaf.count == 0 {
                     continue;
                 }
         
@@ -370,15 +370,15 @@ impl NeighborListTest {
                     
                 for neighbor_idx in sc.neighbor_index..(sc.neighbor_index + sc.neighbor_count) {
                     let leaf_node_idx = super_cluster_neighbors[neighbor_idx as usize].neighbor_leaf_idx as usize;
-                    let leaf = sorted_leaf_data[leaf_node_idx]; // Read from sorted leaf_data
+                    let leaf = sorted_leaf_particles[leaf_node_idx]; // Read from sorted leaf_data
                             
-                    for p_idx in leaf.x..(leaf.x + leaf.y) {
+                    for p_idx in leaf.start_idx..(leaf.start_idx + leaf.count) {
                         gpu_reported_neighbors.insert(p_idx as usize);
                     }
                 }
         
                 // 2. Perform CPU brute-force search over all particles inside this Leaf
-                for p_i in leaf.x..(leaf.x + leaf.y) {
+                for p_i in leaf.start_idx..(leaf.start_idx + leaf.count) {
                     let pos_i = positions[p_i as usize].xyz();
                     let radius_i = positions[p_i as usize].w;
                     
@@ -406,8 +406,8 @@ impl NeighborListTest {
                                     &positions,
                                     &self.octree.data().node_keys().read_back(vk_core, command_pool).unwrap(),
                                     &self.octree.data().node_first_child().read_back(vk_core, command_pool).unwrap(),
-                                    sorted_leaf_data,
-                                    unsorted_leaf_data,
+                                    sorted_leaf_particles,
+                                    unsorted_leaf_particles,
                                 );
                                 
                                 panic!("Stopping on diagnostic failure.");
@@ -420,18 +420,18 @@ impl NeighborListTest {
     pub fn simulate_gpu_traversal_on_cpu_unsorted(
             &self,
             leaf_idx: usize,
-            positions: &[Position],
+            positions: &[Vec4],
             node_keys: &[u32],
             node_first_child: &[u32],
-            sorted_leaf_data: &[glam::UVec2],
-            unsorted_leaf_data: &[glam::UVec2],
+            sorted_leaf_particles: &[LeafParticles],
+            unsorted_leaf_particles: &[LeafParticles],
         ) {
-            let leaf = unsorted_leaf_data[leaf_idx];
+            let leaf = unsorted_leaf_particles[leaf_idx];
     
             // Calculate the tight leaf bounding box exactly like build_leaf_bounding_box
             let mut min = glam::Vec4::INFINITY;
             let mut max = glam::Vec4::NEG_INFINITY;
-            for p_idx in leaf.x..(leaf.x + leaf.y) {
+            for p_idx in leaf.start_idx..(leaf.start_idx + leaf.count) {
                 let pos = positions[p_idx as usize];
                 let pos_vec4 = glam::Vec4::new(pos.x, pos.y, pos.z, 0.0);
                 min = min.min(pos_vec4);
@@ -444,7 +444,7 @@ impl NeighborListTest {
     
             println!("\n====================================================");
             println!("DIAGNOSTIC: SIMULATING GPU TRAVERSAL FOR UNSTORTED LEAF INDEX {}", leaf_idx);
-            println!("Leaf Particle Range: [{}..{}]", leaf.x, leaf.x + leaf.y);
+            println!("Leaf Particle Range: [{}..{}]", leaf.start_idx, leaf.start_idx + leaf.count);
             println!("Leaf Box Min: {:?}", super_cluster_min);
             println!("Leaf Box Max: {:?}", super_cluster_max);
     
@@ -496,11 +496,11 @@ impl NeighborListTest {
                         if is_internal_node {
                             queue.push(node_first_child_idx);
                         } else {
-                            let leaf = sorted_leaf_data[node_idx];
+                            let leaf = sorted_leaf_particles[node_idx];
                             found_leaves.push((node_idx, leaf));
                             println!(
                                 "    --> INTERSECTED LEAF Node {}: Particle Range [{}..{}], Count: {}",
-                                node_idx, leaf.x, leaf.x + leaf.y, leaf.y
+                                node_idx, leaf.start_idx, leaf.start_idx + leaf.count, leaf.count
                             );
                         }
                     }

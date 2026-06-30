@@ -1,11 +1,44 @@
+# Fluid simulation
+A highly optimized GPU fluid simulation. Particle based, uses an octree for neighbor search. 
+
 ## Prerequisites
-Install [LLVM](https://github.com/llvm/llvm-project/releases)
+This is what I had to install to run the project. 
+- Install [LLVM](https://github.com/llvm/llvm-project/releases)
+- Install [Lunar Vulkan SDK](https://vulkan.lunarg.com/) 
+- Your GPU must be compatible with mesh shaders, wave/subgroup/warp instructions among other things... 
 
-Install [Lunar Vulkan SDK](https://vulkan.lunarg.com/) 
+Something else? I do not know. 
 
-Maybe cmake
+## Run
+```bash
+cargo run --release
+``` 
 
-```fish
-set -x VULKAN_SDK /home/marc/vulkansdk-linux-x86_64-1.4.341.1/1.4.341.1/x86_64/
-set -x LD_LIBRARY_PATH $VULKAN_SDK/lib $LD_LIBRARY_PATH
+## Test
+```bash
+cargo test
 ```
+
+## Benchmark
+```bash
+cargo bench 
+```
+
+## Controls
+| Input | Action |
+| :---- | :----- |
+| Mouse wheel | Zoom in/out |
+| Left click and drag | Rotate camera |
+| Right click and drag | Move camera |
+
+## Performance
+System:
+- GPU: AMD 6800XT
+- CPU: AMD Ryzen 7600
+- OS: Linux
+
+
+## References
+- [Position based fluids](https://mmacklin.com/pbf_sig_preprint.pdf)
+- [Cornerstone: Octree Construction Algorithms for Scalable Particle Simulations](https://arxiv.org/abs/2307.06345)
+- [Single-pass Parallel Prefix Scan with Decoupled Look-back](https://research.nvidia.com/sites/default/files/pubs/2016-03_Single-pass-Parallel-Prefix/nvr-2016-002.pdf)

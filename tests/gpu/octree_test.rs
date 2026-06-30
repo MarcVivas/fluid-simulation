@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use ash::vk;
-use engine::{components::{HilbertKey}, compute::ComputeEngine, utils::{data_structures::octree::{octree::Octree}}, vulkan::{headless::VkHeadless, vk_core::VkCore, vk_utils::VkBuffer}};
+use engine::{simulation::octree::{LeafParticles, octree::Octree}, vulkan::{compute::ComputeEngine, core::VkCore, headless::VkHeadless, resources::buffer::VkBuffer}};
 use rand::rngs::ThreadRng;
 use rand::Rng;
-use engine::physics_engine::{BoundingBox};
+use engine::simulation::bounding_box::{BoundingBox};
 
 #[test]
 pub fn octree_test(){
@@ -60,7 +60,7 @@ pub fn octree_maintenance_test() {
     });
 }
 
-fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, keys: &Vec<HilbertKey>){
+fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, keys: &Vec<u32>){
     // Get back the data
     let sentinel = Octree::sentinel();
     let octree_data = octree.data();
@@ -71,7 +71,7 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
     let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
     let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
     let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
-    let leaf_data = octree_data.leaf_data().read_back(vk_core, cmd_pool).unwrap();
+    let leaf_particles = octree_data.leaf_particles().read_back(vk_core, cmd_pool).unwrap();
     let n_crit = octree.n_crit();
     let num_internal_nodes = (leaf_count - 1) / 7;
     let total_nodes = leaf_count + num_internal_nodes;
@@ -84,7 +84,7 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
     let active_cornerstone = &cornerstone_array[0..leaf_count+1];
     let active_node_keys = &node_keys[0..total_nodes];
     let active_node_first_child = &node_first_child[0..total_nodes];
-    let active_leaf_data = &leaf_data[0..total_nodes];
+    let active_leaf_data = &leaf_particles[0..total_nodes];
     let active_level_offsets = &level_offsets[0..max_levels as usize + 2];
     
     // 1. Verify 1D physical boundaries and histograms
@@ -140,7 +140,7 @@ pub fn validate_octree_bulletproof(
     let octree_data = octree.data();
     let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
     let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
-    let leaf_data = octree_data.leaf_data().read_back(vk_core, cmd_pool).unwrap();
+    let leaf_data = octree_data.leaf_particles().read_back(vk_core, cmd_pool).unwrap();
     let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
     let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
     let max_levels = Octree::max_levels() as usize;
@@ -207,8 +207,8 @@ pub fn validate_octree_bulletproof(
     // the BFS to iterate billions of clusters
     for i in 0..node_count {
         let fci = node_first_child[i] as usize;
-        let start = leaf_data[i].x as usize;
-        let count = leaf_data[i].y as usize;
+        let start = leaf_data[i].start_idx as usize;
+        let count = leaf_data[i].count as usize;
 
         if fci == 0 {
             // Leaf node
@@ -277,8 +277,8 @@ pub fn validate_octree_bulletproof(
     let mut coverage = vec![0u32; num_particles + 1];
     for i in 0..node_count {
         if node_first_child[i] == 0 {
-            let start = leaf_data[i].x as usize;
-            let count = leaf_data[i].y as usize;
+            let start = leaf_data[i].start_idx as usize;
+            let count = leaf_data[i].count as usize;
             for p in start..start + count {
                 coverage[p] += 1;
                 assert_eq!(
@@ -331,7 +331,7 @@ pub fn validate_octree_bulletproof(
 fn validate_leaf_data_alignment(
     node_keys: &[u32],
     node_first_child: &[u32],
-    leaf_data: &[glam::UVec2],
+    leaf_particles: &[LeafParticles],
     cornerstone: &[u32],
     histogram: &[u32],
     leaf_count: usize,
@@ -356,8 +356,8 @@ fn validate_leaf_data_alignment(
             let level = (bit_high / 3) as usize;
             let path = key ^ (1 << (3 * level));
 
-            let start_idx = leaf_data[i].x as usize;
-            let count = leaf_data[i].y as usize;
+            let start_idx = leaf_particles[i].start_idx as usize;
+            let count = leaf_particles[i].count as usize;
 
             decoded_leaves.push(DecodedLeaf {
                 node_idx: i,
@@ -526,20 +526,20 @@ fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut T
 pub fn validate_leaf_data(
     node_keys: &[u32],
     node_first_child: &[u32],
-    leaf_data: &[glam::UVec2],
+    leaf_particles: &[LeafParticles],
     sorted_keys: &[u32],
     max_levels: usize, // e.g., 10
 ) {
     let total_nodes = node_keys.len();
-    assert_eq!(leaf_data.len(), total_nodes, "LeafData array length mismatch");
+    assert_eq!(leaf_particles.len(), total_nodes, "LeafData array length mismatch");
     
     let mut total_particles_in_leaves = 0;
 
     for i in 0..total_nodes {
         // If first child index is 0, this node is a leaf
         if node_first_child[i] == 0 { 
-            let start_idx = leaf_data[i].x as usize;
-            let count = leaf_data[i].y as usize;
+            let start_idx = leaf_particles[i].start_idx as usize;
+            let count = leaf_particles[i].count as usize;
             
             let key = node_keys[i];
             let key_level = ((31 - key.leading_zeros()) / 3) as usize;
@@ -782,7 +782,7 @@ pub fn validate_octree_topology(
 pub fn validate_bounding_box_queries(
     node_keys: &[u32],
     node_first_child: &[u32],
-    leaf_data: &[glam::UVec2],
+    leaf_particles: &[LeafParticles],
     keys: &[u32],
     max_levels: usize,
 ) {
@@ -845,8 +845,8 @@ pub fn validate_bounding_box_queries(
                 let fci = node_first_child[node_idx] as usize;
                 if fci == 0 {
                     // Leaf Node: Check individual particles contained inside
-                    let start = leaf_data[node_idx].x as usize;
-                    let count = leaf_data[node_idx].y as usize;
+                    let start = leaf_particles[node_idx].start_idx as usize;
+                    let count = leaf_particles[node_idx].count as usize;
 
                     for offset in 0..count {
                         let particle_idx = start + offset;

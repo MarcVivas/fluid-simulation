@@ -1,1 +1,0 @@
-pub type Vorticity = glam::Vec4;

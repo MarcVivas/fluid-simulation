@@ -1,3 +1,6 @@
-pub mod vk_core;
-pub mod vk_utils;
+pub mod core;
+pub mod resources;
 pub mod headless;
+pub mod profiler;
+pub mod shaders;
+pub mod compute; 

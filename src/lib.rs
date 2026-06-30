@@ -1,9 +1,7 @@
-pub mod components;
-pub mod compute;
-pub mod physics_engine;
-pub mod renderer;
-pub mod utils;
+pub mod rendering;
 pub mod vulkan;
 pub mod world;
 pub mod app;
-pub mod traits; 
+pub mod algorithms;
+pub mod simulation;
+pub mod input_manager;

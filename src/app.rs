@@ -1,11 +1,10 @@
-use crate::compute::ComputeEngine;
-use crate::renderer::renderer::Renderer;
-use crate::utils::gpu_profiler::GpuProfiler;
-use crate::utils::input_manager;
-use crate::vulkan::vk_core::init_with_window;
-use crate::vulkan::vk_core::VkCore;
+use crate::vulkan::compute::{ComputeEngine,};
+use crate::rendering::renderer::Renderer;
+use crate::vulkan::profiler::GpuProfiler;
+use crate::vulkan::core::init_with_window;
+use crate::vulkan::core::VkCore;
 use crate::world::World;
-use crate::world::world_objects::particles::ParticleRenderData;
+use crate::world::particles::ParticleRenderData;
 use glam::Vec3;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -16,19 +15,21 @@ use winit::keyboard::KeyCode;
 use winit::window::{Window, WindowAttributes, WindowId};
 use winit::event::KeyEvent;
 use winit::keyboard::PhysicalKey;
+use crate::input_manager; 
 
 pub struct App {
     vk_core: Option<Arc<VkCore>>,
     renderer: Option<Renderer>,
     window: Option<Window>,
-    window_resized: bool,
-    paused: bool,
     world: Option<World>,
     compute_engine: Option<ComputeEngine>,
     gpu_profiler: Option<GpuProfiler>,
     mouse_position: dpi::PhysicalPosition<f64>,
     total_frames_proccessed: u64,
 
+    window_resized: bool,
+    paused: bool,
+    
     render_sender: crossbeam_channel::Sender<ParticleRenderData>,
     render_receiver: crossbeam_channel::Receiver<ParticleRenderData>,
     current_render_data: Option<ParticleRenderData>,

@@ -1,10 +1,10 @@
-use engine::vulkan::vk_core::VkCore;
-use engine::compute::ComputeEngine;
-use engine::utils::gpu_profiler::GpuProfiler;
+use engine::vulkan::core::VkCore;
+use engine::vulkan::compute::ComputeEngine;
+use engine::vulkan::profiler::GpuProfiler;
 use std::sync::Arc;
 
 /// A simple helper that handles the GPU timing loop.
-pub fn measure_gpu_work<F>(
+pub fn execute_and_profile<F>(
     vk_core: &Arc<VkCore>,
     engine: &ComputeEngine,
     profiler: &GpuProfiler,
@@ -12,7 +12,7 @@ pub fn measure_gpu_work<F>(
     mut work: F,
 ) -> f64 
 where 
-    F: FnMut(&engine::vulkan::vk_utils::CommandBuffer)
+    F: FnMut(&engine::vulkan::resources::CommandBuffer)
 {
     engine.record_commands(|cb| {
         profiler.reset(vk_core.device(), cb.vk_cmd_buffer());

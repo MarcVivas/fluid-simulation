@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex, OnceLock};
-use crate::{compute::ComputeEngine, vulkan::vk_core::{VkCore, init_headless}};
+use crate::vulkan::{compute::ComputeEngine, core::{VkCore, init_headless}};
 use rand::rngs::ThreadRng;
 
 pub struct VkHeadless {

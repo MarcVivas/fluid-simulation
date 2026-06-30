@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use engine::compute::ComputeEngine;
+use engine::vulkan::compute::ComputeEngine;
 use engine::vulkan::headless::VkHeadless;
-use engine::vulkan::vk_core::VkCore;
-use engine::vulkan::vk_utils::VkBuffer;
+use engine::vulkan::core::VkCore;
+use engine::vulkan::resources::buffer::VkBuffer;
 use glam::{Vec4};
 use rand::Rng;
-use engine::components::{HilbertKey};
-use engine::utils::gpu_algorithms::hilbert_encoding::HilbertEncoder;
+use engine::algorithms::hilbert_encoding::HilbertEncoder;
 use rand::rngs::ThreadRng;
 
 
@@ -52,7 +51,7 @@ pub fn test_hilbert_encoder() {
 }
 
 
-fn validate_length(result_keys: &Vec<HilbertKey>, result_point_ids: &Vec<u32>, count: usize){
+fn validate_length(result_keys: &Vec<u32>, result_point_ids: &Vec<u32>, count: usize){
     assert_eq!(result_keys.len(), count, "Output keys length mismatch");
     assert_eq!(result_point_ids.len(), count, "Output IDs length mismatch");
 }
@@ -63,7 +62,7 @@ fn validate_ids(result_point_ids: &Vec<u32>, count: usize){
     }
 }
 
-fn validate_determinism(result_keys: &Vec<HilbertKey>){
+fn validate_determinism(result_keys: &Vec<u32>){
     // We injected identical points at indices 0 and 1. They must produce identical keys.
     assert_eq!(
         result_keys[0], result_keys[1], 
@@ -71,16 +70,16 @@ fn validate_determinism(result_keys: &Vec<HilbertKey>){
     );
 }
 
-fn validate_bounds_and_clamping(result_keys: &Vec<HilbertKey>){
+fn validate_bounds_and_clamping(result_keys: &Vec<u32>){
     // They should clamp safely to valid Hilbert keys without overflowing.
     for &key in result_keys {
         assert!(key < (1u32 << 30u32), "Out-of-bounds (min) particle generated an invalid overflow key!");
     }
 }
 
-fn validate_spatial_compactness(result_keys: &Vec<HilbertKey>, result_point_ids: &Vec<u32>, original_points: &Vec<Vec4>, count: usize){
+fn validate_spatial_compactness(result_keys: &Vec<u32>, result_point_ids: &Vec<u32>, original_points: &Vec<Vec4>, count: usize){
     // We zip the keys and IDs together and sort them by the Hilbert Key.
-    let mut sorted_data: Vec<(&HilbertKey, &u32)> = result_keys.into_iter().zip(
+    let mut sorted_data: Vec<(&u32, &u32)> = result_keys.into_iter().zip(
         result_point_ids.into_iter()
     ).collect();
     sorted_data.sort_by_key(|&(key, _)| key);
@@ -112,7 +111,7 @@ fn validate_spatial_compactness(result_keys: &Vec<HilbertKey>, result_point_ids:
 
 }
 
-fn validate(result_keys: &Vec<HilbertKey>, result_point_ids: &Vec<u32>, original_points: &Vec<Vec4>, count: usize){
+fn validate(result_keys: &Vec<u32>, result_point_ids: &Vec<u32>, original_points: &Vec<Vec4>, count: usize){
     validate_length(result_keys, result_point_ids, count);
     validate_ids(result_point_ids, count);
     validate_determinism(result_keys);

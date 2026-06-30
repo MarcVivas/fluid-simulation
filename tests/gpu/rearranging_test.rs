@@ -1,16 +1,16 @@
 use std::sync::Arc;
-use engine::utils::gpu_algorithms::hilbert_encoding::HilbertEncoder;
-use engine::compute::ComputeEngine;
-use engine::utils::gpu_algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use engine::algorithms::hilbert_encoding::HilbertEncoder;
+use engine::vulkan::compute::ComputeEngine;
+use engine::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
 use engine::vulkan::headless::VkHeadless;
-use engine::vulkan::vk_core::VkCore;
-use engine::world::world_objects::particles::{Particles, RearrangingSystem};
+use engine::vulkan::core::VkCore;
+use engine::world::particles::{Particles, ParticleReorderer};
 
 struct RearrangingSystemTest {
     particles: Particles,
     hilbert_encoder: HilbertEncoder,
     sorting_system: GpuKVRadixSort<u32>,
-    rearranging_system: RearrangingSystem,
+    rearranging_system: ParticleReorderer,
     num_particles: u32,
     world_size: f32,
     world_min: glam::Vec3,
@@ -24,7 +24,7 @@ impl RearrangingSystemTest {
         let particles = Particles::new(num_particles as usize, &world_max, vk_core, cmd_pool).unwrap();
         let hilbert_encoder = HilbertEncoder::new(vk_core, 10).unwrap();
         let sorting_system = GpuKVRadixSort::<u32>::new(vk_core, cmd_pool, num_particles, Some(64)).unwrap();
-        let rearranging_system = RearrangingSystem::new(vk_core).unwrap();
+        let rearranging_system = ParticleReorderer::new(vk_core).unwrap();
 
         Self {
             particles,
@@ -50,16 +50,16 @@ impl RearrangingSystemTest {
                 glam::Vec4::new(self.world_min.x, self.world_min.y, self.world_min.z, 0.0),
                 self.world_size,
                 particle_data.positions_buffer.current(),
-                &particle_data.morton_codes_buffer,
-                &particle_data.object_indices_buffer,
+                &particle_data.hilbert_keys,
+                &particle_data.particle_indexes,
                 cmd_buffer,
             );
 
             // Sort Morton codes (keys) and object indices (values)
             self.sorting_system.sort(
                 vk_core,
-                &particle_data.morton_codes_buffer,
-                &particle_data.object_indices_buffer,
+                &particle_data.hilbert_keys,
+                &particle_data.particle_indexes,
                 cmd_buffer,
                 self.num_particles as usize,
             );
@@ -71,7 +71,7 @@ impl RearrangingSystemTest {
         let unsorted_positions = self.particles.buffers().positions_buffer.current().read_back(vk_core, cmd_pool).unwrap();
         let unsorted_prev_positions = self.particles.buffers().previous_positions_buffer.current().read_back(vk_core, cmd_pool).unwrap();
         let unsorted_velocities = self.particles.buffers().velocities.current().read_back(vk_core, cmd_pool).unwrap();
-        let object_indices = self.particles.buffers().object_indices_buffer.read_back(vk_core, cmd_pool).unwrap();
+        let object_indices = self.particles.buffers().particle_indexes.read_back(vk_core, cmd_pool).unwrap();
 
         // 3. Execute the GPU RearrangingSystem (writes sorted values into .next())
         engine.record_commands(|cmd_buffer| {

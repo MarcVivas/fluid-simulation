@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use ash::vk;
 use glam::{Vec3};
-use crate::physics_engine::neighbor_list::{NeighborList};
-use crate::utils::data_structures::octree::octree::Octree;
-use crate::utils::gpu_profiler::GpuProfiler;
-use crate::world::world_objects::particles::{Particles, ParticleRenderData};
-use crate::physics_engine::PhysicsEngine;
-use crate::vulkan::vk_core::VkCore;
-use crate::compute::ComputeEngine;
+use crate::simulation::neighbor_list::{NeighborList};
+use crate::simulation::octree::octree::Octree;
+use crate::vulkan::compute::ComputeEngine;
+use crate::vulkan::profiler::GpuProfiler;
+use crate::world::particles::{Particles, ParticleRenderData};
+use crate::simulation::physics_engine::PhysicsEngine;
+use crate::vulkan::core::VkCore;
 
 pub struct World{
     world_size: f32,

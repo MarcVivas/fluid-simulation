@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use engine::compute::ComputeEngine;
-use engine::utils::gpu_algorithms::sorting::kv_radix_sort::{GpuKVRadixSort, RadixSortPayload};
+use engine::vulkan::compute::ComputeEngine;
+use engine::algorithms::sorting::kv_radix_sort::{GpuKVRadixSort, RadixSortPayload};
 use engine::vulkan::headless::VkHeadless;
-use engine::vulkan::vk_core::VkCore;
-use engine::vulkan::vk_utils::VkBuffer;
+use engine::vulkan::core::VkCore;
+use engine::vulkan::resources::buffer::VkBuffer;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 

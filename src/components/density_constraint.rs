@@ -1,1 +1,0 @@
-pub type FluidLambda = f32;

@@ -64,7 +64,6 @@ impl NeighborSearch {
             super_clusters: neighbor_list_data.super_clusters().address(), 
             super_clusters_neighbors: neighbor_list_data.super_cluster_neighbors().address(), 
             allocator: neighbor_list_data.allocator().address(),
-            queue_pool: neighbor_list_data.queue_pool().address(),
             world_min,
             world_size,
             search_radius,

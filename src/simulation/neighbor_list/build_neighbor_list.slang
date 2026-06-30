@@ -16,11 +16,10 @@ struct PushConsts {
   Ptr<SuperCluster, Access.ReadWrite> super_clusters;
   Ptr<SuperClusterNeighbors, Access.ReadWrite> super_cluster_neighbors;
   Ptr<uint32_t, Access.ReadWrite> allocator_counter;
-  Ptr<uint32_t, Access.ReadWrite> queue_pool;
  
-  float4 world_min;
   float world_size;
   float search_radius;
+  float4 world_min;
   uint32_t num_particles;
   uint32_t num_thread_groups;
 }
@@ -33,6 +32,7 @@ static const float4 GHOST_MAX_POS = float4(float.maxValue);
 static const uint LEAF = 0;
 
 groupshared uint neighbor_leaves[MAX_NEIGHBOR_CAPACITY];
+groupshared uint queue[QUEUE_MEMORY_PER_WORKGROUP];
 groupshared uint neighbor_count;
 groupshared uint global_start_idx;
 
@@ -42,9 +42,7 @@ groupshared uint wave_start_idx;
 [shader("compute")]
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
 func main(const uint3 global_id: SV_DispatchThreadID, const uint local_id: SV_GroupIndex, const uint3 group_id: SV_GroupID){
-    // Each workgroup gets its own fixed queue slice
-    const uint queue_offset = group_id.x * QUEUE_MEMORY_PER_WORKGROUP;
-    Ptr<uint32_t, Access.ReadWrite> queue = pc.queue_pool + queue_offset;
+
 
     const uint num_leaves = *pc.leaf_count;
     // Grid stride loop
@@ -58,8 +56,8 @@ func main(const uint3 global_id: SV_DispatchThreadID, const uint local_id: SV_Gr
         // Build the bounding box of the leaf
         const BoundingBox leaf_bounding_box = build_leaf_bounding_box(leaf_particles);
         
-        initialize_shared_queue(local_id, queue);
-        traverse(queue, local_id, leaf_bounding_box, group_id.x);
+        initialize_shared_queue(local_id);
+        traverse(local_id, leaf_bounding_box, group_id.x);
         write_results_to_global_memory(local_id, i);
     }
 }
@@ -124,7 +122,6 @@ func spread_8(uint val) -> uint
 
 
 func traverse(
-    Ptr<uint32_t, Access.ReadWrite> queue,
     const uint local_id,
     const BoundingBox leaf_bounding_box,
     const uint group_id
@@ -261,7 +258,7 @@ func write_results_to_global_memory(const uint local_id, const uint leaf_index){
 }
 
 [ForceInline]
-func initialize_shared_queue(const uint local_id, Ptr<uint32_t, Access.ReadWrite> queue){
+func initialize_shared_queue(const uint local_id){
     if(local_id == 0){
         // Only the first thread of the workgroup initializes the queue
         // Push the root node to the queue

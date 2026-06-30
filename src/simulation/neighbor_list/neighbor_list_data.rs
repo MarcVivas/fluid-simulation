@@ -4,7 +4,7 @@ use ash::vk;
 
 use crate::{vulkan::{core::VkCore, resources::buffer::VkBuffer}};
 
-const QUEUE_MEMORY_PER_WORKGROUP: u32 = 128;
+const QUEUE_MEMORY_PER_WORKGROUP: u32 = 64;
 
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,8 +31,6 @@ pub struct NeighborListData {
     // Super-clusters use this to dynamically allocate contiguous blocks of memory in the NeighborData buffer.
     allocator: VkBuffer<u32>,
 
-    // A list of queues used for bfs traversal
-    queue_pool: VkBuffer<u32>,
 
     // How many particles are in a super-cluster?
     super_cluster_size: u32,
@@ -52,14 +50,12 @@ impl NeighborListData {
 
         let num_workgroups = vk_core.num_persistent_workgroups(super_cluster_size) as usize; 
         let queue_memory_per_workgroup: usize = Self::queue_memory_per_workgroup() as usize;
-        
-        let queue_pool = VkBuffer::new_gpu_only(vk_core, &vec![0; num_workgroups * queue_memory_per_workgroup], "Queue pool", cmd_pool, *vk_core.compute_queue()).unwrap();
-        
+                
         let super_cluster_neighbors: VkBuffer<SuperClusterNeighbors> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_cluster_neighbors, "SuperClusterNeighbors").unwrap();
 
         let allocator = VkBuffer::new_gpu_only(vk_core, &vec![0], "Allocator", cmd_pool, *vk_core.compute_queue()).unwrap();
 
-        Self { super_clusters, super_cluster_neighbors, allocator, super_cluster_size, queue_pool}
+        Self { super_clusters, super_cluster_neighbors, allocator, super_cluster_size}
     }
 
 
@@ -77,10 +73,6 @@ impl NeighborListData {
 
     pub fn super_cluster_size(&self) -> u32{
         self.super_cluster_size
-    }
-
-    pub fn queue_pool(&self) -> &VkBuffer<u32> {
-        &self.queue_pool
     }
 
     // Must be a power of 2

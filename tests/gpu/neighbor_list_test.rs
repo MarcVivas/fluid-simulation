@@ -28,7 +28,7 @@ impl NeighborListTest {
 
         let particles = Particles::new(num_particles as usize, &world_max, vk_core, cmd_pool).unwrap();
         let octree = Octree::new(vk_core, cmd_pool, num_particles);
-        let neighbor_list = NeighborList::new(vk_core, cmd_pool, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
+        let neighbor_list = NeighborList::new(vk_core, cmd_pool, num_particles as usize, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
         let hilbert_encoder = HilbertEncoder::new(vk_core, Octree::max_levels()).unwrap();
         let particle_sorter = GpuKVRadixSort::new(vk_core, cmd_pool, particles.len() as u32, None).unwrap();
         let particle_rearranger = ParticleReorderer::new(vk_core).unwrap();

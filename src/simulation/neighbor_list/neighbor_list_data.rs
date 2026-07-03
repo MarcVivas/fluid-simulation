@@ -31,31 +31,36 @@ pub struct NeighborListData {
     // Super-clusters use this to dynamically allocate contiguous blocks of memory in the NeighborData buffer.
     allocator: VkBuffer<u32>,
 
+    // Used for persistent workgroup compute shader
+    processed_leaves_counter: VkBuffer<u32>,
+
 
     // How many particles are in a super-cluster?
     super_cluster_size: u32,
+
+    particle_to_neighborhood: VkBuffer<SuperCluster>
     
 }
 
 
 impl NeighborListData {
 
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, max_expected_leaves: u32, super_cluster_size: u32, max_expected_neighbors_per_element: u32) -> Self {
+    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_particles: usize, max_expected_leaves: u32, super_cluster_size: u32, max_expected_neighbors_per_element: u32) -> Self {
 
         let total_super_clusters: usize = max_expected_leaves.try_into().unwrap(); 
         let total_clusters: usize = max_expected_leaves.try_into().unwrap(); 
         let total_super_cluster_neighbors: usize = max_expected_neighbors_per_element as usize * total_clusters;
         
         let super_clusters: VkBuffer<SuperCluster> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_clusters, "SuperClusters").unwrap();
-
-        let num_workgroups = vk_core.num_persistent_workgroups(super_cluster_size) as usize; 
-        let queue_memory_per_workgroup: usize = Self::queue_memory_per_workgroup() as usize;
                 
         let super_cluster_neighbors: VkBuffer<SuperClusterNeighbors> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_super_cluster_neighbors, "SuperClusterNeighbors").unwrap();
 
+        let processed_leaves_counter = VkBuffer::new_gpu_only(vk_core, &vec![0], "Processed leaves counter", cmd_pool, *vk_core.compute_queue()).unwrap();
         let allocator = VkBuffer::new_gpu_only(vk_core, &vec![0], "Allocator", cmd_pool, *vk_core.compute_queue()).unwrap();
 
-        Self { super_clusters, super_cluster_neighbors, allocator, super_cluster_size}
+        let particle_to_neighborhood: VkBuffer<SuperCluster> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles, "Particle to neighborhood").unwrap(); 
+        
+        Self { super_clusters, super_cluster_neighbors, processed_leaves_counter, allocator, super_cluster_size, particle_to_neighborhood}
     }
 
 
@@ -71,6 +76,10 @@ impl NeighborListData {
         &self.allocator
     }
 
+    pub fn processed_leaves_counter(&self) -> &VkBuffer<u32> {
+        &self.processed_leaves_counter
+    }
+
     pub fn super_cluster_size(&self) -> u32{
         self.super_cluster_size
     }
@@ -78,6 +87,11 @@ impl NeighborListData {
     // Must be a power of 2
     pub fn queue_memory_per_workgroup() -> u32 {
         QUEUE_MEMORY_PER_WORKGROUP
+    }
+
+    
+    pub fn particle_to_neighborhood(&self) -> &VkBuffer<SuperCluster> {
+        &self.particle_to_neighborhood
     }
 }
 

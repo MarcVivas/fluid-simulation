@@ -95,7 +95,7 @@ fn prepare_gpu_resources(
     let particle_reorderer = ParticleReorderer::new(vk_core)
         .expect("Failed to initialize ParticleReorderer");
     let mut octree = Octree::new(vk_core, cmd_pool, num_particles);
-    let neighbor_list = NeighborList::new(vk_core, cmd_pool, octree.max_expected_leaves(), octree.n_crit(), max_levels);
+    let neighbor_list = NeighborList::new(vk_core, cmd_pool, num_particles as usize, octree.max_expected_leaves(), octree.n_crit(), max_levels);
     let density_compute = DensityCompute::new(vk_core, neighbor_list.super_cluster_size())
         .expect("Failed to initialize DensityCompute");
 

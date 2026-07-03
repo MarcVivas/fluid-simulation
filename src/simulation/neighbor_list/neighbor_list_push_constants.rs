@@ -15,6 +15,8 @@ pub struct NeighborSearchPushConstants {
     pub super_clusters: u64, 
     pub super_clusters_neighbors: u64, 
     pub allocator: u64,
+    pub processed_leaves_counter: u64,
+    pub particle_to_neighborhood: u64,
 
     
     // Metadata

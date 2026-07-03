@@ -16,7 +16,9 @@ struct PushConsts {
   Ptr<SuperCluster, Access.ReadWrite> super_clusters;
   Ptr<SuperClusterNeighbors, Access.ReadWrite> super_cluster_neighbors;
   Ptr<uint32_t, Access.ReadWrite> allocator_counter;
- 
+  Ptr<uint32_t, Access.ReadWrite> processed_leaves_counter;
+  Ptr<SuperCluster, Access.ReadWrite> particle_to_neighborhood;
+
   float world_size;
   float search_radius;
   float4 world_min;
@@ -37,6 +39,7 @@ groupshared uint neighbor_count;
 groupshared uint global_start_idx;
 
 groupshared uint wave_start_idx; 
+groupshared uint shared_leaf_idx;
 
 // Persistent kernel
 [shader("compute")]
@@ -45,21 +48,34 @@ func main(const uint3 global_id: SV_DispatchThreadID, const uint local_id: SV_Gr
 
 
     const uint num_leaves = *pc.leaf_count;
-    // Grid stride loop
-    // This loop processes all leaves and finds their neighbors
-    for(uint i = group_id.x; i < num_leaves; i+=pc.num_thread_groups){
+    
+    while(true){
+        
+        // Claim the next leaf to process from the array. 
+        if(local_id == 0){
+            InterlockedAdd(*pc.processed_leaves_counter, 1, shared_leaf_idx);
+        }
 
+        GroupMemoryBarrierWithGroupSync();
+
+        const uint i = shared_leaf_idx;
+
+        if(i >= num_leaves){
+            break; 
+        }
+                
         // Get the leaf
         const LeafParticles leaf_particles = pc.unsorted_leaf_particles[i];
 
-
+               
         // Build the bounding box of the leaf
         const BoundingBox leaf_bounding_box = build_leaf_bounding_box(leaf_particles);
-        
+
         initialize_shared_queue(local_id);
         traverse(local_id, leaf_bounding_box, group_id.x);
-        write_results_to_global_memory(local_id, i);
+        write_results_to_global_memory(leaf_particles, local_id, i);
     }
+   
 }
 
 
@@ -196,7 +212,6 @@ func traverse(
                 }
             }
         }
-        GroupMemoryBarrierWithGroupSync();
 
        
         // Assing queue slots for the next level's children
@@ -224,7 +239,7 @@ func traverse(
 }
 
 
-func write_results_to_global_memory(const uint local_id, const uint leaf_index){
+func write_results_to_global_memory(const LeafParticles leaf_particles, const uint local_id, const uint leaf_index){
     const uint clamped_neighbor_count = min(neighbor_count, MAX_NEIGHBOR_CAPACITY);
     
     // Write the neighbors to Global VRAM
@@ -244,8 +259,16 @@ func write_results_to_global_memory(const uint local_id, const uint leaf_index){
         pc.super_clusters[leaf_index] = super_cluster;
     }
 
+   
+
     GroupMemoryBarrierWithGroupSync();
 
+    // Fill particle to neighborhood map
+    SuperCluster super_cluster = SuperCluster(clamped_neighbor_count, global_start_idx); 
+    for(uint k = local_id + leaf_particles.first_particle_index; k < leaf_particles.first_particle_index + leaf_particles.particle_count; k+=THREAD_GROUP_SIZE){
+        pc.particle_to_neighborhood[k] = super_cluster;
+    }
+    
     // Write back all neighbors contiguously (supports neighbor_count > 64)
     for(uint i = local_id; i < clamped_neighbor_count; i+=THREAD_GROUP_SIZE){
         SuperClusterNeighbors neighbor;

@@ -53,14 +53,14 @@ impl OctreeConstructor {
         }
     }
     
-    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, octree_data: &mut OctreeData, max_levels: u32, maintenance_mode: bool){
+    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, octree_data: &mut OctreeData, max_levels: u32, n_crit: u32, maintenance_mode: bool){
 
         let device = vk_core.device();
     
         for _ in 0..max_levels {
             self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
             global_sync_compute(device, cmd_buffer);
-            self.rebalancing_ops_marker.indirect_dispatch(vk_core, cmd_buffer, octree_data, maintenance_mode);
+            self.rebalancing_ops_marker.indirect_dispatch(vk_core, cmd_buffer, octree_data, maintenance_mode, n_crit);
             global_sync_compute(device, cmd_buffer);
 
             self.prefix_sum.indirect_dispatch(vk_core, cmd_buffer, octree_data.rebalance_ops(), octree_data.rebalance_prefix(), octree_data.indirect_dispatch_buffer_leaves(), octree_data.leaf_count());

@@ -8,8 +8,6 @@ use crate::{simulation::octree::{octree_constructor::OctreeConstructor, octree_d
 /// Link: https://arxiv.org/abs/2307.06345
 /// "A Parallel Hashed Octree N-body algorithm"
 /// Link: https://www.cs.umd.edu/class/fall2019/cmsc714/readings/Warren-nbody.pdf
-/// "GPU-Native Compressed Neighbor Lists with a Space-Filling-Curve Data Layout"
-/// Link: https://arxiv.org/pdf/2602.19873
 
 /// Maximum octree depth. At L=10 with 64-bit keys (3 bits/level),
 /// the finest cell is 1/2^10 of the domain = ~0.1% side length.
@@ -51,8 +49,9 @@ impl Octree {
     }
 
     pub fn build(&mut self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, maintenance_mode: bool){
-        
-        self.octree_constructor.build(vk_core, cmd_buffer, keys, &mut self.octree_data, MAX_LEVELS, maintenance_mode);
+
+        let n_crit = self.n_crit();
+        self.octree_constructor.build(vk_core, cmd_buffer, keys, &mut self.octree_data, MAX_LEVELS, n_crit, maintenance_mode);
         
         
     }

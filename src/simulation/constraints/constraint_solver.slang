@@ -17,7 +17,7 @@ struct ConstraintSolverPushConstants {
     Ptr<uint32_t, Access.Read> leaf_count;
     uint num_workgroups;
     uint num_elements;
-    float cell_size;
+    float kernel_radius;
     float rest_density;
     float reversed_rest_density;
     float poly6_constant;
@@ -60,7 +60,7 @@ func solve_particle_interactions_with_neighbor(const uint particle_idx, const fl
         const float lambda_j = lambdas[j];
         const float lambda_sum = lambda_i + lambda_j + s_corr;
 
-        const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, length(vec), push_constants.cell_size);
+        const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, dist_squared, push_constants.kernel_radius);
 
         const float neighbor_mass = 1;
         total_displacement += lambda_sum * gradient_vec * neighbor_mass;

@@ -8,7 +8,7 @@ use crate::simulation::octree::octree::Octree;
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
 use crate::world::{particles::Particles};
 use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{compute_buffer_barrier, CommandBuffer};
+use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier};
 
 pub struct DensityCompute{
     density_compute_pass: ComputePass,
@@ -39,21 +39,17 @@ struct DensityComputePushConstants {
 impl DensityCompute{
 
     pub fn new(vk_core: &Arc<VkCore>, super_cluster_size: u32) -> Result<Self, Box<dyn std::error::Error>> {
-
         let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute")
             .entry_points(&["main"])
             .compile_time_constants(ShaderCompileTimeConstants::new()
                 .add("THREAD_GROUP_SIZE", super_cluster_size)
             )
             .push_constants::<DensityComputePushConstants>()
-            // Packed positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Morton codes
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Densities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Fluid lambdas
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Positions
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Densities
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Lambdas
+            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Particle to neighborhood
+
             .build_with_single_pass()?;
         Ok(
             Self {
@@ -69,7 +65,9 @@ impl DensityCompute{
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
         let thread_group_size = neighbor_list.super_cluster_size();
-        let num_workgroups = vk_core.num_persistent_workgroups(thread_group_size);
+        
+        // Dispatch exactly based on particle count
+        let num_workgroups = (num_elements + thread_group_size - 1) / thread_group_size;
 
         
         let push_constants = DensityComputePushConstants {
@@ -90,22 +88,19 @@ impl DensityCompute{
             ..Default::default()
         };
 
-        // Describe the buffers we want to bind
         let positions = particle_data.positions_buffer.current().vk_buffer();
-        let morton_codes = particle_data.hilbert_keys.vk_buffer();
         let densities = particle_data.densities.vk_buffer();
         let lambdas = particle_data.lambdas.vk_buffer();
-
+        let particle_to_leaf = neighbor_list.particle_to_neighborhood().vk_buffer();
 
         let buffers = [
             positions,
-            morton_codes,
             densities,
             lambdas,
+            particle_to_leaf
         ];
 
-        let images = [
-        ];
+        let images = [];
 
         self.density_compute_pass.dispatch_compute(
             vk_core,
@@ -130,5 +125,4 @@ impl DensityCompute{
         ];
         command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
     }
-
 }

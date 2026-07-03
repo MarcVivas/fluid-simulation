@@ -41,13 +41,13 @@ impl RebalancingOpsMarker {
         }
     }
     
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData, maintainance_mode: bool){
+    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData, maintainance_mode: bool, n_crit: u32){
         let push_constants = RebalancingOpsMarkerPushConstants {
             leaf_count: octree_data.leaf_count().address(),
             cornerstone_array: octree_data.cornerstone_array().address(),
             leaves_histogram: octree_data.leaves_histogram().address(),
             rebalance_ops: octree_data.rebalance_ops().address(),
-            n_critical: vk_core.subgroup_size(),
+            n_critical: n_crit,
             maintainance_mode: maintainance_mode as u32
         };
 

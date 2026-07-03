@@ -120,7 +120,7 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
         .arg("spirv")
         .arg("-matrix-layout-row-major") 
         .arg("-O1");
-
+    
     for path in &shader_search_paths {
         command.arg("-I").arg(path);
     }

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{num, sync::Arc, time::Duration};
 use criterion::{BenchmarkId, Criterion, Throughput};
 use engine::{
     vulkan::{
@@ -96,6 +96,7 @@ fn prepare_gpu_resources(
     let neighbor_list = NeighborList::new(
         vk_core, 
         cmd_pool, 
+        num_particles as usize, 
         octree.max_expected_leaves(), 
         octree.n_crit(), 
         max_levels

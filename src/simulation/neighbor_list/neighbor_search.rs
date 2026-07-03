@@ -48,6 +48,7 @@ impl NeighborSearch {
 
         // Clear the allocator buffer to 0
         cmd_buffer.fill_buffer(device, neighbor_list_data.allocator().vk_buffer(), 0, size_of::<u32>() as vk::DeviceSize, 0);
+        cmd_buffer.fill_buffer(device, neighbor_list_data.processed_leaves_counter().vk_buffer(), 0, size_of::<u32>() as vk::DeviceSize, 0);
         global_sync_compute(device, cmd_buffer);
         
         let num_particles = particles.positions_buffer.current().len() as u32;
@@ -64,6 +65,8 @@ impl NeighborSearch {
             super_clusters: neighbor_list_data.super_clusters().address(), 
             super_clusters_neighbors: neighbor_list_data.super_cluster_neighbors().address(), 
             allocator: neighbor_list_data.allocator().address(),
+            processed_leaves_counter: neighbor_list_data.processed_leaves_counter().address(),
+            particle_to_neighborhood: neighbor_list_data.particle_to_neighborhood().address(),
             world_min,
             world_size,
             search_radius,

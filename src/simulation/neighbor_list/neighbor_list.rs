@@ -14,8 +14,8 @@ pub struct NeighborList {
 
 
 impl NeighborList {
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, max_expected_leaves: u32, super_cluster_size: u32, max_levels: u32) -> Self {
-        let data = NeighborListData::new(vk_core, cmd_pool, max_expected_leaves, super_cluster_size, MAX_NEIGHBOR_CAPACITY);
+    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_particles: usize, max_expected_leaves: u32, super_cluster_size: u32, max_levels: u32) -> Self {
+        let data = NeighborListData::new(vk_core, cmd_pool, num_particles, max_expected_leaves, super_cluster_size, MAX_NEIGHBOR_CAPACITY);
 
         let neighbor_search = NeighborSearch::new(vk_core, super_cluster_size, max_levels);
         
@@ -52,6 +52,14 @@ impl NeighborList {
 
     pub fn super_cluster_size(&self) -> u32 {
         self.data.super_cluster_size()
+    }
+
+    pub fn processed_leaves_counter(&self) -> &VkBuffer<u32> {
+        &self.data.processed_leaves_counter()
+    }
+
+    pub fn particle_to_neighborhood(&self) -> &VkBuffer<SuperCluster>{
+        &self.data.particle_to_neighborhood()
     }
 }
 

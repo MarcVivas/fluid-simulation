@@ -1,5 +1,6 @@
 use std::{sync::Arc};
 use ash::vk::{self, CommandPool};
+use glam::Vec4;
 
 use crate::{simulation::octree::{octree_constructor::OctreeConstructor, octree_data::OctreeData}, vulkan::{core::VkCore, resources::{CommandBuffer, buffer::VkBuffer}}};
 
@@ -48,10 +49,10 @@ impl Octree {
         }
     }
 
-    pub fn build(&mut self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, maintenance_mode: bool){
+    pub fn build(&mut self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, maintenance_mode: bool, world_min: Vec4, world_size: f32){
 
         let n_crit = self.n_crit();
-        self.octree_constructor.build(vk_core, cmd_buffer, keys, &mut self.octree_data, MAX_LEVELS, n_crit, maintenance_mode);
+        self.octree_constructor.build(vk_core, cmd_buffer, keys, &mut self.octree_data, MAX_LEVELS, n_crit, maintenance_mode, world_min, world_size);
         
         
     }

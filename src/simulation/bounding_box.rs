@@ -2,7 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::Vec4Swizzles;
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable, Default)]
 pub struct BoundingBox{
     pub min: glam::Vec4,
     pub max: glam::Vec4,

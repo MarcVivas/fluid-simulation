@@ -134,7 +134,7 @@ impl PhysicsEngine {
         particles.buffers_mut().swap();
 
         gpu_profiler.profile_scope(device, vk_cmd_buffer, "Octree construction", ||{
-            octree.build(vk_core, command_buffer, &particles.buffers().hilbert_keys, false);
+            octree.build(vk_core, command_buffer, &particles.buffers().hilbert_keys, false, world_min, world_size);
         });
 
         let search_radius = self.physics_config.search_radius;

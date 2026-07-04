@@ -91,7 +91,7 @@ impl NeighborListTest {
         self.particles.buffers_mut().swap();
 
         
-        self.octree.build(vk_core, cmd_buffer, &self.particles.buffers().hilbert_keys, false);
+        self.octree.build(vk_core, cmd_buffer, &self.particles.buffers(), false);
 
         self.neighbor_list.build(vk_core, cmd_buffer, &self.octree, self.particles.buffers(), self.search_radius, self.world_min, self.world_size);
         

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ash::vk;
+use glam::Vec4;
 
 use crate::{algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::kv_radix_sort::GpuKVRadixSort}, simulation::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::LevelOffsetGenerator, node_key_generator::NodeKeyGenerator, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, vulkan::{core::VkCore, resources::{CommandBuffer, buffer::VkBuffer, global_sync_compute, sync_compute_to_indirect}}};
 
@@ -53,7 +54,7 @@ impl OctreeConstructor {
         }
     }
     
-    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, octree_data: &mut OctreeData, max_levels: u32, n_crit: u32, maintenance_mode: bool){
+    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, octree_data: &mut OctreeData, max_levels: u32, n_crit: u32, maintenance_mode: bool, world_min: Vec4, world_size: f32){
 
         let device = vk_core.device();
     
@@ -79,12 +80,12 @@ impl OctreeConstructor {
         self.prefix_sum.indirect_dispatch(vk_core, cmd_buffer, octree_data.leaves_histogram(), octree_data.leaf_offsets(), octree_data.indirect_dispatch_buffer_leaves(), octree_data.leaf_count());
         global_sync_compute(device, cmd_buffer);
 
-        self.build_internal_nodes(vk_core, cmd_buffer, octree_data);
+        self.build_internal_nodes(vk_core, cmd_buffer, octree_data, world_min, world_size);
        
 
     } 
 
-    fn build_internal_nodes(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &mut OctreeData){
+    fn build_internal_nodes(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &mut OctreeData, world_min: Vec4, world_size: f32){
         let device = vk_core.device();
         self.node_key_generator.indirect_dispatch(vk_core, cmd_buffer, octree_data);
         global_sync_compute(device, cmd_buffer);
@@ -98,7 +99,7 @@ impl OctreeConstructor {
         self.level_offset_generator.dispatch(vk_core, cmd_buffer, octree_data);
         global_sync_compute(device, cmd_buffer);
 
-        self.octree_linker.indirect_dispatch(vk_core, cmd_buffer, octree_data);
+        self.octree_linker.indirect_dispatch(vk_core, cmd_buffer, octree_data, world_min, world_size);
         global_sync_compute(device, cmd_buffer);
 
     }

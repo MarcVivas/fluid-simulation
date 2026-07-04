@@ -74,6 +74,7 @@ impl NeighborSearch {
             num_thread_groups: num_workgroups,
             leaf_count: octree_data.leaf_count().address(),
             unsorted_leaf_particles: octree_data.unsorted_leaf_particles().address(),
+            node_bounding_boxes: octree_data.node_bounding_boxes().address(),
             ..Default::default()
         };
 

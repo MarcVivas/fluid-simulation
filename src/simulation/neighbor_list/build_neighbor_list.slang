@@ -12,6 +12,9 @@ struct PushConsts {
   Ptr<LeafParticles, Access.Read> unsorted_leaf_particles;
   Ptr<float4, Access.Read> positions;
   Ptr<uint32_t, Access.Read> leaf_count;
+  Ptr<BoundingBox, Access.Read> node_bounding_boxes;
+  
+  
 
   Ptr<SuperCluster, Access.ReadWrite> super_clusters;
   Ptr<SuperClusterNeighbors, Access.ReadWrite> super_cluster_neighbors;
@@ -19,9 +22,9 @@ struct PushConsts {
   Ptr<uint32_t, Access.ReadWrite> processed_leaves_counter;
   Ptr<SuperCluster, Access.ReadWrite> particle_to_neighborhood;
 
+  float4 world_min;
   float world_size;
   float search_radius;
-  float4 world_min;
   uint32_t num_particles;
   uint32_t num_thread_groups;
 }
@@ -174,27 +177,22 @@ func traverse(
         
         uint node_first_child_idx = LEAF;
         bool node_split = false;
-        bool is_direct = false;
 
         uint first_cluster = 0;
         uint last_cluster = 0;
         
         if(is_valid_source){
             node_first_child_idx = pc.node_first_child[node_idx];
+            const BoundingBox node_box = pc.node_bounding_boxes[node_idx];
+
             const bool is_internal_node = node_first_child_idx != LEAF;
-
-            const uint key = pc.node_keys[node_idx];
-            const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min, MAX_LEVELS);
-
             const bool intersects = leaf_bounding_box.intersects(node_box);
 
             node_split = intersects && is_internal_node;
-            is_direct = intersects && !is_internal_node; 
-
-            const bool is_valid_direct = is_direct && (pc.leaf_particles[node_idx].particle_count > 0);
+            const bool is_direct = intersects && !is_internal_node && (pc.leaf_particles[node_idx].particle_count > 0); 
             
             // Count how many lanes in this wave found an intersection
-            const uint wave_num_intersects = WaveActiveCountBits(is_valid_direct);
+            const uint wave_num_intersects = WaveActiveCountBits(is_direct);
             
             // Allocate LDS space for the entire wave at once using thread 0 of the wave
             if (WaveGetLaneIndex() == 0) {
@@ -205,8 +203,8 @@ func traverse(
             const uint wave_start_idx_broadcast = WaveReadLaneAt(wave_start_idx, 0);
             
             // Calculate individual write indices using prefix sums and write in parallel
-            if (is_valid_direct) {
-                const uint write_idx = wave_start_idx_broadcast + WavePrefixCountBits(is_valid_direct);
+            if (is_direct) {
+                const uint write_idx = wave_start_idx_broadcast + WavePrefixCountBits(is_direct);
                 if (write_idx < MAX_NEIGHBOR_CAPACITY) {
                     neighbor_leaves[write_idx] = node_idx;
                 }

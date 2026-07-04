@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::{vulkan::{core::VkCore, resources::{buffer::{VkBuffer, IndirectBuffer, PingPong}}}};
+use crate::{simulation::bounding_box::BoundingBox, vulkan::{core::VkCore, resources::buffer::{IndirectBuffer, PingPong, VkBuffer}}};
 
 pub struct OctreeData {
     // ── Cornerstone array (leaf boundaries) ─────────────────
@@ -79,7 +79,10 @@ pub struct OctreeData {
    /// Total node count (internal + leaves) this frame.
    /// Size: 1 × u32
    node_count: VkBuffer<u32>,
-   
+
+   // The bounding boxes of each node
+   node_bounding_boxes: VkBuffer<BoundingBox>,
+
    indirect_dispatch_buffer_leaves: IndirectBuffer,
    indirect_dispatch_buffer_nodes: IndirectBuffer
 }
@@ -90,6 +93,8 @@ pub struct LeafParticles {
     pub start_idx: u32, 
     pub count: u32    
 }
+
+
 
 impl OctreeData {
     pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, max_leaves: u32, max_internal_nodes: u32, max_levels: u32, sentinel_val: u32) -> Self {
@@ -118,6 +123,10 @@ impl OctreeData {
 
         let leaf_count = PingPong::new_vk_buffer(vk_core, &vec![1 as u32; 1 as usize], "leaf_count", cmd_pool, queue).unwrap();
         let node_count = VkBuffer::new_gpu_only(vk_core, &vec![1 as u32; 1 as usize], "node_count", cmd_pool, queue).unwrap();
+
+        let node_bounding_boxes = VkBuffer::new_gpu_only_uninitialized(vk_core, total_nodes as usize, "Node bounding boxes").unwrap();
+
+
         
         let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
         let indirect_dispatch_buffer_nodes = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
@@ -139,6 +148,8 @@ impl OctreeData {
 
             leaf_count,
             node_count,
+
+            node_bounding_boxes,
             
             indirect_dispatch_buffer_leaves,
             indirect_dispatch_buffer_nodes
@@ -213,4 +224,10 @@ impl OctreeData {
     pub fn unsorted_leaf_particles(&self) -> &VkBuffer<LeafParticles> {
         &self.unsorted_leaf_particles
     }
+
+    pub fn node_bounding_boxes(&self) -> &VkBuffer<BoundingBox> {
+        &self.node_bounding_boxes
+    }
+
+    
 }

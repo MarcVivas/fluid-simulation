@@ -20,8 +20,8 @@ pub struct PhysicsConfig {
 }
 
 impl PhysicsConfig {
-    pub fn new(cell_size: f32) -> Self {
-        let kernel_radius = cell_size;
+    pub fn new(search_radius: f32) -> Self {
+        let kernel_radius = search_radius;
 
         // Compute kernel constants from radius
         let kernel_poly6 = Self::compute_poly6_constant(kernel_radius);

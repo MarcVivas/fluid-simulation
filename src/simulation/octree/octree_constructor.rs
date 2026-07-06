@@ -59,6 +59,9 @@ impl OctreeConstructor {
         let device = vk_core.device();
     
         for _ in 0..max_levels {
+
+            cmd_buffer.fill_buffer(device, octree_data.was_changed().vk_buffer(), 0, size_of::<u32>() as u64, 0);
+            
             self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
             global_sync_compute(device, cmd_buffer);
             self.rebalancing_ops_marker.indirect_dispatch(vk_core, cmd_buffer, octree_data, maintenance_mode, n_crit);
@@ -72,8 +75,21 @@ impl OctreeConstructor {
             octree_data.swap_ping_pong_buffers();
         }
 
-        
-        // This is needed if the algorithm couldn't converge
+        // Copy the saved indirect disptach buffer to the active slot
+        cmd_buffer.copy_buffer(
+            device, 
+            octree_data.indirect_dispatch_buffer_leaves().vk_buffer(), 
+            octree_data.indirect_dispatch_buffer_leaves().vk_buffer(), 
+            &[
+                vk::BufferCopy::default()
+                    .src_offset(16)
+                    .dst_offset(0)
+                    .size(12)
+            ]
+        );
+        global_sync_compute(device, cmd_buffer);
+
+        // This is needed after the loop
         self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
         global_sync_compute(device, cmd_buffer);
 

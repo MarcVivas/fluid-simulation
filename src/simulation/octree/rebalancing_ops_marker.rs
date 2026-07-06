@@ -19,6 +19,7 @@ struct RebalancingOpsMarkerPushConstants{
     leaves_histogram: u64,
     cornerstone_array: u64,
     rebalance_ops: u64,
+    was_changed: u64,
     n_critical: u32,
     maintainance_mode: u32,
 }
@@ -48,7 +49,9 @@ impl RebalancingOpsMarker {
             leaves_histogram: octree_data.leaves_histogram().address(),
             rebalance_ops: octree_data.rebalance_ops().address(),
             n_critical: n_crit,
-            maintainance_mode: maintainance_mode as u32
+            maintainance_mode: maintainance_mode as u32,
+            was_changed: octree_data.was_changed().address(),
+
         };
 
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves().vk_buffer();

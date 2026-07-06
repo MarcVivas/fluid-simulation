@@ -5,7 +5,9 @@ struct RebalancePushConsts {
     Ptr<uint32_t, Access.ReadWrite> new_cornerstone;
     Ptr<uint32_t, Access.Read> num_leaves;
     Ptr<uint32_t, Access.ReadWrite> new_num_leaves;
-    Ptr<uint3, Access.ReadWrite> indirect_dispatch_buffer;
+    Ptr<uint32_t, Access.ReadWrite> indirect_dispatch_buffer;
+    Ptr<uint32_t, Access.Read> was_changed;
+    
 }
 
 [[vk::push_constant]] RebalancePushConsts pc;
@@ -56,10 +58,27 @@ func main(const uint global_id : SV_DispatchThreadID) {
         // Write the boundary key
         pc.new_cornerstone[new_leaf_count] = SENTINEL_VALUE;
 
-        // Update the indirect dispatch buffer
+        // Update the indirect dispatch buffers
+
+        const uint32_t dispatch_x = (new_leaf_count + THREAD_GROUP_SIZE - 1) / THREAD_GROUP_SIZE;
         
-        const uint3 new_indirect_dispatch_buffer = uint3((new_leaf_count + THREAD_GROUP_SIZE - 1) / THREAD_GROUP_SIZE, 1, 1);
-        *pc.indirect_dispatch_buffer = new_indirect_dispatch_buffer;
+        // Save valid dispatch size to Slot 2 (Offset 16 bytes: indices 4, 5, 6)
+        pc.indirect_dispatch_buffer[4] = dispatch_x;
+        pc.indirect_dispatch_buffer[5] = 1;
+        pc.indirect_dispatch_buffer[6] = 1;
+        
+        // Write active dispatch size to Slot 1 (Offset 0 bytes: indices 0, 1, 2)
+        if(*pc.was_changed == 1){
+            pc.indirect_dispatch_buffer[0] = dispatch_x;
+            pc.indirect_dispatch_buffer[1] = 1;
+            pc.indirect_dispatch_buffer[2] = 1;
+        }
+        else {
+            pc.indirect_dispatch_buffer[0] = 0;
+            pc.indirect_dispatch_buffer[1] = 0;
+            pc.indirect_dispatch_buffer[2] = 0;
+        }
+     
     }   
     
 }

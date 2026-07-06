@@ -83,6 +83,9 @@ pub struct OctreeData {
    // The bounding boxes of each node
    node_bounding_boxes: VkBuffer<BoundingBox>,
 
+   // Bool to check if the octree has reached convergence  
+   was_changed: VkBuffer<u32>,
+   
    indirect_dispatch_buffer_leaves: IndirectBuffer,
    indirect_dispatch_buffer_nodes: IndirectBuffer
 }
@@ -126,9 +129,10 @@ impl OctreeData {
 
         let node_bounding_boxes = VkBuffer::new_gpu_only_uninitialized(vk_core, total_nodes as usize, "Node bounding boxes").unwrap();
 
+        let was_changed = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; 1 as usize], "was changed", cmd_pool, queue).unwrap();
 
         
-        let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
+        let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1), glam::UVec3::new(1, 1, 1)]);
         let indirect_dispatch_buffer_nodes = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
         
         Self {
@@ -150,6 +154,8 @@ impl OctreeData {
             node_count,
 
             node_bounding_boxes,
+
+            was_changed,
             
             indirect_dispatch_buffer_leaves,
             indirect_dispatch_buffer_nodes
@@ -227,6 +233,10 @@ impl OctreeData {
 
     pub fn node_bounding_boxes(&self) -> &VkBuffer<BoundingBox> {
         &self.node_bounding_boxes
+    }
+
+    pub fn was_changed(&self) -> &VkBuffer<u32> {
+        &self.was_changed
     }
 
     

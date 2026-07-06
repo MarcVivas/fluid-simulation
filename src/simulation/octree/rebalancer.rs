@@ -22,6 +22,7 @@ struct RebalancerPushConstants {
     num_leaves: u64,
     new_num_leaves: u64,
     indirect_dispatch_buffer: u64,
+    was_changed: u64,
     
 }
 
@@ -55,6 +56,7 @@ impl Rebalancer {
             num_leaves: current_leaf_count.address(),
             new_num_leaves: new_leaf_count.address(),
             indirect_dispatch_buffer: dispatch_buffer.buffer().address(),
+            was_changed: octree_data.was_changed().address(),
         };
 
         self.rebalancer.indirect_dispatch(vk_core, cmd_buffer, &[], &[], bytes_of(&push_constants), dispatch_buffer.vk_buffer(), 0);

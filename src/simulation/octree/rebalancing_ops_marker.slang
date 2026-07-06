@@ -3,6 +3,7 @@ struct RebalancePushConsts {
     Ptr<uint32_t, Access.Read> leaves_histogram;
     Ptr<uint32_t, Access.Read> cornerstone_array;
     Ptr<uint32_t, Access.ReadWrite> rebalance_ops;
+    Ptr<uint32_t, Access.ReadWrite> was_changed;
     uint32_t n_crit;
     uint32_t maintainance_mode; 
 }
@@ -33,6 +34,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
     if(count > pc.n_crit && delta_i >= 8){
         // Subdivide this node
         pc.rebalance_ops[global_id] = 8;
+        InterlockedOr(*pc.was_changed, 1);
         return;
     }
 
@@ -72,6 +74,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
     
                 if(total_count <= pc.n_crit){
                     operation = 0;
+                    InterlockedOr(*pc.was_changed, 1);
                 }       
             }
                  

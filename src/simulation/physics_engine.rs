@@ -184,30 +184,28 @@ impl PhysicsEngine {
             world_max,
         );
 
-        /*
-        self.velocity_refining_system.execute(
+    
+        self.velocity_refiner.execute(
             vk_core,
             command_buffer,
             particles,
-            spatial_grid,
+            octree,
+            neighbor_list,
             &self.physics_config,
         );
         
         particles.buffers_mut().velocities.swap();
-
+  
+       
         
-        self.vorticity_force_compute_system.execute(
+        self.vorticity_force_compute.execute(
             vk_core,
             command_buffer,
             particles,
-            spatial_grid,
+            octree,
+            neighbor_list,
             &self.physics_config,
-        );
-        */
-            
-         
-        
-            
+        ); 
         
     }
     

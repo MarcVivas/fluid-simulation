@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
 use ash::vk;
-use glam::{Vec3, Vec4};
+use glam::{Vec3, Vec4, Vec4Swizzles};
 use rand::Rng;
 use crate::vulkan::core::VkCore;
 use crate::vulkan::resources::buffer::{VkBuffer, PingPong};
@@ -39,63 +39,150 @@ impl ParticleData {
     }
 }
 
+
+
+pub enum ParticleInitPreset {
+    /// Two solid blocks of fluid on opposite sides of the tank that fall and crash.
+    DoubleDamBreak,
+    /// A spinning block of fluid in the center that immediately forms a whirlpool.
+    RotatingBlock,
+    /// Two solid blocks of fluid launched at each other at high speed.
+    CollidingBlocks,
+}
+
 impl Particles {
     pub fn new(
         num_particles: usize,
         world_dim: &Vec3,
         vk_core: &Arc<VkCore>,
         cmd_pool: vk::CommandPool,
+        preset: ParticleInitPreset,
+        search_radius: f32, 
     ) -> Result<Self, Box<dyn Error>> {
-        let mut random_number_generator = rand::rng();
-
-        let mut max_radius :f32  = 0.0;
-        
         let mut positions: Vec<Vec4> = Vec::with_capacity(num_particles);
         let mut previous_positions: Vec<Vec4> = Vec::with_capacity(num_particles);
         let mut velocities: Vec<Vec4> = Vec::with_capacity(num_particles);
 
-        (0..num_particles/2).for_each(|_| {
+        let radius = 0.35f32;
+        let max_radius = radius;
+        
+        let spacing = search_radius * 0.85; 
+        let jitter = radius * 0.02; // Tiny jitter to break perfect symmetry
 
-            // Generate a random position
-            let x_pos = random_number_generator.random_range(0.0..world_dim.x);
-            let y_pos = random_number_generator.random_range(0.0..world_dim.y);
-            let z_pos = random_number_generator.random_range(0.0..=world_dim.z);
-            let radius = random_number_generator.random_range(0.35..=0.35) as f32;
-            max_radius = max_radius.max(radius);
-            let position = Vec4::new(x_pos, y_pos, z_pos, radius);
-            positions.push(position);
-            previous_positions.push(position);
+        match preset {
+            ParticleInitPreset::DoubleDamBreak => {
+                let half_particles = num_particles / 2;
 
-            // Generate a random velocity
-            static MAX_VELOCITY: f32 = 5.0;
-            let x = random_number_generator.random_range(0.0..MAX_VELOCITY);
-            let y = random_number_generator.random_range(0.0..MAX_VELOCITY);
-            let z = random_number_generator.random_range(0.0..MAX_VELOCITY);
-            let velocity = Vec4::new(x, y, z, 0.0);
-            velocities.push(velocity);
-        });
+                // Left Block
+                let left_start = Vec3::new(spacing, spacing, spacing);
+                Self::spawn_grid_block(
+                    &mut positions,
+                    &mut previous_positions,
+                    &mut velocities,
+                    half_particles,
+                    left_start,
+                    spacing,
+                    radius,
+                    Vec4::ZERO,
+                    jitter,
+                );
 
-        (num_particles/2..num_particles).for_each(|_| {
+                // Right Block (anchored to the far right wall)
+                let side_count = (half_particles as f32).powf(1.0 / 3.0).ceil();
+                let block_width = side_count * spacing;
+                let right_start = Vec3::new(
+                    (world_dim.x - block_width - spacing).max(spacing),
+                    spacing,
+                    spacing,
+                );
 
-            // Generate a random position
-            let x_pos = random_number_generator.random_range(0.0..world_dim.x);
-            let y_pos = random_number_generator.random_range(0.0..world_dim.y/2.0);
-            let z_pos = random_number_generator.random_range(world_dim.z/2.0..=world_dim.z);
-            let radius = random_number_generator.random_range(0.35..=0.35) as f32;
-            max_radius = max_radius.max(radius);
-            let position = Vec4::new(x_pos, y_pos, z_pos, radius);
-            positions.push(position);
-            previous_positions.push(position);
+                Self::spawn_grid_block(
+                    &mut positions,
+                    &mut previous_positions,
+                    &mut velocities,
+                    num_particles - half_particles,
+                    right_start,
+                    spacing,
+                    radius,
+                    Vec4::ZERO,
+                    jitter,
+                );
+            }
 
-            // Generate a random velocity
-            static MAX_VELOCITY: f32 = 5.0;
-            let x = random_number_generator.random_range(0.0..MAX_VELOCITY);
-            let y = random_number_generator.random_range(0.0..MAX_VELOCITY);
-            let z = random_number_generator.random_range(0.0..MAX_VELOCITY);
-            let velocity = Vec4::new(x, y, z, 0.0);
-            velocities.push(velocity);
-        });
+            ParticleInitPreset::RotatingBlock => {
+                let side_count = (num_particles as f32).powf(1.0 / 3.0).ceil();
+                let block_size = side_count * spacing;
+                let center = *world_dim * 0.5;
+                
+                let start_corner = Vec3::new(
+                    (center.x - block_size * 0.5).max(spacing),
+                    spacing,
+                    (center.z - block_size * 0.5).max(spacing),
+                );
 
+                Self::spawn_grid_block(
+                    &mut positions,
+                    &mut previous_positions,
+                    &mut velocities,
+                    num_particles,
+                    start_corner,
+                    spacing,
+                    radius,
+                    Vec4::ZERO,
+                    jitter,
+                );
+
+                // Assign tangential rotational velocities around the Y-axis
+                for i in 0..positions.len() {
+                    let pos = positions[i].xyz();
+                    let to_center = Vec3::new(pos.x - center.x, 0.0, pos.z - center.z);
+                    let dist = to_center.length();
+                    if dist > 0.1 {
+                        let tangent = Vec3::new(-to_center.z, 0.0, to_center.x).normalize();
+                        let speed = 4.5 * (dist / (block_size * 0.5)).clamp(0.2, 1.0);
+                        velocities[i] = Vec4::new(tangent.x * speed, 0.0, tangent.z * speed, 0.0);
+                    }
+                }
+            }
+
+            ParticleInitPreset::CollidingBlocks => {
+                let half_particles = num_particles / 2;
+                let side_count = (half_particles as f32).powf(1.0 / 3.0).ceil();
+                let block_size = side_count * spacing;
+
+                // Left Block (Moving Right)
+                let left_start = Vec3::new(spacing, (world_dim.y * 0.5) - (block_size * 0.5), (world_dim.z * 0.5) - (block_size * 0.5));
+                Self::spawn_grid_block(
+                    &mut positions,
+                    &mut previous_positions,
+                    &mut velocities,
+                    half_particles,
+                    left_start,
+                    spacing,
+                    radius,
+                    Vec4::new(6.0, 0.0, 0.0, 0.0), // High speed East
+                    jitter,
+                );
+
+                // Right Block (Moving Left)
+                let right_start = Vec3::new(
+                    (world_dim.x - block_size - spacing).max(spacing),
+                    (world_dim.y * 0.5) - (block_size * 0.5),
+                    (world_dim.z * 0.5) - (block_size * 0.5),
+                );
+                Self::spawn_grid_block(
+                    &mut positions,
+                    &mut previous_positions,
+                    &mut velocities,
+                    num_particles - half_particles,
+                    right_start,
+                    spacing,
+                    radius,
+                    Vec4::new(-6.0, 0.0, 0.0, 0.0), // High speed West
+                    jitter,
+                );
+            }
+        }
 
         let particle_system_buffers = create_particle_data(
             vk_core,
@@ -106,14 +193,52 @@ impl Particles {
             &velocities,
         )?;
 
-        Ok(
-            Self {
-                total_particles: num_particles,
-                buffers: particle_system_buffers,
-                max_radius
-            }
-        )
+        Ok(Self {
+            total_particles: num_particles,
+            buffers: particle_system_buffers,
+            max_radius,
+        })
     }
+
+    fn spawn_grid_block(
+        positions: &mut Vec<Vec4>,
+        previous_positions: &mut Vec<Vec4>,
+        velocities: &mut Vec<Vec4>,
+        num_to_spawn: usize,
+        start_corner: Vec3,
+        spacing: f32,
+        radius: f32,
+        initial_velocity: Vec4,
+        jitter: f32,
+    ) {
+        let mut rng = rand::rng();
+        let side = (num_to_spawn as f32).powf(1.0 / 3.0).ceil() as usize;
+        
+        let mut spawned = 0;
+        'outer: for x_idx in 0..side {
+            for y_idx in 0..side {
+                for z_idx in 0..side {
+                    if spawned >= num_to_spawn {
+                        break 'outer;
+                    }
+                    
+                    let pos = Vec4::new(
+                        start_corner.x + (x_idx as f32) * spacing + rng.random_range(-jitter..=jitter),
+                        start_corner.y + (y_idx as f32) * spacing + rng.random_range(-jitter..=jitter),
+                        start_corner.z + (z_idx as f32) * spacing + rng.random_range(-jitter..=jitter),
+                        radius,
+                    );
+                    
+                    positions.push(pos);
+                    previous_positions.push(pos);
+                    velocities.push(initial_velocity);
+                    spawned += 1;
+                }
+            }
+        }
+    }
+
+
 
     pub fn positions_buffer(&self) -> &VkBuffer<Vec4> {
         &self.buffers.positions_buffer.current()

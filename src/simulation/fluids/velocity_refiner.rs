@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use ash::vk;
+use crate::simulation::neighbor_list::NeighborList;
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::simulation::physics_config::PhysicsConfig;
 use crate::simulation::octree::octree::Octree;
@@ -15,14 +16,19 @@ pub struct VelocityRefiner {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct VelocityRefiningPushConstants {
+    particle_to_neighborhood: u64, 
+    super_cluster_neighbors: u64,
+    leaf_particles: u64, 
+    unsorted_leaf_particles: u64, 
+    leaf_count: u64, 
     num_elements: u32,
-    cell_size: f32,
+    kernel_radius: f32,
     poly6_constant: f32,
     kernel_radius_2: f32,
     spiky_constant: f32,
-    viscosity_constant: f32
+    viscosity_constant: f32,
 }
 
 impl VelocityRefiner {
@@ -40,22 +46,25 @@ impl VelocityRefiner {
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             // Densities
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Grid texture
-            .add_buffer_binding(vk::DescriptorType::SAMPLED_IMAGE)
             .build_with_single_pass()?;
         Ok(
             Self{ velocity_refining_pass, velocity_refining_shader }
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, neighbor_list: &NeighborList, physics_config: &PhysicsConfig) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
         let push_constants = VelocityRefiningPushConstants {
             num_elements,
-            cell_size: physics_config.search_radius,
+            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
+            unsorted_leaf_particles: octree.data().unsorted_leaf_particles().address(),
+            leaf_count: octree.data().leaf_count().address(),
+            particle_to_neighborhood: neighbor_list.particle_to_neighborhood().address(),
+            leaf_particles: octree.data().leaf_particles().address(),
+            kernel_radius: physics_config.search_radius,
             poly6_constant: physics_config.kernel_poly6,
             kernel_radius_2: physics_config.kernel_radius_2,
             spiky_constant: physics_config.kernel_spiky_grad,
@@ -99,6 +108,6 @@ impl VelocityRefiner {
                 vk::AccessFlags2::SHADER_STORAGE_WRITE
             ),
         ];
-        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier(device, &buffer_barriers, &[]);
     }
 }

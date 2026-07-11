@@ -132,8 +132,8 @@ impl OctreeData {
         let was_changed = VkBuffer::new_gpu_only(vk_core, &vec![0 as u32; 1 as usize], "was changed", cmd_pool, queue).unwrap();
 
         
-        let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1), glam::UVec3::new(1, 1, 1)]);
-        let indirect_dispatch_buffer_nodes = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1)]);
+        let indirect_dispatch_buffer_leaves = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0), glam::UVec4::new(1, 1, 1, 0)]);
+        let indirect_dispatch_buffer_nodes = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0)]);
         
         Self {
             cornerstone_array,

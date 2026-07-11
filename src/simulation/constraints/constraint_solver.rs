@@ -24,6 +24,7 @@ struct ConstraintSolverPushConstants {
     leaf_particles: u64,
     unsorted_leaf_particles: u64,
     leaf_count: u64,
+    particle_to_neighborhood: u64, 
     num_workgroups: u32,
     num_elements: u32,
     kernel_radius: f32,
@@ -73,11 +74,12 @@ impl ConstraintSolver {
 
 
         let thread_group_size = neighbor_list.super_cluster_size();
-        let num_workgroups = vk_core.num_persistent_workgroups(thread_group_size);
+        let num_workgroups = (num_elements + thread_group_size - 1) / thread_group_size;
         
         let push_constants = ConstraintSolverPushConstants {
             super_clusters: neighbor_list.super_clusters().address(),
             super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
+            particle_to_neighborhood: neighbor_list.particle_to_neighborhood().address(),
             num_elements,
             kernel_radius: physics_config.kernel_radius,
             rest_density: physics_config.rest_density,
@@ -123,7 +125,7 @@ impl ConstraintSolver {
         ];
 
        
-        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier(device, &buffer_barriers, &[]);
     }
     
 }

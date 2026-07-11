@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::{neighbor_list::{NeighborList, NeighborListData, neighbor_list_push_constants::NeighborSearchPushConstants}, octree::octree::Octree}, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::{CommandBuffer, global_sync_compute,}}, world::particles::ParticleData};
+use crate::{simulation::{neighbor_list::{NeighborList, NeighborListData, neighbor_list_push_constants::NeighborSearchPushConstants}, octree::octree::Octree}, vulkan::{compute::{ComputePass, ComputeSystemBuilder}, core::VkCore, resources::{CommandBuffer, barrier_compute_to_compute, global_sync_compute,}, shaders::{ShaderCompileTimeConstants, ShaderModule}}, world::particles::ParticleData};
 use bytemuck::bytes_of;
 
 pub struct NeighborSearch {
@@ -85,7 +85,18 @@ impl NeighborSearch {
             cmd_buffer, 
             thread_groups, &[], &[], bytes_of(&push_constants)
         );
-        global_sync_compute(device, cmd_buffer);
+
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[
+                barrier_compute_to_compute(neighbor_list_data.super_clusters().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(neighbor_list_data.super_cluster_neighbors().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(neighbor_list_data.allocator().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(neighbor_list_data.processed_leaves_counter().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(neighbor_list_data.particle_to_neighborhood().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),                
+            ],
+            &[]
+        );
 
     }
 }

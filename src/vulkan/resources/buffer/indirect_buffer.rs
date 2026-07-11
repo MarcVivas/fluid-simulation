@@ -8,17 +8,17 @@ use crate::vulkan::{core::VkCore, resources::buffer::VkBuffer};
 
 
 pub struct IndirectBuffer {
-    buffer: VkBuffer<glam::UVec3>,
+    buffer: VkBuffer<glam::UVec4>,
 }
 
 impl IndirectBuffer {
     pub fn new(
         vk_core: &Arc<VkCore>, 
         cmd_pool: vk::CommandPool, 
-        data: &[glam::UVec3]
+        data: &[glam::UVec4]
     ) -> Self {
            let count = data.len() as u32;
-           let size = (count as usize * std::mem::size_of::<glam::UVec3>()) as vk::DeviceSize;
+           let size = (count as usize * std::mem::size_of::<glam::UVec4>()) as vk::DeviceSize;
    
            let buffer_create_info = vk::BufferCreateInfo::default()
                .size(size)
@@ -56,11 +56,11 @@ impl IndirectBuffer {
         self.buffer.vk_buffer()
     }
 
-    pub fn buffer(&self) -> &VkBuffer<glam::UVec3> {
+    pub fn buffer(&self) -> &VkBuffer<glam::UVec4> {
         &self.buffer
     }
 
     pub fn offset_for(&self, index: u32) -> vk::DeviceSize {
-        (index as usize * std::mem::size_of::<glam::UVec3>()) as vk::DeviceSize
+        (index as usize * std::mem::size_of::<glam::UVec4>()) as vk::DeviceSize
     }
 }

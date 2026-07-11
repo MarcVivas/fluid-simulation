@@ -8,6 +8,7 @@ use crate::vulkan::profiler::GpuProfiler;
 use crate::world::particles::{Particles, ParticleRenderData};
 use crate::simulation::physics_engine::PhysicsEngine;
 use crate::vulkan::core::VkCore;
+use crate::world::particles::ParticleInitPreset;
 
 pub struct World{
     world_size: f32,
@@ -18,22 +19,24 @@ pub struct World{
     neighbor_list: NeighborList,
 }
 
-const NUM_PARTICLES: usize = 1000000; //8193;
+const NUM_PARTICLES: usize = 1000000; 
 
 impl World{
     pub fn new(vk_core: &Arc<VkCore>, world_max: &Vec3, compute_engine: &ComputeEngine) -> Self{
 
         let world_min = glam::Vec4::new(0., 0., 0.0, 0.);
         let world_size = world_max.max_element();
-        
+        let search_radius = 1.7f32;
+
         let particle_system = Particles::new(
             NUM_PARTICLES,
             &world_max,
             &vk_core,
             compute_engine.command_pool(),
+            ParticleInitPreset::DoubleDamBreak,
+            search_radius
         ).expect("Failed to create particle system");
 
-        let search_radius = 1.7f32;
 
         let cmd_pool = compute_engine.command_pool();
         
@@ -78,7 +81,7 @@ impl World{
                     .buffer(self.particle_system.buffers().positions_buffer.current().vk_buffer())
                     .size(vk::WHOLE_SIZE)];
     
-                cmd_buffer.pipeline_memory_barrier2(vk_core.device(), &acquire_from_graphics, &[]);
+                cmd_buffer.pipeline_memory_barrier(vk_core.device(), &acquire_from_graphics, &[]);
             } 
             
             self.physics_engine.update(
@@ -102,7 +105,7 @@ impl World{
                 .buffer(self.particle_system.buffers().positions_buffer.current().vk_buffer())
                 .size(vk::WHOLE_SIZE)];
                         
-            cmd_buffer.pipeline_memory_barrier2(vk_core.device(), &release_to_graphics, &[]);
+            cmd_buffer.pipeline_memory_barrier(vk_core.device(), &release_to_graphics, &[]);
         });
 
 

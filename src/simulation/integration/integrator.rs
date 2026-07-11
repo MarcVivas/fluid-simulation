@@ -101,7 +101,7 @@ impl Integrator{
             )
         ];
 
-        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier(device, &buffer_barriers, &[]);
     }
 
 }

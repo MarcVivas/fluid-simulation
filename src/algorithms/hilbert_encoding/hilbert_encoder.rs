@@ -107,7 +107,7 @@ fn barrier(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, morton_codes: vk::
             vk::AccessFlags2::SHADER_STORAGE_READ
         )
     ];
-    cmd_buffer.pipeline_memory_barrier2(vk_core.device(), &buffer_memory_barriers, &[]);
+    cmd_buffer.pipeline_memory_barrier(vk_core.device(), &buffer_memory_barriers, &[]);
 }
 
 

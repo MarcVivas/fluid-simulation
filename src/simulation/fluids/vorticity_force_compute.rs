@@ -1,12 +1,13 @@
 use std::sync::Arc;
 use ash::vk;
+use crate::simulation::neighbor_list::NeighborList;
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::simulation::physics_config::PhysicsConfig;
 use crate::simulation::octree::octree::Octree;
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::Particles};
 use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{compute_to_graphics_memory_barrier, CommandBuffer};
+use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier, compute_to_graphics_memory_barrier};
 
 pub struct VorticityForceCompute {
     vorticity_force_compute_pass: ComputePass,
@@ -15,10 +16,16 @@ pub struct VorticityForceCompute {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct VorticityForceComputePushConstants {
+    particle_to_neighborhood: u64, 
+    super_cluster_neighbors: u64,
+    leaf_particles: u64, 
+    unsorted_leaf_particles: u64, 
+    leaf_count: u64, 
     num_elements: u32,
-    cell_size: f32,
+    kernel_radius: f32,
+    kernel_radius_2: f32, 
     delta_time: f32,
     spiky_constant: f32,
     vorticity_epsilon: f32,
@@ -37,25 +44,30 @@ impl VorticityForceCompute {
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             // Densities
             .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Grid texture
-            .add_buffer_binding(vk::DescriptorType::SAMPLED_IMAGE)
             .build_with_single_pass()?;
         Ok(
             Self{ vorticity_force_compute_pass, vorticity_force_compute_shader }
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, neighbor_list: &NeighborList, physics_config: &PhysicsConfig) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
         let push_constants = VorticityForceComputePushConstants {
+            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
+            unsorted_leaf_particles: octree.data().unsorted_leaf_particles().address(),
+            leaf_count: octree.data().leaf_count().address(),
+            particle_to_neighborhood: neighbor_list.particle_to_neighborhood().address(),
+            leaf_particles: octree.data().leaf_particles().address(),
             num_elements,
-            cell_size: physics_config.search_radius,
+            kernel_radius: physics_config.search_radius,
+            kernel_radius_2: physics_config.kernel_radius_2,
             delta_time: physics_config.time_step,
             spiky_constant: physics_config.kernel_spiky_grad,
-            vorticity_epsilon: physics_config.vorticity_epsilon
+            vorticity_epsilon: physics_config.vorticity_epsilon,
+            ..Default::default()
         };
 
         let device = vk_core.device();
@@ -89,12 +101,17 @@ impl VorticityForceCompute {
                 vk_core.graphics_queue_family_index(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
+            ),
+            compute_buffer_barrier(
+                particle_data.velocities.current().vk_buffer(),
+                vk::AccessFlags2::SHADER_STORAGE_WRITE,
+                vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE,
             )
         ];
 
  
 
         let image_barrier = [];
-        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &image_barrier);
+        command_buffer.pipeline_memory_barrier(device, &buffer_barriers, &image_barrier);
     }
 }

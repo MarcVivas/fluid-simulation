@@ -60,7 +60,7 @@ impl CommandBuffer {
         }
     }
 
-    pub fn pipeline_memory_barrier2(
+    pub fn pipeline_memory_barrier(
         &self,
         device: &ash::Device,
         buffer_barriers: &[vk::BufferMemoryBarrier2],

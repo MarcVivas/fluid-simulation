@@ -134,6 +134,8 @@ fn prepare_gpu_resources(
             cmd_buffer,
             &particles.buffers().hilbert_keys,
             false,
+            world_min,
+            world_size
         );
 
         neighbor_list.build(

@@ -92,12 +92,14 @@ func world_box_constraint(float3 pos, const float particle_radius, const float3 
 
     pos += pressure_nudge;
 
-    // 2. Apply Hard Constraint (The Clamp)
     const float3 clamped_pos = clamp(pos, min_boundary, max_boundary);
-
+    
     if(any(clamped_pos != pos)){
         result.collided = true;
-        result.normal = normalize(pos - clamped_pos); // Normal pointing inward
+    
+        float3 diff = pos - clamped_pos;
+        float len = length(diff);
+        result.normal = len > 1e-6f ? diff / len : float3(0.0f, 1.0f, 0.0f);
     }
 
     result.pos = clamped_pos;

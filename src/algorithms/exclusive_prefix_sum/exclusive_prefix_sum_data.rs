@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::vulkan::{core::VkCore, resources::{CommandBuffer, buffer::VkBuffer, transfer_to_compute_barrier}};
+use crate::vulkan::{core::VkCore, resources::{CommandBuffer, barrier_transfer_to_compute, buffer::VkBuffer, transfer_to_compute_barrier}};
 
 
 pub struct ExclusivePrefixSumData {
@@ -47,10 +47,10 @@ impl ExclusivePrefixSumData {
         cmd_buffer.fill_buffer(device, self.status_array().vk_buffer(), 0, vk::WHOLE_SIZE, 0);
 
         let buffer_barriers = [
-            transfer_to_compute_barrier(self.status_array().vk_buffer(), vk::AccessFlags2::TRANSFER_WRITE, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE),
-            transfer_to_compute_barrier(self.sync_counter().vk_buffer(), vk::AccessFlags2::TRANSFER_WRITE, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)
+            barrier_transfer_to_compute(self.status_array().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE),
+            barrier_transfer_to_compute(self.sync_counter().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)
         ];
         
-        cmd_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
+        cmd_buffer.pipeline_memory_barrier(device, &buffer_barriers, &[]);
     }
 }

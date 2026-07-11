@@ -15,6 +15,7 @@ struct ConstraintSolverPushConstants {
     Ptr<LeafParticles, Access.Read> leaf_particles;
     Ptr<LeafParticles, Access.Read> unsorted_leaf_particles;
     Ptr<uint32_t, Access.Read> leaf_count;
+    Ptr<SuperCluster, Access.Read> particle_to_neighborhood;
     uint num_workgroups;
     uint num_elements;
     float kernel_radius;
@@ -48,7 +49,7 @@ func solve_particle_interactions_with_neighbor(const uint particle_idx, const fl
         const float3 vec = pos - neighbor_j.xyz;
         const float dist_squared = dot(vec, vec);
 
-        if(dist_squared > push_constants.kernel_radius_2) continue;
+        if (dist_squared > push_constants.kernel_radius_2 || dist_squared < 0.00001f) continue;
         
         // Compute W(r_ij, h)
         const float w_r = poly6_kernel(push_constants.poly6_constant, dist_squared, push_constants.kernel_radius_2);
@@ -62,91 +63,54 @@ func solve_particle_interactions_with_neighbor(const uint particle_idx, const fl
 
         const float3 gradient_vec = spiky_kernel_gradient(push_constants.spiky_constant, vec, dist_squared, push_constants.kernel_radius);
 
-        const float neighbor_mass = 1;
-        total_displacement += lambda_sum * gradient_vec * neighbor_mass;
-    }
-
-    return total_displacement;
-}
-
-[ForceInline]
-func solve_particle_neighborhood_interactions(
-    const float3 pos,
-    const float radius,
-    const float lambda,
-    const float w_delta_q,
-    const uint particle_idx,
-    const SuperCluster neighborhood
-) -> float3 {
-
-    // Variable to store the result
-    float3 total_displacement = float3(0.f);
-
-    const uint last_neighbor = neighborhood.neighbor_index + neighborhood.neighbor_count;
-    
-    // For each neighboring leaf
-    for(uint j = neighborhood.neighbor_index; j < last_neighbor; j++){
-
-        // Get the neighbor
-        const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[j];
-        const LeafParticles neighbor_leaf = push_constants.leaf_particles[neighbor.neighbor_leaf_idx];
-
-        total_displacement += solve_particle_interactions_with_neighbor(particle_idx, pos, radius, lambda, w_delta_q, neighbor_leaf);
-        
+        total_displacement += lambda_sum * gradient_vec;
     }
 
     return total_displacement;
 }
 
 
-[ForceInline]
-func process_leaf_particles(const uint leaf_idx, const uint local_id){
-    // Get the leaf
-    const LeafParticles leaf_particles = push_constants.unsorted_leaf_particles[leaf_idx];
-    
-    // Stided loop to handle leaf nodes that contain more particles than thread group size 
-    // Just in case the octree does not converge
-    for(uint p = local_id; p < leaf_particles.particle_count; p+=THREAD_GROUP_SIZE){
 
-        const uint particle_idx = leaf_particles.first_particle_index + p;
 
-        // Load particle coordinates
-        const float4 particle_data = read_positions[particle_idx];
-        const float lambda_i = lambdas[particle_idx];
-        const float3 pos = particle_data.xyz;
-        const float radius = particle_data.w;
-
-        const float delta_q_sq = push_constants.delta_q_squared;
-        const float w_delta_q = poly6_kernel(push_constants.poly6_constant, delta_q_sq, push_constants.kernel_radius_2);
-        
-        // Get the neighborhood of the leaf
-        const SuperCluster neighborhood = push_constants.super_clusters[leaf_idx];
-
-        // Compute the total displacement, how much and where to move the particle?
-        const float3 total_displacement = solve_particle_neighborhood_interactions(pos, radius, lambda_i, w_delta_q, particle_idx, neighborhood) * push_constants.reversed_rest_density;
-
-        // Write the solution for this particle
-        write_positions[particle_idx] = float4(pos + total_displacement, radius);
-    }
-}
 
 [shader("compute")]
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
-void main(const uint global_id : SV_DispatchThreadID, const uint local_id : SV_GroupIndex, const uint group_id : SV_GroupID){
-
-    // Get the total number of leaves
-    const uint leaf_count = *push_constants.leaf_count;
-
-    // Grid stride loop
-    // Each workgroup processes one leaf
-    for(uint i = group_id.x; i < leaf_count; i+=push_constants.num_workgroups){
-
-        // Process the leaf particles
-        process_leaf_particles(i, local_id);
-
-        // Once all threads have finished, process the next leaf
-        GroupMemoryBarrierWithGroupSync();
+func main(const uint global_id: SV_DispatchThreadID) {
+    const uint num_elements = push_constants.num_elements;
+    if (global_id >= num_elements) {
+        return;
     }
+
+
+    const SuperCluster neighborhood = push_constants.particle_to_neighborhood[global_id];
+    
+    // Load this thread's unique particle coordinates (High-bandwidth VMEM pipeline)
+    const float4 particle_data = read_positions[global_id];
+    const float3 pos = particle_data.xyz;
+    const float radius = particle_data.w;
+    const float lambda_i = lambdas[global_id];
+    const float delta_q_sq = push_constants.delta_q_squared;
+    const float w_delta_q = poly6_kernel(push_constants.poly6_constant, delta_q_sq, push_constants.kernel_radius_2);
+    float3 total_displacement = float3(0.f);
+
+    const float particle_rest_density = push_constants.rest_density;
+    
+
+    // Retrieve neighborhood definitions
+    const uint last_neighbor = neighborhood.neighbor_index + neighborhood.neighbor_count;
+
+    
+    // Loop over neighbor leaf clusters
+    for (uint j = neighborhood.neighbor_index; j < last_neighbor; j++) {
+        const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[j];
+        const LeafParticles neighbor_leaf = push_constants.leaf_particles[neighbor.neighbor_leaf_idx];
+
+        // Compute the total displacement, how much and where to move the particle?
+        total_displacement += solve_particle_interactions_with_neighbor(global_id, pos, radius, lambda_i, w_delta_q, neighbor_leaf) * push_constants.reversed_rest_density;
+    }
+
+    // Write the solution for this particle
+    write_positions[global_id] = float4(pos + total_displacement, radius);
 }
 
 float3 solve_constraints(const uint begin, const uint end, const float3 pos, const float radius, const uint global_id){

@@ -67,7 +67,7 @@ impl <T: RadixSortPayload> RadixSortData<T> {
         let num_passes = Self::calculate_number_of_passes(keys_bit_count, bits_per_pass);
 
         let metadata_buffer = VkBuffer::new_gpu_only_uninitialized(vk_core, 1, "Sorting metadata").unwrap();
-        let indirect_dispatch_buffer = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec3::new(1, 1, 1); 5]);
+        let indirect_dispatch_buffer = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0); 5]);
         
         Ok(Self {
             keys_bit_count,

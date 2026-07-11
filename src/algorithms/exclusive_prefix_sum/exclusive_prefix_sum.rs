@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use bytemuck::bytes_of;
 
-use crate::{algorithms::exclusive_prefix_sum::{exclusive_prefix_sum_data::ExclusivePrefixSumData, exclusive_prefix_sum_push_constants::ExclusivePrefixSumPushConstants}, vulkan::compute::{ComputePass, ComputeSystemBuilder}, vulkan::shaders::traits::GpuTask, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::{CommandBuffer, buffer::{IndirectBuffer, VkBuffer}, global_sync_compute,}}};
+use crate::{algorithms::exclusive_prefix_sum::{exclusive_prefix_sum_data::ExclusivePrefixSumData, exclusive_prefix_sum_push_constants::ExclusivePrefixSumPushConstants}, vulkan::{compute::{ComputePass, ComputeSystemBuilder}, core::VkCore, resources::{CommandBuffer, barrier_compute_to_compute, buffer::{IndirectBuffer, VkBuffer}, global_sync_compute,}, shaders::{ShaderCompileTimeConstants, ShaderModule, traits::GpuTask}}};
 
 const THREAD_GROUP_SIZE: u32 = 64;
 
@@ -80,7 +80,11 @@ impl ExclusivePrefixSum {
         let buffers = [self.data.status_array().vk_buffer()];
         self.prefix_sum_pass.indirect_dispatch(vk_core, cmd_buffer, &buffers, &[], bytes_of(&push_constant), dispatch_buffer.vk_buffer(), 0);
 
-        global_sync_compute(vk_core.device(), cmd_buffer);
+        cmd_buffer.pipeline_memory_barrier(
+            vk_core.device(), 
+            &[barrier_compute_to_compute(out_nums.vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ)], 
+            &[]
+        );
     }
     
     

@@ -101,3 +101,52 @@ pub fn sync_compute_to_indirect(device: &ash::Device, cmd: &CommandBuffer) {
     
     cmd.pipeline_global_barrier2(device, &barrier);
 }
+
+
+
+/// Transition a buffer written by a transfer operation (e.g., fill/copy) 
+/// so it can be read or written by a compute shader.
+pub fn barrier_transfer_to_compute(
+    buffer: vk::Buffer,
+    size: u64,
+    dst_access: vk::AccessFlags2,
+) -> vk::BufferMemoryBarrier2<'static> {
+    vk::BufferMemoryBarrier2::default()
+        .buffer(buffer)
+        .size(size)
+        .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+        .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .dst_access_mask(dst_access)
+}
+
+/// Transition a buffer written by a compute shader so it can be safely 
+/// read or written by a subsequent compute shader.
+pub fn barrier_compute_to_compute(
+    buffer: vk::Buffer,
+    size: u64,
+    dst_access: vk::AccessFlags2,
+) -> vk::BufferMemoryBarrier2<'static> {
+    vk::BufferMemoryBarrier2::default()
+        .buffer(buffer)
+        .size(size)
+        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .dst_access_mask(dst_access)
+}
+
+/// Transition a buffer written by a compute shader so it can be used 
+/// as the argument buffer for an indirect dispatch.
+pub fn barrier_compute_to_indirect(
+    buffer: vk::Buffer,
+    size: u64,
+) -> vk::BufferMemoryBarrier2<'static> {
+    vk::BufferMemoryBarrier2::default()
+        .buffer(buffer)
+        .size(size)
+        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags2::DRAW_INDIRECT)
+        .dst_access_mask(vk::AccessFlags2::INDIRECT_COMMAND_READ)
+}

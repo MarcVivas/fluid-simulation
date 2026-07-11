@@ -15,7 +15,7 @@ pub fn octree_test(){
         let mut octree = Octree::new(vk_core, cmd_pool, num_elements);
 
         engine.record_commands(|cmd_buffer|{
-            octree.build(vk_core, cmd_buffer, &keys_buffer, false);
+            octree.build(vk_core, cmd_buffer, &keys_buffer, false, glam::Vec4::new(0., 0., 0., 0.), 256.0);
         });
 
         engine.submit_without_signaling();
@@ -38,7 +38,7 @@ pub fn octree_maintenance_test() {
 
         for _ in 0..20 {
             engine.record_commands(|cmd_buffer| {
-                octree.build(vk_core, cmd_buffer, &keys_buffer, true);
+                octree.build(vk_core, cmd_buffer, &keys_buffer, true, glam::Vec4::new(0., 0., 0., 0.), 256.0);
             });
             engine.submit_without_signaling();
             unsafe { vk_core.device().device_wait_idle().unwrap(); }

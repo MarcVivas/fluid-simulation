@@ -28,7 +28,7 @@ impl PhysicsConfig {
         let kernel_spiky_grad = Self::compute_spiky_grad_constant(kernel_radius);
         
         let rest_density = 1.0;
-        let delta_q_factor = 0.3 * kernel_radius;
+        let delta_q_factor = 0.2 * kernel_radius;
         let delta_q_squared = delta_q_factor * delta_q_factor;
 
         Self {
@@ -36,12 +36,12 @@ impl PhysicsConfig {
             rest_density,
             reversed_rest_density: 1.0 / rest_density,
             lambda_density_epsilon: 1e-6f32,
-            time_step: 1.0 / 45.0,
+            time_step: 1.0 / 60.0,
             solver_iterations: 2,
-            k: 0.01,
+            k: 0.001,
             delta_q_squared,
-            viscosity_constant: 0.01,
-            vorticity_epsilon: 0.05,
+            viscosity_constant: 0.0001,
+            vorticity_epsilon: 0.19,
             n: 4,
             kernel_radius_2: kernel_radius * kernel_radius,
             kernel_poly6,

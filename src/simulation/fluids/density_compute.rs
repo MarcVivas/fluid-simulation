@@ -123,6 +123,6 @@ impl DensityCompute{
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             ),
         ];
-        command_buffer.pipeline_memory_barrier2(device, &buffer_barriers, &[]);
+        command_buffer.pipeline_memory_barrier(device, &buffer_barriers, &[]);
     }
 }

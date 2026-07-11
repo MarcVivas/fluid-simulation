@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use glam::Vec4;
 
-use crate::{algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::kv_radix_sort::GpuKVRadixSort}, simulation::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::LevelOffsetGenerator, node_key_generator::NodeKeyGenerator, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, vulkan::{core::VkCore, resources::{CommandBuffer, buffer::VkBuffer, global_sync_compute, sync_compute_to_indirect}}};
+use crate::{algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::kv_radix_sort::GpuKVRadixSort}, simulation::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::LevelOffsetGenerator, node_key_generator::NodeKeyGenerator, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, vulkan::{core::VkCore, resources::{CommandBuffer, barrier_compute_to_compute, barrier_compute_to_indirect, barrier_transfer_to_compute, buffer::VkBuffer}}};
 
 pub struct OctreeConstructor {
     
@@ -60,19 +60,58 @@ impl OctreeConstructor {
     
         for _ in 0..max_levels {
 
+            // Set was changed to 0.
             cmd_buffer.fill_buffer(device, octree_data.was_changed().vk_buffer(), 0, size_of::<u32>() as u64, 0);
-            
-            self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
-            global_sync_compute(device, cmd_buffer);
-            self.rebalancing_ops_marker.indirect_dispatch(vk_core, cmd_buffer, octree_data, maintenance_mode, n_crit);
-            global_sync_compute(device, cmd_buffer);
 
+            // Sync Transfer -> Compute
+            cmd_buffer.pipeline_memory_barrier(
+                device,
+                &[barrier_transfer_to_compute(octree_data.was_changed().vk_buffer(), size_of::<u32>() as u64, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)], 
+                &[]
+            );
+            
+            // Count how many particles are inside each node leaf
+            self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
+
+            // Sync Compute -> Compute
+            cmd_buffer.pipeline_memory_barrier(
+                device,
+                &[barrier_compute_to_compute(octree_data.leaves_histogram().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ)],
+                &[]
+            );
+            
+            // Decide whether we split or not the leaf nodes based on the histogram
+            self.rebalancing_ops_marker.indirect_dispatch(vk_core, cmd_buffer, octree_data, maintenance_mode, n_crit);
+
+            // Sync Compute -> Compute
+            cmd_buffer.pipeline_memory_barrier(
+                device,
+                &[
+                    barrier_compute_to_compute(octree_data.rebalance_ops().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                    barrier_compute_to_compute(octree_data.was_changed().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ)
+                ],
+                &[]
+            );
+
+            // Perform a prefix sum of the reablancing operations
             self.prefix_sum.indirect_dispatch(vk_core, cmd_buffer, octree_data.rebalance_ops(), octree_data.rebalance_prefix(), octree_data.indirect_dispatch_buffer_leaves(), octree_data.leaf_count());
 
+            // Apply the rebalancing ops (Create new nodes or merge)
             self.rebalancer.indirect_dispatch(vk_core, cmd_buffer, octree_data);
-            sync_compute_to_indirect(device, cmd_buffer);
- 
+       
+             
             octree_data.swap_ping_pong_buffers();
+
+            // Sync: Compute -> Compute and Compute -> Indirect
+            cmd_buffer.pipeline_memory_barrier(
+                device,
+                &[
+                    barrier_compute_to_indirect(octree_data.indirect_dispatch_buffer_leaves().vk_buffer(), vk::WHOLE_SIZE),
+                    barrier_compute_to_compute(octree_data.leaf_count().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE),
+                    barrier_compute_to_compute(octree_data.cornerstone_array().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE)
+                ],
+                &[]
+            );
         }
 
         // Copy the saved indirect disptach buffer to the active slot
@@ -87,14 +126,29 @@ impl OctreeConstructor {
                     .size(12)
             ]
         );
-        global_sync_compute(device, cmd_buffer);
-
+        // SYNC: Transfer -> Compute
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[
+                barrier_transfer_to_compute(
+                    octree_data.was_changed().vk_buffer(),
+                    size_of::<u32>() as u64,
+                    vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE,
+                )
+            ],
+            &[]
+        );
+        
         // This is needed after the loop
         self.leaves_histogram.indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
-        global_sync_compute(device, cmd_buffer);
-
+        // Sync Compute -> Compute
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[barrier_compute_to_compute(octree_data.leaves_histogram().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ)],
+            &[]
+        );
+        
         self.prefix_sum.indirect_dispatch(vk_core, cmd_buffer, octree_data.leaves_histogram(), octree_data.leaf_offsets(), octree_data.indirect_dispatch_buffer_leaves(), octree_data.leaf_count());
-        global_sync_compute(device, cmd_buffer);
 
         self.build_internal_nodes(vk_core, cmd_buffer, octree_data, world_min, world_size);
        
@@ -103,20 +157,43 @@ impl OctreeConstructor {
 
     fn build_internal_nodes(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &mut OctreeData, world_min: Vec4, world_size: f32){
         let device = vk_core.device();
+        
         self.node_key_generator.indirect_dispatch(vk_core, cmd_buffer, octree_data);
-        global_sync_compute(device, cmd_buffer);
-        sync_compute_to_indirect(device, cmd_buffer);
-
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[
+                barrier_compute_to_compute(octree_data.node_keys().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(octree_data.node_count().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(octree_data.leaf_particles().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(octree_data.unsorted_leaf_particles().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ)
+            ], 
+            &[]
+        );
+        
 
         // From LeafParticles to UVec2
         let leaf_particles_uvec2 = unsafe {std::mem::transmute(octree_data.leaf_particles())};
         self.node_key_sorter.sort_indirect(vk_core, octree_data.node_count().address(), octree_data.node_keys(), leaf_particles_uvec2, cmd_buffer);
 
         self.level_offset_generator.dispatch(vk_core, cmd_buffer, octree_data);
-        global_sync_compute(device, cmd_buffer);
-
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[
+                barrier_compute_to_compute(octree_data.level_offsets().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_indirect(octree_data.indirect_dispatch_buffer_nodes().vk_buffer(), vk::WHOLE_SIZE),
+            ], 
+            &[]
+        );
+        
         self.octree_linker.indirect_dispatch(vk_core, cmd_buffer, octree_data, world_min, world_size);
-        global_sync_compute(device, cmd_buffer);
-
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[
+                barrier_compute_to_compute(octree_data.node_first_child().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+                barrier_compute_to_compute(octree_data.node_bounding_boxes().vk_buffer(), vk::WHOLE_SIZE, vk::AccessFlags2::SHADER_STORAGE_READ),
+            ],
+            &[]
+        );
+        
     }
 }

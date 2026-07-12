@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
@@ -15,14 +16,14 @@ pub struct Rebalancer {
 #[repr(C)]
 #[derive(Zeroable, Debug, Clone, Copy, Pod)]
 struct RebalancerPushConstants {
-    cornerstone_array: u64, 
-    rebalance_ops: u64, 
-    rebalance_prefix_sum: u64,
-    new_cornerstone: u64,
-    num_leaves: u64,
-    new_num_leaves: u64,
-    indirect_dispatch_buffer: u64,
-    was_changed: u64,
+    cornerstone_array: vk::DeviceAddress, 
+    rebalance_ops: vk::DeviceAddress, 
+    rebalance_prefix_sum: vk::DeviceAddress,
+    new_cornerstone: vk::DeviceAddress,
+    num_leaves: vk::DeviceAddress,
+    new_num_leaves: vk::DeviceAddress,
+    indirect_dispatch_buffer: vk::DeviceAddress,
+    was_changed: vk::DeviceAddress,
     
 }
 

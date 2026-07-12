@@ -35,16 +35,16 @@ pub struct GpuKVRadixSort<T: RadixSortPayload> {
 #[derive(Copy, Clone, Debug, Zeroable, Pod, Default)]
 struct SortingPushConstants {
     // 64-bit GPU Pointers
-    pub src_keys: u64,
-    pub dst_keys: u64,
-    pub src_payload: u64,
-    pub dst_payload: u64,
-    pub histogram: u64,
-    pub reduce_table: u64,
-    pub scan_scratch: u64,
-    pub metadata: u64,
-    pub indirect_dispatch_buffer: u64,
-    pub count_buffer: u64,
+    pub src_keys: vk::DeviceAddress,
+    pub dst_keys: vk::DeviceAddress,
+    pub src_payload: vk::DeviceAddress,
+    pub dst_payload: vk::DeviceAddress,
+    pub histogram: vk::DeviceAddress,
+    pub reduce_table: vk::DeviceAddress,
+    pub scan_scratch: vk::DeviceAddress,
+    pub metadata: vk::DeviceAddress,
+    pub indirect_dispatch_buffer: vk::DeviceAddress,
+    pub count_buffer: vk::DeviceAddress,
     
     // 32-bit Metadata
     pub num_keys: u32,
@@ -281,7 +281,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
     pub fn sort_indirect(
         &self,
         vk_core: &Arc<VkCore>,
-        count_buffer_address: u64,
+        count_buffer_address: vk::DeviceAddress,
         keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
         command_buffer: &CommandBuffer, 

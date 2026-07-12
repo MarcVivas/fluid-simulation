@@ -72,6 +72,7 @@ impl ComputeEngine {
         unsafe {
             device.wait_for_fences(&[current_fence], true, u64::MAX).unwrap();
             device.reset_fences(&[current_fence]).unwrap();
+            device.reset_command_buffer(current_command_buffer.vk_cmd_buffer(), vk::CommandBufferResetFlags::empty()).unwrap();
         }
 
         // Begin recording commands

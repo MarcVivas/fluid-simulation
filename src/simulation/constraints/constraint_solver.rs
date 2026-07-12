@@ -19,12 +19,16 @@ pub struct ConstraintSolver {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
 struct ConstraintSolverPushConstants {
-    super_clusters: u64,
-    super_cluster_neighbors: u64,
-    leaf_particles: u64,
-    unsorted_leaf_particles: u64,
-    leaf_count: u64,
-    particle_to_neighborhood: u64, 
+    src_positions: vk::DeviceAddress,
+    dst_positions: vk::DeviceAddress,
+    densities: vk::DeviceAddress,
+    lambdas: vk::DeviceAddress,
+    super_clusters: vk::DeviceAddress,
+    super_cluster_neighbors: vk::DeviceAddress,
+    leaf_particles: vk::DeviceAddress,
+    unsorted_leaf_particles: vk::DeviceAddress,
+    leaf_count: vk::DeviceAddress,
+    particle_to_neighborhood: vk::DeviceAddress, 
     num_workgroups: u32,
     num_elements: u32,
     kernel_radius: f32,
@@ -48,14 +52,6 @@ impl ConstraintSolver {
                     .add("THREAD_GROUP_SIZE", super_cluster_size)
             )
             .push_constants::<ConstraintSolverPushConstants>()
-            // Read positions 
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Write positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Densities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Fluid lambdas
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             .build_with_single_pass()?;
 
         Ok(Self { constraint_solver_pass, constraint_solver_shader })
@@ -68,15 +64,18 @@ impl ConstraintSolver {
 
         let particle_buffers = particles.buffers();
         let (read_positions, write_positions) = particle_buffers.positions_buffer.read_write();
-        let (read_positions, write_positions) = (read_positions.vk_buffer(), write_positions.vk_buffer());
-        let densities = particle_buffers.densities.vk_buffer();
-        let lambdas = particle_buffers.lambdas.vk_buffer();
+        let densities = &particle_buffers.densities;
+        let lambdas = &particle_buffers.lambdas;
 
 
         let thread_group_size = neighbor_list.super_cluster_size();
         let num_workgroups = (num_elements + thread_group_size - 1) / thread_group_size;
         
         let push_constants = ConstraintSolverPushConstants {
+            dst_positions: write_positions.address(),
+            src_positions: read_positions.address(),
+            densities: densities.address(),
+            lambdas: lambdas.address(),
             super_clusters: neighbor_list.super_clusters().address(),
             super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
             particle_to_neighborhood: neighbor_list.particle_to_neighborhood().address(),
@@ -96,29 +95,25 @@ impl ConstraintSolver {
             leaf_particles: octree.data().leaf_particles().address(),
             ..Default::default()
         };
-        
-        let buffers = [read_positions, write_positions, densities, lambdas];
-        let images = [];
-
 
         self.constraint_solver_pass.dispatch_compute(
             vk_core,
             command_buffer,
             [num_workgroups, 1, 1],
-            &buffers,
-            &images,
+            &[],
+            &[],
             bytemuck::bytes_of(&push_constants)
         );
         
         
         let buffer_barriers = [
             compute_buffer_barrier(
-                read_positions,
+                read_positions.vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_READ,
                 vk::AccessFlags2::SHADER_STORAGE_WRITE | vk::AccessFlags2::SHADER_STORAGE_READ,
             ),
             compute_buffer_barrier(
-                write_positions,
+                write_positions.vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE,
             )

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
@@ -15,10 +16,10 @@ const THREAD_GROUP_SIZE: u32 = 64;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 struct LeavesHistogramPushConstants {
-    leaf_count: u64,
-    cornerstone_array: u64,
-    keys: u64,
-    leaves_histogram: u64,
+    leaf_count: vk::DeviceAddress,
+    cornerstone_array: vk::DeviceAddress,
+    keys: vk::DeviceAddress,
+    leaves_histogram: vk::DeviceAddress,
     num_keys: u32,
     _padding: u32,
 }

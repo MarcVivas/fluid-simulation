@@ -26,7 +26,7 @@ impl NeighborListTest {
         let cmd_pool = engine.command_pool();
         let world_max = world_min + world_size;
 
-        let particles = Particles::new(num_particles as usize, &world_max, vk_core, cmd_pool).unwrap();
+        let particles = Particles::new(num_particles as usize, &world_max, vk_core, cmd_pool, engine::world::particles::ParticleInitPreset::CollidingBlocks, search_radius).unwrap();
         let octree = Octree::new(vk_core, cmd_pool, num_particles);
         let neighbor_list = NeighborList::new(vk_core, cmd_pool, num_particles as usize, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
         let hilbert_encoder = HilbertEncoder::new(vk_core, Octree::max_levels()).unwrap();

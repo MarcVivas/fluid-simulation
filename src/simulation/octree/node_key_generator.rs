@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
@@ -9,14 +10,14 @@ const THREAD_GROUP_SIZE: u32 = 64;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod, Default)]
 struct NodeKeyGeneratorPushConstants {
-    leaf_count: u64,
-    cornerstone_array: u64,
-    node_keys: u64,
-    node_count: u64,
-    leaf_particles: u64,
-    leaf_offsets: u64,
-    leaves_histogram: u64,
-    unsorted_leaf_particles: u64,
+    leaf_count: vk::DeviceAddress,
+    cornerstone_array: vk::DeviceAddress,
+    node_keys: vk::DeviceAddress,
+    node_count: vk::DeviceAddress,
+    leaf_particles: vk::DeviceAddress,
+    leaf_offsets: vk::DeviceAddress,
+    leaves_histogram: vk::DeviceAddress,
+    unsorted_leaf_particles: vk::DeviceAddress,
 }
 
 pub struct NodeKeyGenerator {

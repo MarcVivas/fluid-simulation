@@ -18,11 +18,16 @@ pub struct VelocityRefiner {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct VelocityRefiningPushConstants {
-    particle_to_neighborhood: u64, 
-    super_cluster_neighbors: u64,
-    leaf_particles: u64, 
-    unsorted_leaf_particles: u64, 
-    leaf_count: u64, 
+    positions: vk::DeviceAddress,
+    src_velocities: vk::DeviceAddress,
+    dst_velocities: vk::DeviceAddress,
+    vorticities: vk::DeviceAddress,
+    densities: vk::DeviceAddress,
+    particle_to_neighborhood: vk::DeviceAddress, 
+    super_cluster_neighbors: vk::DeviceAddress,
+    leaf_particles: vk::DeviceAddress, 
+    unsorted_leaf_particles: vk::DeviceAddress, 
+    leaf_count: vk::DeviceAddress, 
     num_elements: u32,
     kernel_radius: f32,
     poly6_constant: f32,
@@ -36,16 +41,6 @@ impl VelocityRefiner {
         let (velocity_refining_pass, velocity_refining_shader) = ComputeSystemBuilder::new(vk_core.clone(), "velocity_refiner")
             .entry_points(&["main"])
             .push_constants::<VelocityRefiningPushConstants>()
-            // Read positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Read Velocities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Write Velocities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Write Vorticity
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Densities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             .build_with_single_pass()?;
         Ok(
             Self{ velocity_refining_pass, velocity_refining_shader }
@@ -56,8 +51,16 @@ impl VelocityRefiner {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.hilbert_keys.len() as u32;
-
+        let positions = particle_data.positions_buffer.current().address();
+        let (read_velocities, write_velocities) = particle_data.velocities.read_write();
+        
+        
         let push_constants = VelocityRefiningPushConstants {
+            positions,
+            src_velocities: read_velocities.address(),
+            dst_velocities: write_velocities.address(),
+            densities: particle_data.densities.address(),
+            vorticities: particle_data.vorticity.address(),
             num_elements,
             super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
             unsorted_leaf_particles: octree.data().unsorted_leaf_particles().address(),
@@ -73,21 +76,14 @@ impl VelocityRefiner {
 
         let device = vk_core.device();
 
-        // Describe the buffers we want to bind
-        let positions = particle_data.positions_buffer.current().vk_buffer();
-        let (read_velocities, write_velocities) = particle_data.velocities.read_write();
-
-        let buffers = [positions, read_velocities.vk_buffer(), write_velocities.vk_buffer(), particle_data.vorticity.vk_buffer(), particle_data.densities.vk_buffer()];
-        let images = [];
-
 
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
         self.velocity_refining_pass.dispatch_compute(
             vk_core,
             command_buffer,
             thread_group_counts,
-            &buffers,
-            &images,
+            &[],
+            &[],
             bytemuck::bytes_of(&push_constants)
         );
 

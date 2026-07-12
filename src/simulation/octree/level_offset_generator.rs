@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
@@ -15,10 +16,10 @@ const THREAD_GROUP_SIZE: u32 = 64;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 struct LevelOffsetGeneratorPushConstants {
-    node_count: u64,
-    node_keys: u64,
-    level_offsets: u64,
-    indirect_dispatch_buffer: u64
+    node_count: vk::DeviceAddress,
+    node_keys: vk::DeviceAddress,
+    level_offsets: vk::DeviceAddress,
+    indirect_dispatch_buffer: vk::DeviceAddress
 }
 
 

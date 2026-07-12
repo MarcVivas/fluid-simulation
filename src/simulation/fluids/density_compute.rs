@@ -19,11 +19,15 @@ pub struct DensityCompute{
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
 struct DensityComputePushConstants {
-    super_clusters: u64, 
-    super_cluster_neighbors: u64,
-    leaf_particles: u64, 
-    unsorted_leaf_particles: u64, 
-    leaf_count: u64, 
+    positions: vk::DeviceAddress,
+    densities: vk::DeviceAddress,
+    lambdas: vk::DeviceAddress,
+    particle_to_neighborhood: vk::DeviceAddress,
+    super_clusters: vk::DeviceAddress, 
+    super_cluster_neighbors: vk::DeviceAddress,
+    leaf_particles: vk::DeviceAddress, 
+    unsorted_leaf_particles: vk::DeviceAddress, 
+    leaf_count: vk::DeviceAddress, 
     num_workgroups: u32,
     num_elements: u32,
     kernel_radius: f32,
@@ -45,11 +49,6 @@ impl DensityCompute{
                 .add("THREAD_GROUP_SIZE", super_cluster_size)
             )
             .push_constants::<DensityComputePushConstants>()
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Densities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Lambdas
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER) // Particle to neighborhood
-
             .build_with_single_pass()?;
         Ok(
             Self {
@@ -69,9 +68,18 @@ impl DensityCompute{
         // Dispatch exactly based on particle count
         let num_workgroups = (num_elements + thread_group_size - 1) / thread_group_size;
 
+        let positions = particle_data.positions_buffer.current().address();
+        let densities = particle_data.densities.address();
+        let lambdas = particle_data.lambdas.address();
+        let particle_to_neighborhood = neighbor_list.particle_to_neighborhood().address();
+
         
         let push_constants = DensityComputePushConstants {
             num_elements,
+            positions,
+            densities,
+            lambdas,
+            particle_to_neighborhood,
             kernel_radius: physics_config.kernel_radius,
             rest_density: physics_config.rest_density,
             reversed_rest_density: physics_config.reversed_rest_density,
@@ -88,37 +96,23 @@ impl DensityCompute{
             ..Default::default()
         };
 
-        let positions = particle_data.positions_buffer.current().vk_buffer();
-        let densities = particle_data.densities.vk_buffer();
-        let lambdas = particle_data.lambdas.vk_buffer();
-        let particle_to_leaf = neighbor_list.particle_to_neighborhood().vk_buffer();
-
-        let buffers = [
-            positions,
-            densities,
-            lambdas,
-            particle_to_leaf
-        ];
-
-        let images = [];
-
         self.density_compute_pass.dispatch_compute(
             vk_core,
             command_buffer,
             [num_workgroups, 1, 1],
-            &buffers,
-            &images,
+            &[],
+            &[],
             bytemuck::bytes_of(&push_constants)
         );
 
         let buffer_barriers = [
             compute_buffer_barrier(
-                densities,
+                particle_data.densities.vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             ),
             compute_buffer_barrier(
-                lambdas,
+                particle_data.lambdas.vk_buffer(),
                 vk::AccessFlags2::SHADER_STORAGE_WRITE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             ),

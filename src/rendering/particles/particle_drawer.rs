@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use ash::vk;
-use ash::vk::{DescriptorSetLayoutBinding};
+use bytemuck::{Pod, Zeroable};
+use glam::Mat4;
 use crate::rendering::GraphicsPipeline;
+use crate::rendering::camera::CameraUniform;
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::ParticleRenderData};
 use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, PipelineLayout, pipeline_layout::DescriptorSetLayoutConfig};
+use crate::vulkan::resources::{CommandBuffer, PipelineLayout};
 use crate::rendering::WindowRenderTarget;
 
 #[allow(unused)]
@@ -15,6 +17,17 @@ pub struct ParticleDrawer{
     task_shader_module: ShaderModule,
     mesh_shader_module: ShaderModule,
     fragment_shader_module: ShaderModule,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, Pod, Zeroable)]
+struct PushConstants {
+    view: Mat4,
+    proj: Mat4,
+    positions_buffer: vk::DeviceAddress,
+    velocities_buffer: vk::DeviceAddress,
+    num_particles: u32,
+    _padding: [u32; 3]
 }
 
 impl ParticleDrawer {
@@ -47,45 +60,15 @@ impl ParticleDrawer {
 
 
         // Pipeline layout
-
-        // Set 0: Camera uniform buffer
-        let camera_descriptor_set_layout_binding = [DescriptorSetLayoutBinding::default()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::TASK_EXT | vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)];
-
-        // Set 1: Particle data buffer
-        let particle_descriptor_set_layout_binding = [
-            // Packed positions
-            DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT),
-            // Velocities
-            DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::TASK_EXT),
-        ];
-
-        let descriptor_set_layout_config = [
-            DescriptorSetLayoutConfig {
-                bindings: &camera_descriptor_set_layout_binding,
-                flags: None
-            },
-            DescriptorSetLayoutConfig {
-                bindings: &particle_descriptor_set_layout_binding,
-                flags: Some(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
-            },
-        ];
-
+        let push_const_range = vk::PushConstantRange::default()
+            .stage_flags(vk::ShaderStageFlags::TASK_EXT | vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT)
+            .offset(0)
+            .size(size_of::<PushConstants>() as u32);
+            
         let pipeline_layout = PipelineLayout::new(
             vk_core.clone(),
-            &descriptor_set_layout_config,
-            &[]
+            &[],
+            &[push_const_range]
         ).expect("Failed to create pipeline layout");
 
         let graphics_pipeline = GraphicsPipeline::new(
@@ -107,11 +90,8 @@ impl ParticleDrawer {
         }
     }
 
-    pub fn graphics_pipeline(&self) -> &GraphicsPipeline {
-        &self.graphics_pipeline
-    }
 
-    pub fn draw(&self, command_buffer: &CommandBuffer, total_particles: usize){
+    pub fn draw(&self, command_buffer: &CommandBuffer, total_particles: usize, particles: &ParticleRenderData, camera: &CameraUniform){
         if total_particles <= 0 {
             return;
         }
@@ -123,6 +103,25 @@ impl ParticleDrawer {
             self.graphics_pipeline.graphics_pipeline()
         );
 
+     
+
+        let push = PushConstants {
+            view: camera.view,
+            proj: camera.projection,
+            positions_buffer: particles.positions_address,
+            velocities_buffer: particles.velocities_address,
+            num_particles: particles.total_particles as u32,
+            ..Default::default()
+        };
+
+        command_buffer.push_constants(
+            device,
+            self.graphics_pipeline.pipeline_layout().vk_pipeline_layout(),
+            vk::ShaderStageFlags::TASK_EXT | vk::ShaderStageFlags::MESH_EXT | vk::ShaderStageFlags::FRAGMENT,
+            0,
+            bytemuck::bytes_of(&push),
+        );
+
         // Draw
         let group_count_x = (total_particles + 63) / 64;
         let mesh_shader_loader = self.vk_core.mesh_shader_loader().unwrap();
@@ -130,54 +129,5 @@ impl ParticleDrawer {
             mesh_shader_loader.cmd_draw_mesh_tasks(command_buffer.vk_cmd_buffer(), group_count_x as u32, 1, 1);
         }
 
-    }
-
-    pub fn bind_descriptor_sets(
-        &self,
-        command_buffer: &CommandBuffer,
-        descriptor_sets: &[vk::DescriptorSet],
-        particle_render_data: &ParticleRenderData,
-    ) {
-        command_buffer.bind_descriptor_sets(
-            self.vk_core.device(),
-            vk::PipelineBindPoint::GRAPHICS,
-            self.graphics_pipeline().pipeline_layout().vk_pipeline_layout(),
-            0,
-            descriptor_sets,
-            &[]
-        );
-
-        let pos_info = [vk::DescriptorBufferInfo::default()
-            .buffer(particle_render_data.positions_buffer)
-            .range(vk::WHOLE_SIZE)];
-            
-        let vel_info = [vk::DescriptorBufferInfo::default()
-            .buffer(particle_render_data.velocities)
-            .range(vk::WHOLE_SIZE)];
-        
-        let descriptor_writes = [
-            vk::WriteDescriptorSet::default()
-                .dst_binding(0)
-                .descriptor_count(1) // explicitly 1
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&pos_info),
-                
-            vk::WriteDescriptorSet::default()
-                .dst_binding(1)
-                .descriptor_count(1) // explicitly 1
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&vel_info),
-        ];
-
-        // Pushing Set 1
-        unsafe {
-            self.vk_core.push_descriptor().cmd_push_descriptor_set(
-                command_buffer.vk_cmd_buffer(),
-                vk::PipelineBindPoint::GRAPHICS,
-                self.graphics_pipeline.pipeline_layout().vk_pipeline_layout(),
-                1, // Set Index: 1
-                &descriptor_writes,
-            );
-        }
     }
 }

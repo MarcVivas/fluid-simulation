@@ -16,9 +16,17 @@ pub struct ParticleReorderer {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Zeroable, Pod)]
+#[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
 struct RearrangePushConstants {
+    src_positions: vk::DeviceAddress, 
+    dst_positions: vk::DeviceAddress,
+    src_prev_positions: vk::DeviceAddress, 
+    dst_previous_positions: vk::DeviceAddress, 
+    src_velocities: vk::DeviceAddress, 
+    dst_velocities: vk::DeviceAddress,
+    particle_indexes: vk::DeviceAddress,
     num_elements: u32,
+    _padding: [u32; 1]
 }
 
 impl ParticleReorderer {
@@ -26,20 +34,6 @@ impl ParticleReorderer {
         let (rearranging_pass, rearranging_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .entry_points(&["main"])
             .push_constants::<RearrangePushConstants>()
-            // Src Positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Dst Positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Src Previous positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Dst Previous positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Src Velocities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Dst Velocities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Object indexes
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             .build_with_single_pass()?;
 
         Ok(Self { rearranging_pass, rearranging_shader })
@@ -49,23 +43,25 @@ impl ParticleReorderer {
         let device = vk_core.device();
 
         let num_elements = particle_data.particle_indexes.len() as u32;
-        let push_constants = RearrangePushConstants { num_elements };
+
 
         let (src_positions, dst_positions) = particle_data.positions_buffer.read_write();
         let (src_previous_positions, dst_previous_positions) = particle_data.previous_positions_buffer.read_write();
         let (src_velocities, dst_velocities) = particle_data.velocities.read_write();
-        let object_indexes = particle_data.particle_indexes.vk_buffer();
+        let object_indexes = &particle_data.particle_indexes;
 
-
-        let buffers = [
-            src_positions.vk_buffer(),
-            dst_positions.vk_buffer(),
-            src_previous_positions.vk_buffer(),
-            dst_previous_positions.vk_buffer(),
-            src_velocities.vk_buffer(),
-            dst_velocities.vk_buffer(),
-            object_indexes
-        ];
+        
+        let push_constants = RearrangePushConstants {
+            src_positions: src_positions.address(),
+            dst_positions: dst_positions.address(),
+            src_velocities: src_velocities.address(),
+            dst_velocities: dst_velocities.address(),
+            particle_indexes: object_indexes.address(),
+            src_prev_positions: src_previous_positions.address(),
+            dst_previous_positions: dst_previous_positions.address(),
+            num_elements,
+            ..Default::default()
+        };
 
 
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
@@ -74,7 +70,7 @@ impl ParticleReorderer {
             vk_core,
             command_buffer,
             thread_group_counts,
-            &buffers,
+            &[],
             &[],
             bytemuck::bytes_of(&push_constants),
         );

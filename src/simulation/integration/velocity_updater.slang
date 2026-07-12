@@ -11,6 +11,9 @@ struct UpdateVelocitiesPushConstants{
     float3 world_size;
     float delta_time;
     uint num_elements;
+    Ptr<float4, Access.ReadWrite> predicted_positions;
+    Ptr<float4, Access.ReadWrite> previous_positions;
+    Ptr<float4, Access.ReadWrite> velocities;
 }
 
 struct WorldCollisionResult {
@@ -19,34 +22,31 @@ struct WorldCollisionResult {
     bool collided;
 };
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<float4> predicted_positions;
-[[vk::binding(1, 0)]] StructuredBuffer<float4> previous_positions;
-[[vk::binding(2, 0)]] RWStructuredBuffer<float4> velocities;
 
-[[vk::push_constant]] UpdateVelocitiesPushConstants push_constants;
+[[vk::push_constant]] UpdateVelocitiesPushConstants pc;
 
 [shader("compute")]
 [numthreads(GROUP_SIZE, 1, 1)]
 func main(const uint global_id: SV_DispatchThreadID){
 
-    if(global_id >= push_constants.num_elements){
+    if(global_id >= pc.num_elements){
         // Out of bounds
         return;
     }
 
     // Get particle data
-    const float4 particle = predicted_positions[global_id];
+    const float4 particle = pc.predicted_positions[global_id];
     const float3 predicted_pos = particle.xyz;
     const float particle_radius = particle.w;
-    const float3 previous_pos = previous_positions[global_id].xyz;
+    const float3 previous_pos = pc.previous_positions[global_id].xyz;
 
     // Correct the predicted position first if the particle is outside the world boundaries
-    const WorldCollisionResult world_collision = world_box_constraint(predicted_pos, particle_radius, float3(0, 0, 0), push_constants.world_size);
+    const WorldCollisionResult world_collision = world_box_constraint(predicted_pos, particle_radius, float3(0, 0, 0), pc.world_size);
     //const WorldCollisionResult world_collision = world_sphere_constraint(predicted_pos, particle_radius, push_constants.world_size);
     const float3 corrected_position = world_collision.pos;
 
     // Compute the new velocity based on the actual displacement allowed by the boundaries
-    float3 new_velocity = (corrected_position - previous_pos) / push_constants.delta_time;
+    float3 new_velocity = (corrected_position - previous_pos) / pc.delta_time;
     if(world_collision.collided) {
         float vn = dot(new_velocity, world_collision.normal);
         if(vn < 0.0) {
@@ -62,8 +62,8 @@ func main(const uint global_id: SV_DispatchThreadID){
         new_velocity *= rsqrt(speed_2) * MAX_VELOCITY;
     }
 
-    predicted_positions[global_id] = float4(corrected_position, particle_radius);
-    velocities[global_id] = float4(new_velocity * DAMPING, 0);
+    pc.predicted_positions[global_id] = float4(corrected_position, particle_radius);
+    pc.velocities[global_id] = float4(new_velocity * DAMPING, 0);
 }
 
 func world_box_constraint(float3 pos, const float particle_radius, const float3 world_min, const float3 world_max) -> WorldCollisionResult {

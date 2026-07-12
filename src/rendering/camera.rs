@@ -198,16 +198,16 @@ impl Camera {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct CameraUniform {
-    view: [[f32; 4]; 4],
-    projection: [[f32; 4]; 4]
+    pub view: Mat4,
+    pub projection: Mat4
 }
 impl CameraUniform {
     pub fn new() -> Self {
-        Self { view: Mat4::IDENTITY.to_cols_array_2d(), projection: Mat4::IDENTITY.to_cols_array_2d() }
+        Self { view: Mat4::IDENTITY, projection: Mat4::IDENTITY }
     }
     pub fn update_view_projection(&mut self, view: &Mat4, projection: &Mat4) {
-        self.view = view.transpose().to_cols_array_2d();
-        self.projection = projection.transpose().to_cols_array_2d();
+        self.view = view.transpose();
+        self.projection = projection.transpose();
     }
 }
 

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 use glam::Vec4;
@@ -17,11 +18,11 @@ const THREAD_GROUP_SIZE: u32 = 64;
 #[derive(Debug, Clone, Copy, Zeroable, Pod, Default)]
 struct OctreeLinkerPushConstants {
     world_min: Vec4,
-    node_keys: u64,
-    level_offsets: u64,
-    node_first_child: u64,
-    node_count: u64,
-    node_bounding_boxes: u64,
+    node_keys: vk::DeviceAddress,
+    level_offsets: vk::DeviceAddress,
+    node_first_child: vk::DeviceAddress,
+    node_count: vk::DeviceAddress,
+    node_bounding_boxes: vk::DeviceAddress,
     world_size: f32,
     _padding: [u32; 1]
 }

@@ -21,7 +21,7 @@ impl RearrangingSystemTest {
         let cmd_pool = engine.command_pool();
         let world_max = world_min + world_size;
 
-        let particles = Particles::new(num_particles as usize, &world_max, vk_core, cmd_pool).unwrap();
+        let particles = Particles::new(num_particles as usize, &world_max, vk_core, cmd_pool, engine::world::particles::ParticleInitPreset::CollidingBlocks, 2.0).unwrap();
         let hilbert_encoder = HilbertEncoder::new(vk_core, 10).unwrap();
         let sorting_system = GpuKVRadixSort::<u32>::new(vk_core, cmd_pool, num_particles, Some(64)).unwrap();
         let rearranging_system = ParticleReorderer::new(vk_core).unwrap();

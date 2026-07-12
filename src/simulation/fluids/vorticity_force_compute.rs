@@ -18,11 +18,15 @@ pub struct VorticityForceCompute {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct VorticityForceComputePushConstants {
-    particle_to_neighborhood: u64, 
-    super_cluster_neighbors: u64,
-    leaf_particles: u64, 
-    unsorted_leaf_particles: u64, 
-    leaf_count: u64, 
+    positions: vk::DeviceAddress,
+    velocities: vk::DeviceAddress,
+    vorticities: vk::DeviceAddress,
+    densities: vk::DeviceAddress,
+    particle_to_neighborhood: vk::DeviceAddress, 
+    super_cluster_neighbors: vk::DeviceAddress,
+    leaf_particles: vk::DeviceAddress, 
+    unsorted_leaf_particles: vk::DeviceAddress, 
+    leaf_count: vk::DeviceAddress, 
     num_elements: u32,
     kernel_radius: f32,
     kernel_radius_2: f32, 
@@ -36,14 +40,6 @@ impl VorticityForceCompute {
         let (vorticity_force_compute_pass, vorticity_force_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "vorticity_force_compute")
             .entry_points(&["main"])
             .push_constants::<VorticityForceComputePushConstants>()
-            // Read positions 
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Velocities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Vorticity
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Densities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             .build_with_single_pass()?;
         Ok(
             Self{ vorticity_force_compute_pass, vorticity_force_compute_shader }
@@ -67,30 +63,22 @@ impl VorticityForceCompute {
             delta_time: physics_config.time_step,
             spiky_constant: physics_config.kernel_spiky_grad,
             vorticity_epsilon: physics_config.vorticity_epsilon,
+            positions: particle_data.positions_buffer.current().address(),
+            velocities: particle_data.velocities.current().address(),
+            vorticities: particle_data.vorticity.address(),
+            densities: particle_data.densities.address(),
             ..Default::default()
         };
 
         let device = vk_core.device();
-
-        // Describe the buffers we want to bind
-        let positions = particle_data.positions_buffer.current().vk_buffer();
-        let velocities = particle_data.velocities.current().vk_buffer();
-        let vorticity = particle_data.vorticity.vk_buffer();
-        let densities = particle_data.densities.vk_buffer();
-        
-        let buffers = [positions, velocities, vorticity, densities];
-        let images = [
-            
-        ];
-
-
+      
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
         self.vorticity_force_compute_pass.dispatch_compute(
             vk_core,
             command_buffer,
             thread_group_counts,
-            &buffers,
-            &images,
+            &[],
+            &[],
             bytemuck::bytes_of(&push_constants)
         );
 

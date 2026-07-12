@@ -6,6 +6,11 @@ import LeafParticles;
 static const uint GROUP_SIZE = 64;
 
 struct VorticityComputePushConstants {
+    Ptr<float4, Access.Read> packed_positions;
+    Ptr<float4, Access.ReadWrite> velocities;
+    Ptr<float4, Access.Read> read_vorticity;
+    Ptr<float, Access.Read> densities;
+
     Ptr<SuperCluster, Access.Read> particle_to_neighborhood;
     Ptr<SuperClusterNeighbors, Access.Read> super_cluster_neighbors;
     Ptr<LeafParticles, Access.Read> leaf_particles;
@@ -19,12 +24,8 @@ struct VorticityComputePushConstants {
     float epsilon;
 };
 
-[[vk::binding(0, 0)]] StructuredBuffer<float4> packed_positions;
-[[vk::binding(1, 0)]] RWStructuredBuffer<float4> velocities;
-[[vk::binding(2, 0)]] StructuredBuffer<float4> read_vorticity;
-[[vk::binding(3, 0)]] StructuredBuffer<float> densities;
 
-[[vk::push_constant]] VorticityComputePushConstants push_constants;
+[[vk::push_constant]] VorticityComputePushConstants pc;
 
 static float3 s_pos;
 static float s_vorticity_magnitude;
@@ -47,15 +48,15 @@ func process_single_interaction(
     const float3 vec = s_pos - other_pos;
     const float distance_squared = dot(vec, vec);
     
-    if (distance_squared > push_constants.kernel_radius_2) {
+    if (distance_squared > pc.kernel_radius_2) {
         return;
     }
     
     vorticity_magnitude_gradient += (other_vorticity_magnitude - s_vorticity_magnitude) * spiky_kernel_gradient(
-        push_constants.spiky_constant, 
+        pc.spiky_constant, 
         vec, 
         distance_squared, 
-        push_constants.kernel_radius
+        pc.kernel_radius
     );
 }
 
@@ -71,15 +72,15 @@ func solve_particle_interactions_with_neighbor(
 
     for (; j + 3 < leaf_end; j += 4) {
         // Parallel VMEM coalesced vector loads
-        const float4 p0 = packed_positions[j];
-        const float4 p1 = packed_positions[j + 1];
-        const float4 p2 = packed_positions[j + 2];
-        const float4 p3 = packed_positions[j + 3];
+        const float4 p0 = pc.packed_positions[j];
+        const float4 p1 = pc.packed_positions[j + 1];
+        const float4 p2 = pc.packed_positions[j + 2];
+        const float4 p3 = pc.packed_positions[j + 3];
 
-        const float4 v0 = read_vorticity[j];
-        const float4 v1 = read_vorticity[j + 1];
-        const float4 v2 = read_vorticity[j + 2];
-        const float4 v3 = read_vorticity[j + 3];
+        const float4 v0 = pc.read_vorticity[j];
+        const float4 v1 = pc.read_vorticity[j + 1];
+        const float4 v2 = pc.read_vorticity[j + 2];
+        const float4 v3 = pc.read_vorticity[j + 3];
         
         process_single_interaction(p0, v0.w, j, vorticity_magnitude_gradient);
         process_single_interaction(p1, v1.w, j + 1, vorticity_magnitude_gradient);
@@ -88,8 +89,8 @@ func solve_particle_interactions_with_neighbor(
     }
 
     for (; j < leaf_end; j++) {
-        const float4 p = packed_positions[j];
-        const float vm = read_vorticity[j].w;
+        const float4 p = pc.packed_positions[j];
+        const float vm = pc.read_vorticity[j].w;
         process_single_interaction(p, vm, j, vorticity_magnitude_gradient);
     }
 }
@@ -98,17 +99,17 @@ func solve_particle_interactions_with_neighbor(
 [numthreads(GROUP_SIZE, 1, 1)]
 func main(const uint global_id: SV_DispatchThreadID) {
 
-    const uint num_elements = push_constants.num_elements;
+    const uint num_elements = pc.num_elements;
     if (global_id >= num_elements) {
         return;
     }
 
-    const SuperCluster neighborhood = push_constants.particle_to_neighborhood[global_id];
+    const SuperCluster neighborhood = pc.particle_to_neighborhood[global_id];
 
-    const float4 particle = packed_positions[global_id];
+    const float4 particle = pc.packed_positions[global_id];
     const float radius = particle.w;
 
-    const float4 vorticity = read_vorticity[global_id];
+    const float4 vorticity = pc.read_vorticity[global_id];
     const float3 vorticity_at_particle_pos = vorticity.xyz;
     const float vorticity_magnitude = vorticity.w;
 
@@ -117,7 +118,7 @@ func main(const uint global_id: SV_DispatchThreadID) {
     s_vorticity_magnitude = vorticity_magnitude;
     s_global_idx = global_id;
 
-    const float kernel_radius = push_constants.kernel_radius;
+    const float kernel_radius = pc.kernel_radius;
 
     // For equation 16 (Gradient of the magnitude of the vorticity field)
     float3 vorticity_magnitude_gradient = float3(0, 0, 0);
@@ -127,8 +128,8 @@ func main(const uint global_id: SV_DispatchThreadID) {
     
     // Loop over neighbor leaf clusters
     for (uint j = neighborhood.neighbor_index; j < last_neighbor; j++) {
-        const SuperClusterNeighbors neighbor = push_constants.super_cluster_neighbors[j];
-        const LeafParticles neighbor_leaf = push_constants.leaf_particles[neighbor.neighbor_leaf_idx];
+        const SuperClusterNeighbors neighbor = pc.super_cluster_neighbors[j];
+        const LeafParticles neighbor_leaf = pc.leaf_particles[neighbor.neighbor_leaf_idx];
         
         solve_particle_interactions_with_neighbor(neighbor_leaf, vorticity_magnitude_gradient);
     }
@@ -136,8 +137,8 @@ func main(const uint global_id: SV_DispatchThreadID) {
     // Apply Vorticity Confinement Force (Equation 16)
     float len_grad = length(vorticity_magnitude_gradient);
     float3 N = len_grad > 1e-6f ? vorticity_magnitude_gradient / len_grad : float3(0.0f);
-    const float EPSILON = push_constants.epsilon;
+    const float EPSILON = pc.epsilon;
     const float3 vorticity_force = EPSILON * cross(N, vorticity_at_particle_pos);
 
-    velocities[global_id].xyz += vorticity_force * push_constants.delta_time;
+    pc.velocities[global_id].xyz += vorticity_force * pc.delta_time;
 }

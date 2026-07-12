@@ -1,4 +1,4 @@
-use crate::rendering::camera::{Camera, CameraUniform};
+use crate::rendering::camera::{Camera};
 use crate::rendering::frame_data::FrameData;
 use crate::rendering::particles::ParticleDrawer;
 use crate::rendering::config::RenderConfig;
@@ -8,8 +8,7 @@ use crate::world::{particles::ParticleRenderData};
 use crate::vulkan::core::VkCore;
 use crate::vulkan::resources;
 use crate::vulkan::resources::{
-    CommandBuffer, CommandPool, DescriptorPool, DescriptorSet, DescriptorSetLayoutConfig,
-    PipelineLayout,
+    CommandBuffer, CommandPool
 };
 use ash::prelude::VkResult;
 use ash::vk;
@@ -33,9 +32,6 @@ pub struct Renderer {
 
     should_resize: RenderState,
 
-    #[allow(dead_code)]
-    descriptor_pool: DescriptorPool,
-    descriptor_sets: DescriptorSet,
 
     camera: Camera,
     
@@ -97,10 +93,6 @@ impl Renderer {
         let frame_data = (0..MAX_FRAME_LATENCY)
             .map(|i| FrameData::new(vk_core.clone(), draw_command_buffers[i]))
             .collect();
-
-        let desc_pool = Self::create_descriptor_pool(&vk_core);
-        let desc_sets = Self::create_descriptor_set(&vk_core, &camera, &desc_pool);
-        
         
         let particle_system_drawer = ParticleDrawer::new(
             vk_core.clone(),
@@ -115,83 +107,9 @@ impl Renderer {
             frame_index: 0,
             should_resize: RenderState::Ready,
             frame_data,
-            descriptor_pool: desc_pool,
             camera,
-            descriptor_sets: desc_sets,
             particle_drawer: particle_system_drawer
         }
-    }
-
-    fn create_descriptor_pool(vk_core: &Arc<VkCore>) -> DescriptorPool {
-        let desc_pool_sizes = [vk::DescriptorPoolSize::default()
-            .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(MAX_FRAME_LATENCY as u32)];
-        let desc_pool_create_info = vk::DescriptorPoolCreateInfo::default()
-            .pool_sizes(&desc_pool_sizes)
-            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
-            .max_sets(MAX_FRAME_LATENCY as u32);
-
-        let desc_pool = DescriptorPool::new(vk_core.clone(), &desc_pool_create_info)
-            .expect("failed to create descriptor pool");
-
-        desc_pool
-    }
-
-    fn create_descriptor_set(
-        vk_core: &Arc<VkCore>,
-        camera: &Camera,
-        desc_pool: &DescriptorPool,
-    ) -> DescriptorSet {
-        let desc_set_layout_binding = [vk::DescriptorSetLayoutBinding::default()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(
-                vk::ShaderStageFlags::TASK_EXT
-                    | vk::ShaderStageFlags::MESH_EXT
-                    | vk::ShaderStageFlags::FRAGMENT,
-            )];
-
-        let descriptor_set_layout_config = [DescriptorSetLayoutConfig {
-            bindings: &desc_set_layout_binding,
-            flags: None,
-        }];
-
-        let pipeline_layout =
-            PipelineLayout::new(vk_core.clone(), &descriptor_set_layout_config, &[])
-                .expect("failed to create pipeline layout");
-
-        let layouts = vec![pipeline_layout.vk_descriptor_set_layout()[0]; MAX_FRAME_LATENCY];
-
-        let desc_set_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(desc_pool.vk_pool())
-            .set_layouts(&layouts);
-
-        let desc_sets = DescriptorSet::new(&vk_core, &desc_set_info)
-            .expect("failed to allocate descriptor set");
-
-        for i in 0..MAX_FRAME_LATENCY {
-            let desc_buffer_info = [vk::DescriptorBufferInfo::default()
-                .buffer(camera.buffer(i).vk_buffer())
-                .offset(0)
-                .range(size_of::<CameraUniform>() as u64)];
-
-            let write_desc_set = [vk::WriteDescriptorSet::default()
-                .dst_set(desc_sets.vk_descriptor_set()[i])
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_count(1)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&desc_buffer_info)];
-
-            unsafe {
-                vk_core
-                    .device()
-                    .update_descriptor_sets(&write_desc_set, &[]);
-            };
-        }
-
-        desc_sets
     }
 
     pub fn begin_frame(&mut self, window: &Window) -> Option<(usize, u32)> {
@@ -263,18 +181,15 @@ impl Renderer {
         self.camera.buffer(current_frame_idx).update(uniform_data);
     }
 
-    fn render_drawables(&self, cmd_buffer: &CommandBuffer, current_frame_index: usize, particles: &ParticleRenderData) {
+    fn render_drawables(&self, cmd_buffer: &CommandBuffer, particles: &ParticleRenderData) {
         let device = self.vk_core.device();
 
         // Viewport/Scissor (Dynamic State)
         cmd_buffer.set_viewport(device, 0, self.render_target.viewports());
         cmd_buffer.set_scissor(device, 0, self.render_target.scissors());
-
-        let descriptor_sets = [self.descriptor_sets.vk_descriptor_set()[current_frame_index]];
-        self.particle_drawer.bind_descriptor_sets(cmd_buffer, &descriptor_sets, particles);
-
+        
         // Record rendering commands
-        self.particle_drawer.draw(&cmd_buffer, particles.total_particles);
+        self.particle_drawer.draw(&cmd_buffer, particles.total_particles, particles, self.camera.get_uniform());
     }
 
     fn begin_render_pass(
@@ -334,7 +249,7 @@ impl Renderer {
 
         // Create Depth Image Transition Barrier
         let depth_barrier = resources::transition_image_layout(
-            self.render_target.depth_image().vk_image(), // Assuming your DepthImage struct has a `vk_image()` method
+            self.render_target.depth_image().vk_image(), 
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS
@@ -474,11 +389,10 @@ impl Renderer {
 
             let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
             
-            let positions = particles.positions_buffer;
             
-            self.begin_render_pass(cmd_buffer, image_index as usize, positions, compute_paused);
-            self.render_drawables(cmd_buffer, current_frame_idx as usize, particles);
-            self.end_render_pass(cmd_buffer, image_index as usize, positions);
+            self.begin_render_pass(cmd_buffer, image_index as usize, particles.positions_buffer, compute_paused);
+            self.render_drawables(cmd_buffer, particles);
+            self.end_render_pass(cmd_buffer, image_index as usize, particles.positions_buffer);
         }
 
         pub fn submit_and_present(

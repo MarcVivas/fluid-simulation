@@ -1,3 +1,12 @@
+struct PushConstants {
+    float4x4 view;
+    float4x4 proj;
+    Ptr<float4, Access.Read> positions_buffer;
+    Ptr<float4, Access.Read> velocities_buffer;
+    uint32_t num_particles;
+};
+[[vk::push_constant]] PushConstants push_constants;
+
 struct VertexOutput{
     float4 position: SV_Position;
     float2 uv: TEXCOORD0;
@@ -11,12 +20,7 @@ struct FragmentOutput {
     float depth : SV_DepthLessEqual;
 };
 
-struct Camera {
-    float4x4 view;
-    float4x4 proj;
-};
 
-[[vk::binding(0, 0)]] ConstantBuffer<Camera> camera;
 
 static const float3 LIGHT_POS = float3(500, 700, 500);
 
@@ -45,7 +49,7 @@ FragmentOutput main(VertexOutput input) {
 
     // Compute lightning
     // 1. Transform Light World Position to View Position
-    const float3 lightPosView = mul((float3x3)camera.view, normalize(LIGHT_POS));
+    const float3 lightPosView = mul((float3x3)push_constants.view, normalize(LIGHT_POS));
 
     // 2. Approximate fragment position in View Space
     const float3 fragPosView = input.viewPos + float3(normal.xy * input.radius, normal.z * input.radius);
@@ -61,7 +65,7 @@ FragmentOutput main(VertexOutput input) {
     // Compute depth
     float3 sphereSurfaceView = input.viewPos;
     sphereSurfaceView.z += normal_z * input.radius;
-    const float4 clipPos = mul(camera.proj, float4(sphereSurfaceView, 1.0));
+    const float4 clipPos = mul(push_constants.proj, float4(sphereSurfaceView, 1.0));
     const float newDepth = clipPos.z / clipPos.w;
     output.depth = newDepth;
 

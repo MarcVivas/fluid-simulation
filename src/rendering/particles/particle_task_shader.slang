@@ -1,12 +1,16 @@
 #define GROUP_SIZE 64
 
-struct Camera {
+struct PushConstants {
     float4x4 view;
     float4x4 proj;
+    Ptr<float4, Access.Read> positions_buffer;
+    Ptr<float4, Access.Read> velocities_buffer;
+    uint32_t num_particles;
 };
 
-[[vk::binding(0, 0)]] ConstantBuffer<Camera> camera;
-[[vk::binding(0, 1)]] StructuredBuffer<float4> positions;
+[[vk::push_constant]] PushConstants push_constants;
+
+
 
 struct MeshPayload {
     uint numVisible;
@@ -19,7 +23,7 @@ groupshared uint s_numGroups;
 groupshared MeshPayload s_payload;
 
 bool IsVisible(float3 center, float radius) {
-    float4 clip = mul(camera.proj, mul(camera.view, float4(center, 1.0)));
+    float4 clip = mul(push_constants.proj, mul(push_constants.view, float4(center, 1.0)));
     
     // Reject anything behind the near plane first
     if (clip.w <= 0.0) return false;
@@ -44,12 +48,11 @@ void main(
     GroupMemoryBarrierWithGroupSync();
     
 
-    uint numParticles, stride;
-    positions.GetDimensions(numParticles, stride);
+    uint numParticles = push_constants.num_particles;
 
     // 2. Frustum Culling
     if (dispatchThreadId < numParticles) {
-        float4 d = positions[dispatchThreadId];
+        float4 d = push_constants.positions_buffer[dispatchThreadId];
         bool isVisible = IsVisible(d.xyz, d.w);
         if (isVisible) {
             uint listIndex;

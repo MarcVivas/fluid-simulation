@@ -4,7 +4,7 @@ use ash::vk;
 
 use crate::{vulkan::{core::VkCore, resources::buffer::VkBuffer}};
 
-const QUEUE_MEMORY_PER_WORKGROUP: u32 = 64;
+const QUEUE_MEMORY_PER_WORKGROUP: u32 = 128;
 
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,7 +38,9 @@ pub struct NeighborListData {
     // How many particles are in a super-cluster?
     super_cluster_size: u32,
 
-    particle_to_neighborhood: VkBuffer<SuperCluster>
+    particle_to_neighborhood: VkBuffer<SuperCluster>,
+
+    neighbor_particle_indices: VkBuffer<u32>,
     
 }
 
@@ -59,8 +61,10 @@ impl NeighborListData {
         let allocator = VkBuffer::new_gpu_only(vk_core, &vec![0], "Allocator", cmd_pool, *vk_core.compute_queue()).unwrap();
 
         let particle_to_neighborhood: VkBuffer<SuperCluster> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles, "Particle to neighborhood").unwrap(); 
+
+        let neighbor_particle_indices: VkBuffer<u32> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles * max_expected_neighbors_per_element as usize, "Particle to neighborhood").unwrap(); 
         
-        Self { super_clusters, super_cluster_neighbors, processed_leaves_counter, allocator, super_cluster_size, particle_to_neighborhood}
+        Self { super_clusters, super_cluster_neighbors, processed_leaves_counter, allocator, super_cluster_size, particle_to_neighborhood, neighbor_particle_indices}
     }
 
 
@@ -93,5 +97,9 @@ impl NeighborListData {
     pub fn particle_to_neighborhood(&self) -> &VkBuffer<SuperCluster> {
         &self.particle_to_neighborhood
     }
+
+    pub fn neighbor_particle_indices(&self) -> &VkBuffer<u32> {
+         &self.neighbor_particle_indices
+     }
 }
 

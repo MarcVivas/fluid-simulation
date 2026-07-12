@@ -1,4 +1,4 @@
-use std::{num, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use criterion::{BenchmarkId, Criterion, Throughput};
 use engine::{
     vulkan::{
@@ -88,7 +88,9 @@ fn prepare_gpu_resources(
         num_particles as usize, 
         &glam::Vec3::new(world_size, world_size, world_size), 
         vk_core, 
-        cmd_pool
+        cmd_pool,
+        engine::world::particles::ParticleInitPreset::CollidingBlocks,
+        search_radius
     ).expect("Failed to initialize Particles");
 
     // 2. Initialize Octree and Neighbor List structures

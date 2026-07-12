@@ -14,11 +14,15 @@ pub struct VelocityUpdater {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct UpdateVelocitiesPushConstants{
     world_size: Vec3,
     delta_time: f32,
     num_elements: u32,
+    _padding: [u32; 1],
+    positions: vk::DeviceAddress,
+    prev_positions: vk::DeviceAddress,
+    velocities: vk::DeviceAddress
 }
 
 impl VelocityUpdater {
@@ -26,12 +30,6 @@ impl VelocityUpdater {
         let (update_velocities_pass, update_velocities_shader) = ComputeSystemBuilder::new(vk_core.clone(), "velocity_updater")
             .entry_points(&["main"])
             .push_constants::<UpdateVelocitiesPushConstants>()
-            // Read positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Read previous positions
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
-            // Velocities
-            .add_buffer_binding(vk::DescriptorType::STORAGE_BUFFER)
             .build_with_single_pass()?;
         Ok(
             Self{update_velocities_pass, update_velocities_shader }
@@ -46,24 +44,22 @@ impl VelocityUpdater {
         let push_constants = UpdateVelocitiesPushConstants {
             world_size: *world_size,
             delta_time,
-            num_elements
+            num_elements,
+            positions: particle_data.positions_buffer.current().address(),
+            velocities: particle_data.velocities.current().address(),
+            prev_positions: particle_data.previous_positions_buffer.current().address(),
+            ..Default::default()
         };
 
         let device = vk_core.device();
 
-        // Describe the buffers we want to bind
-        let positions = particle_data.positions_buffer.current().vk_buffer();
-        let previous_positions = particle_data.previous_positions_buffer.current().vk_buffer();
-        let velocities = particle_data.velocities.current().vk_buffer();
-
-        let buffers = [positions, previous_positions, velocities];
-
+     
         let thread_group_counts = [((num_elements + 63) / 64), 1, 1];
         self.update_velocities_pass.dispatch_compute(
             vk_core,
             command_buffer,
             thread_group_counts,
-            &buffers,
+            &[],
             &[],
             bytemuck::bytes_of(&push_constants)
         );

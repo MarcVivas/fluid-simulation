@@ -21,10 +21,11 @@ struct PushConsts {
   Ptr<uint32_t, Access.ReadWrite> allocator_counter;
   Ptr<uint32_t, Access.ReadWrite> processed_leaves_counter;
   Ptr<SuperCluster, Access.ReadWrite> particle_to_neighborhood;
+  Ptr<uint, Access.ReadWrite> neighbor_particle_indices;
 
-  float4 world_min;
   float world_size;
   float search_radius;
+  float4 world_min;
   uint32_t num_particles;
   uint32_t num_thread_groups;
 }
@@ -256,8 +257,6 @@ func write_results_to_global_memory(const LeafParticles leaf_particles, const ui
         }
         pc.super_clusters[leaf_index] = super_cluster;
     }
-
-   
 
     GroupMemoryBarrierWithGroupSync();
 

@@ -8,9 +8,13 @@ struct IntegrationPushConstants {
     float3 world_size;
     float delta_time;
     uint num_elements;
+    Ptr<float4, Access.ReadWrite> positions;
+    Ptr<float4, Access.ReadWrite> previous_positions;
+    Ptr<float4, Access.ReadWrite> velocities;
+    
 };
 
-[[vk::push_constant]] IntegrationPushConstants push_constants;
+[[vk::push_constant]] IntegrationPushConstants pc;
 
 static const float3 GRAVITY = float3(0.0, -9.8, 0.0);
 
@@ -18,24 +22,24 @@ static const float3 GRAVITY = float3(0.0, -9.8, 0.0);
 [numthreads(GROUP_SIZE, 1, 1)]
 void main(const uint global_id : SV_DispatchThreadID)
 {
-    if (global_id >= push_constants.num_elements){
+    if (global_id >= pc.num_elements){
         // Out of bounds
         return;
     }
 
 
     // Get the particle data
-    const float4 particle_data = positions[global_id];
-    float3 velocity = velocities[global_id].xyz;
+    const float4 particle_data = pc.positions[global_id];
+    float3 velocity = pc.velocities[global_id].xyz;
     const float3 pos = particle_data.xyz;
     const float radius = particle_data.w;
 
-    previous_positions[global_id] = particle_data;
+    pc.previous_positions[global_id] = particle_data;
 
     // Compute external forces
     const float3 external_forces = GRAVITY;
 
-    const float dt = push_constants.delta_time;
+    const float dt = pc.delta_time;
 
     // Apply external forces to velocity
     float3 acceleration = external_forces;
@@ -45,6 +49,6 @@ void main(const uint global_id : SV_DispatchThreadID)
     float3 new_pos = pos + dt * velocity;
 
     // Write the predicted position and new velocity to global memory
-    positions[global_id] = float4(new_pos, radius);
-    velocities[global_id] = float4(velocity, 0.0);
+    pc.positions[global_id] = float4(new_pos, radius);
+    pc.velocities[global_id] = float4(velocity, 0.0);
 }

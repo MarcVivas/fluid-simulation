@@ -83,7 +83,7 @@ fn prepare_gpu_resources(
     
     
     // Initialize Particles and pipelines
-    let mut particles = Particles::new(num_particles as usize, &glam::Vec3::new(world_size, world_size, world_size), vk_core, cmd_pool)
+    let mut particles = Particles::new(num_particles as usize, &glam::Vec3::new(world_size, world_size, world_size), vk_core, cmd_pool, engine::world::particles::ParticleInitPreset::CollidingBlocks, search_radius)
         .expect("Failed to initialize Particles");
         
     let max_levels = Octree::max_levels();

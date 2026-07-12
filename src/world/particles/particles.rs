@@ -26,9 +26,11 @@ pub struct ParticleData {
 }
 
 pub struct ParticleRenderData {
-    pub positions_buffer: vk::Buffer,
-    pub velocities: vk::Buffer,
-    pub total_particles: usize,
+    pub positions_buffer: vk::Buffer,   
+    pub velocities_buffer: vk::Buffer,  
+    pub positions_address: vk::DeviceAddress,         
+    pub velocities_address: vk::DeviceAddress,   
+    pub total_particles: usize
 }
 
 impl ParticleData {
@@ -261,9 +263,15 @@ impl Particles {
     }
 
     pub fn extract_render_data(&self) -> ParticleRenderData{
+
+        let positions = self.buffers().positions_buffer.current();
+        let velocities = self.buffers().velocities.next();
+        
         ParticleRenderData {
-            positions_buffer: self.buffers().positions_buffer.current().vk_buffer(),
-            velocities: self.buffers().velocities.next().vk_buffer(),
+            positions_address: positions.address(),
+            velocities_address: velocities.address(),
+            velocities_buffer: velocities.vk_buffer(),
+            positions_buffer: positions.vk_buffer(),
             total_particles: self.total_particles,
         }
     }

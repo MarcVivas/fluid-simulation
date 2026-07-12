@@ -25,9 +25,9 @@ const WORK_PER_THREAD: u32 = 4;
 #[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
 pub struct HilbertEncodingPushConstants {
     world_min: Vec4,
-    points: u64,
-    hilbert_keys: u64,
-    points_ids: u64,
+    points: vk::DeviceAddress,
+    hilbert_keys: vk::DeviceAddress,
+    points_ids: vk::DeviceAddress,
     world_size: f32,
     num_points: u32,
     num_thread_groups: u32,

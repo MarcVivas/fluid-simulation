@@ -38,15 +38,14 @@ impl PhysicsEngine {
         particles: &Particles,
         max_levels: u32,
         search_radius: f32,
-        super_cluster_size: u32
     ) -> Result<Self, Box<dyn std::error::Error>> {
 
         let max_objects: u32 = particles.len() as u32;
         let integrator = Integrator::new(vk_core)?;
         let sorter = GpuKVRadixSort::new(vk_core, cmd_pool, max_objects, None)?;
         let particle_reorderer = ParticleReorderer::new(vk_core)?;
-        let density_compute = DensityCompute::new(vk_core, super_cluster_size)?;
-        let constraint_solver = ConstraintSolver::new(vk_core, super_cluster_size)?;
+        let density_compute = DensityCompute::new(vk_core)?;
+        let constraint_solver = ConstraintSolver::new(vk_core)?;
         let velocity_updater = VelocityUpdater::new(vk_core)?;
         let velocity_refiner = VelocityRefiner::new(vk_core)?;
         let vorticity_force_compute = VorticityForceCompute::new(vk_core)?;
@@ -152,7 +151,6 @@ impl PhysicsEngine {
                 self.density_compute.execute(
                     vk_core,
                     command_buffer,
-                    octree,
                     neighbor_list,
                     particles,
                     &self.physics_config,
@@ -164,7 +162,6 @@ impl PhysicsEngine {
                 self.constraint_solver.execute(
                     vk_core,
                     command_buffer,
-                    octree,
                     neighbor_list,
                     particles,
                     &self.physics_config,
@@ -184,12 +181,12 @@ impl PhysicsEngine {
             world_max,
         );
 
+       
     
         self.velocity_refiner.execute(
             vk_core,
             command_buffer,
             particles,
-            octree,
             neighbor_list,
             &self.physics_config,
         );
@@ -202,10 +199,10 @@ impl PhysicsEngine {
             vk_core,
             command_buffer,
             particles,
-            octree,
             neighbor_list,
             &self.physics_config,
         ); 
+        
         
     }
     

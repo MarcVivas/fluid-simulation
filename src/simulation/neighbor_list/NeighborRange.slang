@@ -1,6 +1,6 @@
-module SuperCluster;
+module NeighborRange;
 
-public struct SuperCluster {
+public struct NeighborRange {
   public uint neighbor_count;
   public uint neighbor_index;
 

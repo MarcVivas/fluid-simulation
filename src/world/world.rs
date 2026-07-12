@@ -43,7 +43,7 @@ impl World{
         let octree = Octree::new(vk_core, cmd_pool, particle_system.len() as u32);
         let neighbor_list = NeighborList::new(vk_core, cmd_pool, NUM_PARTICLES, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
 
-        let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius, neighbor_list.super_cluster_size()).unwrap();
+        let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius).unwrap();
 
 
         Self {

@@ -1,7 +1,7 @@
 import HilbertHelpers;
 import BoundingBox;
-import SuperCluster;
-import SuperClusterNeighbors;
+import NeighborRange;
+import LeafNeighbor;
 import LeafParticles;
 import WarrenSalmonKey;
 
@@ -16,16 +16,15 @@ struct PushConsts {
   
   
 
-  Ptr<SuperCluster, Access.ReadWrite> super_clusters;
-  Ptr<SuperClusterNeighbors, Access.ReadWrite> super_cluster_neighbors;
+  Ptr<LeafNeighbor, Access.ReadWrite> leaf_neighbors;
   Ptr<uint32_t, Access.ReadWrite> allocator_counter;
   Ptr<uint32_t, Access.ReadWrite> processed_leaves_counter;
-  Ptr<SuperCluster, Access.ReadWrite> particle_to_neighborhood;
+  Ptr<NeighborRange, Access.ReadWrite> particle_to_neighborhood;
   Ptr<uint, Access.ReadWrite> neighbor_particle_indices;
 
+  float4 world_min;
   float world_size;
   float search_radius;
-  float4 world_min;
   uint32_t num_particles;
   uint32_t num_thread_groups;
 }
@@ -178,9 +177,6 @@ func traverse(
         
         uint node_first_child_idx = LEAF;
         bool node_split = false;
-
-        uint first_cluster = 0;
-        uint last_cluster = 0;
         
         if(is_valid_source){
             node_first_child_idx = pc.node_first_child[node_idx];
@@ -244,34 +240,24 @@ func write_results_to_global_memory(const LeafParticles leaf_particles, const ui
     // Write the neighbors to Global VRAM
     // Thread 0 allocates space in global memory
     if(local_id == 0){
-        SuperCluster super_cluster;
         if(clamped_neighbor_count > 0){
             InterlockedAdd(*pc.allocator_counter, clamped_neighbor_count, global_start_idx);
-            super_cluster.neighbor_count = clamped_neighbor_count;
-            super_cluster.neighbor_index = global_start_idx;
-            //printf("Neighbor count: %i\nLeaf index: %i", clamped_neighbor_count, leaf_index);
         }
-        else {
-            super_cluster.neighbor_count = 0;
-            super_cluster.neighbor_index = 0;
-        }
-        pc.super_clusters[leaf_index] = super_cluster;
     }
-
     GroupMemoryBarrierWithGroupSync();
 
     // Fill particle to neighborhood map
-    SuperCluster super_cluster = SuperCluster(clamped_neighbor_count, global_start_idx); 
+    NeighborRange neighborhood = NeighborRange(clamped_neighbor_count, global_start_idx); 
     for(uint k = local_id + leaf_particles.first_particle_index; k < leaf_particles.first_particle_index + leaf_particles.particle_count; k+=THREAD_GROUP_SIZE){
-        pc.particle_to_neighborhood[k] = super_cluster;
+        pc.particle_to_neighborhood[k] = neighborhood;
     }
     
     // Write back all neighbors contiguously (supports neighbor_count > 64)
     for(uint i = local_id; i < clamped_neighbor_count; i+=THREAD_GROUP_SIZE){
-        SuperClusterNeighbors neighbor;
+        LeafNeighbor neighbor;
         // Just for testing purposes, store the leaves that we intersected with
         neighbor.neighbor_leaf_idx = neighbor_leaves[i];
-        pc.super_cluster_neighbors[global_start_idx + i] = neighbor;
+        pc.leaf_neighbors[global_start_idx + i] = neighbor;
     }
     GroupMemoryBarrierWithGroupSync();
 

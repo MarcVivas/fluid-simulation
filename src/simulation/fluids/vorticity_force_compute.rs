@@ -3,7 +3,6 @@ use ash::vk;
 use crate::simulation::neighbor_list::NeighborList;
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::simulation::physics_config::PhysicsConfig;
-use crate::simulation::octree::octree::Octree;
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::Particles};
 use crate::vulkan::core::VkCore;
@@ -23,10 +22,7 @@ struct VorticityForceComputePushConstants {
     vorticities: vk::DeviceAddress,
     densities: vk::DeviceAddress,
     particle_to_neighborhood: vk::DeviceAddress, 
-    super_cluster_neighbors: vk::DeviceAddress,
-    leaf_particles: vk::DeviceAddress, 
-    unsorted_leaf_particles: vk::DeviceAddress, 
-    leaf_count: vk::DeviceAddress, 
+    neighbor_particle_indices: vk::DeviceAddress,
     num_elements: u32,
     kernel_radius: f32,
     kernel_radius_2: f32, 
@@ -46,17 +42,13 @@ impl VorticityForceCompute {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, octree: &Octree, neighbor_list: &NeighborList, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, neighbor_list: &NeighborList, physics_config: &PhysicsConfig) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
         let push_constants = VorticityForceComputePushConstants {
-            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
-            unsorted_leaf_particles: octree.data().unsorted_leaf_particles().address(),
-            leaf_count: octree.data().leaf_count().address(),
             particle_to_neighborhood: neighbor_list.particle_to_neighborhood().address(),
-            leaf_particles: octree.data().leaf_particles().address(),
             num_elements,
             kernel_radius: physics_config.search_radius,
             kernel_radius_2: physics_config.kernel_radius_2,
@@ -67,6 +59,7 @@ impl VorticityForceCompute {
             velocities: particle_data.velocities.current().address(),
             vorticities: particle_data.vorticity.address(),
             densities: particle_data.densities.address(),
+            neighbor_particle_indices: neighbor_list.neighbor_particle_indices().address(),
             ..Default::default()
         };
 

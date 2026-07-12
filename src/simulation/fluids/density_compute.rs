@@ -4,7 +4,6 @@ use bytemuck::{Pod, Zeroable};
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::simulation::physics_config::PhysicsConfig;
 use crate::simulation::neighbor_list::{NeighborList};
-use crate::simulation::octree::octree::Octree;
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
 use crate::world::{particles::Particles};
 use crate::vulkan::core::VkCore;
@@ -16,6 +15,8 @@ pub struct DensityCompute{
     density_compute_shader: ShaderModule,
 }
 
+const THREAD_GROUP_SIZE: u32 = 64;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Zeroable, Pod, Default)]
 struct DensityComputePushConstants {
@@ -23,11 +24,7 @@ struct DensityComputePushConstants {
     densities: vk::DeviceAddress,
     lambdas: vk::DeviceAddress,
     particle_to_neighborhood: vk::DeviceAddress,
-    super_clusters: vk::DeviceAddress, 
-    super_cluster_neighbors: vk::DeviceAddress,
-    leaf_particles: vk::DeviceAddress, 
-    unsorted_leaf_particles: vk::DeviceAddress, 
-    leaf_count: vk::DeviceAddress, 
+    neighbor_particle_indices: vk::DeviceAddress,
     num_workgroups: u32,
     num_elements: u32,
     kernel_radius: f32,
@@ -42,11 +39,11 @@ struct DensityComputePushConstants {
 
 impl DensityCompute{
 
-    pub fn new(vk_core: &Arc<VkCore>, super_cluster_size: u32) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
         let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute")
             .entry_points(&["main"])
             .compile_time_constants(ShaderCompileTimeConstants::new()
-                .add("THREAD_GROUP_SIZE", super_cluster_size)
+                .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
             )
             .push_constants::<DensityComputePushConstants>()
             .build_with_single_pass()?;
@@ -58,15 +55,14 @@ impl DensityCompute{
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, octree: &Octree, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
-        let thread_group_size = neighbor_list.super_cluster_size();
-        
+       
         // Dispatch exactly based on particle count
-        let num_workgroups = (num_elements + thread_group_size - 1) / thread_group_size;
+        let num_workgroups = (num_elements + THREAD_GROUP_SIZE - 1) / THREAD_GROUP_SIZE;
 
         let positions = particle_data.positions_buffer.current().address();
         let densities = particle_data.densities.address();
@@ -87,11 +83,7 @@ impl DensityCompute{
             kernel_radius_2: physics_config.kernel_radius_2,
             spiky_constant: physics_config.kernel_spiky_grad,
             epsilon: physics_config.lambda_density_epsilon,
-            super_clusters: neighbor_list.super_clusters().address(),
-            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
-            leaf_particles: octree.data().leaf_particles().address(),
-            unsorted_leaf_particles: octree.data().unsorted_leaf_particles().address(),
-            leaf_count: octree.data().leaf_count().address(),
+            neighbor_particle_indices: neighbor_list.neighbor_particle_indices().address(),
             num_workgroups,
             ..Default::default()
         };

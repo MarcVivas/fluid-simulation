@@ -4,7 +4,6 @@ use bytemuck::{Pod, Zeroable};
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::simulation::physics_config::PhysicsConfig;
 use crate::simulation::neighbor_list::NeighborList;
-use crate::simulation::octree::octree::Octree;
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
 use crate::world::{particles::Particles};
 use crate::vulkan::core::VkCore;
@@ -23,12 +22,8 @@ struct ConstraintSolverPushConstants {
     dst_positions: vk::DeviceAddress,
     densities: vk::DeviceAddress,
     lambdas: vk::DeviceAddress,
-    super_clusters: vk::DeviceAddress,
-    super_cluster_neighbors: vk::DeviceAddress,
-    leaf_particles: vk::DeviceAddress,
-    unsorted_leaf_particles: vk::DeviceAddress,
-    leaf_count: vk::DeviceAddress,
     particle_to_neighborhood: vk::DeviceAddress, 
+    neighbor_particle_indices: vk::DeviceAddress,
     num_workgroups: u32,
     num_elements: u32,
     kernel_radius: f32,
@@ -43,13 +38,15 @@ struct ConstraintSolverPushConstants {
     _padding: u32
 }
 
+const THREAD_GROUP_SIZE: u32 = 64;
+
 impl ConstraintSolver {
-    pub fn new(vk_core: &Arc<VkCore>, super_cluster_size: u32) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
         let (constraint_solver_pass, constraint_solver_shader) = ComputeSystemBuilder::new(vk_core.clone(), "constraint_solver")
             .entry_points(&["main"])
             .compile_time_constants(
                 ShaderCompileTimeConstants::new()
-                    .add("THREAD_GROUP_SIZE", super_cluster_size)
+                    .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
             )
             .push_constants::<ConstraintSolverPushConstants>()
             .build_with_single_pass()?;
@@ -57,7 +54,7 @@ impl ConstraintSolver {
         Ok(Self { constraint_solver_pass, constraint_solver_shader })
     }
 
-    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, octree: &Octree, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let num_elements = particles.len() as u32;
 
@@ -68,16 +65,13 @@ impl ConstraintSolver {
         let lambdas = &particle_buffers.lambdas;
 
 
-        let thread_group_size = neighbor_list.super_cluster_size();
-        let num_workgroups = (num_elements + thread_group_size - 1) / thread_group_size;
+        let num_workgroups = (num_elements + THREAD_GROUP_SIZE - 1) / THREAD_GROUP_SIZE;
         
         let push_constants = ConstraintSolverPushConstants {
             dst_positions: write_positions.address(),
             src_positions: read_positions.address(),
             densities: densities.address(),
             lambdas: lambdas.address(),
-            super_clusters: neighbor_list.super_clusters().address(),
-            super_cluster_neighbors: neighbor_list.super_cluster_neighbors().address(),
             particle_to_neighborhood: neighbor_list.particle_to_neighborhood().address(),
             num_elements,
             kernel_radius: physics_config.kernel_radius,
@@ -89,10 +83,8 @@ impl ConstraintSolver {
             k: physics_config.k,
             delta_q_squared: physics_config.delta_q_squared,
             n: physics_config.n,
-            unsorted_leaf_particles: octree.data().unsorted_leaf_particles().address(),
-            leaf_count: octree.data().leaf_count().address(),
             num_workgroups,
-            leaf_particles: octree.data().leaf_particles().address(),
+            neighbor_particle_indices: neighbor_list.neighbor_particle_indices().address(),
             ..Default::default()
         };
 

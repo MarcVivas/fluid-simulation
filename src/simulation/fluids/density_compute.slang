@@ -1,23 +1,20 @@
 import SmoothedParticleHydrodynamics;
-import SuperCluster;
+import NeighborRange;
 import SuperClusterNeighbors;
 import LeafParticles;
 
 [[vk::binding(1, 0)]] RWStructuredBuffer<float> densities;
 [[vk::binding(2, 0)]] RWStructuredBuffer<float> lambdas;
-[[vk::binding(3, 0)]] StructuredBuffer<SuperCluster> particle_to_neighborhood;
+[[vk::binding(3, 0)]] StructuredBuffer<NeighborRange> particle_to_neighborhood;
 
 struct DensityPushConstants {
     Ptr<float4, Access.Read> packed_positions;
     Ptr<float, Access.ReadWrite> densities;
     Ptr<float, Access.ReadWrite> lambdas;
-    Ptr<SuperCluster, Access.Read> particle_to_neighborhood;
+    Ptr<NeighborRange, Access.Read> particle_to_neighborhood;
+    Ptr<uint32_t, Access.Read> neighbor_particle_indices;
+
     
-    Ptr<SuperCluster, Access.Read> super_clusters;
-    Ptr<SuperClusterNeighbors, Access.Read> super_cluster_neighbors;
-    Ptr<LeafParticles, Access.Read> leaf_particles;
-    Ptr<LeafParticles, Access.Read> unsorted_leaf_particles;
-    Ptr<uint32_t, Access.Read> leaf_count;
     uint num_workgroups;
     uint num_elements;
     float kernel_radius;
@@ -78,31 +75,7 @@ func process_single_interaction(
     particle_sph.sum_gradient_squared += is_not_self ? grad_sq : 0.0f;
 }
 
-// ILP loop unrolled by 4
-func solve_particle_interactions_with_neighbor(inout ParticleSPH particle_sph, const LeafParticles neighbor_leaf) {
-    const uint leaf_start = neighbor_leaf.first_particle_index;
-    const uint leaf_end = leaf_start + neighbor_leaf.particle_count;
 
-    uint j = leaf_start;
-
-    for (; j + 3 < leaf_end; j += 4) {
-        // Parallel VMEM coalesced vector loads
-        const float4 p0 = pc.packed_positions[j];
-        const float4 p1 = pc.packed_positions[j + 1];
-        const float4 p2 = pc.packed_positions[j + 2];
-        const float4 p3 = pc.packed_positions[j + 3];
-
-        process_single_interaction(particle_sph, p0, j);
-        process_single_interaction(particle_sph, p1, j + 1);
-        process_single_interaction(particle_sph, p2, j + 2);
-        process_single_interaction(particle_sph, p3, j + 3);
-    }
-
-    for (; j < leaf_end; j++) {
-        const float4 p = pc.packed_positions[j];
-        process_single_interaction(particle_sph, p, j);
-    }
-}
 
 [shader("compute")]
 [numthreads(THREAD_GROUP_SIZE, 1, 1)]
@@ -112,8 +85,7 @@ func main(const uint global_id: SV_DispatchThreadID) {
         return;
     }
 
-
-    const SuperCluster neighborhood = pc.particle_to_neighborhood[global_id];
+    const NeighborRange neighborhood = pc.particle_to_neighborhood[global_id];
     
     // Load this thread's unique particle coordinates (High-bandwidth VMEM pipeline)
     const float4 particle_data = pc.packed_positions[global_id];
@@ -123,15 +95,33 @@ func main(const uint global_id: SV_DispatchThreadID) {
     
     ParticleSPH particle_sph = ParticleSPH(pos, global_id);
 
-    // Retrieve neighborhood definitions
+    // Retrieve flat neighborhood bounds
     const uint last_neighbor = neighborhood.neighbor_index + neighborhood.neighbor_count;
-    
-    // Loop over neighbor leaf clusters
-    for (uint j = neighborhood.neighbor_index; j < last_neighbor; j++) {
-        const SuperClusterNeighbors neighbor = pc.super_cluster_neighbors[j];
-        const LeafParticles neighbor_leaf = pc.leaf_particles[neighbor.neighbor_leaf_idx];
-        
-        solve_particle_interactions_with_neighbor(particle_sph, neighbor_leaf);
+    uint j = neighborhood.neighbor_index;
+
+    // Optional: ILP unrolled by 4 (fetching flat particle indices directly)
+    for (; j + 3 < last_neighbor; j += 4) {
+        const uint idx0 = pc.neighbor_particle_indices[j];
+        const uint idx1 = pc.neighbor_particle_indices[j + 1];
+        const uint idx2 = pc.neighbor_particle_indices[j + 2];
+        const uint idx3 = pc.neighbor_particle_indices[j + 3];
+
+        const float4 p0 = pc.packed_positions[idx0];
+        const float4 p1 = pc.packed_positions[idx1];
+        const float4 p2 = pc.packed_positions[idx2];
+        const float4 p3 = pc.packed_positions[idx3];
+
+        process_single_interaction(particle_sph, p0, idx0);
+        process_single_interaction(particle_sph, p1, idx1);
+        process_single_interaction(particle_sph, p2, idx2);
+        process_single_interaction(particle_sph, p3, idx3);
+    }
+
+    // Remainder loop
+    for (; j < last_neighbor; j++) {
+        const uint other_idx = pc.neighbor_particle_indices[j];
+        const float4 p = pc.packed_positions[other_idx];
+        process_single_interaction(particle_sph, p, other_idx);
     }
 
     // Solve Density Constraint & Lambdas

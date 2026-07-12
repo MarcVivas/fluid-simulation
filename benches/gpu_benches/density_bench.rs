@@ -34,7 +34,7 @@ pub fn bench_density_compute(criterion: &mut Criterion) {
         group.throughput(Throughput::Elements(num_particles as u64));
 
         // Create, populate, and build structures on the GPU once before timing starts
-        let (mut density_compute, particles, octree, neighbor_list, physics_config) =
+        let (mut density_compute, particles, _octree, neighbor_list, physics_config) =
             prepare_gpu_resources(vk_core, engine, num_particles);
 
         let label = "Density compute"; 
@@ -49,7 +49,6 @@ pub fn bench_density_compute(criterion: &mut Criterion) {
                         density_compute.execute(
                             vk_core,
                             cmd_buffer,
-                            &octree,
                             &neighbor_list,
                             &particles,
                             &physics_config,
@@ -96,8 +95,7 @@ fn prepare_gpu_resources(
         .expect("Failed to initialize ParticleReorderer");
     let mut octree = Octree::new(vk_core, cmd_pool, num_particles);
     let neighbor_list = NeighborList::new(vk_core, cmd_pool, num_particles as usize, octree.max_expected_leaves(), octree.n_crit(), max_levels);
-    let density_compute = DensityCompute::new(vk_core, neighbor_list.super_cluster_size())
-        .expect("Failed to initialize DensityCompute");
+    let density_compute = DensityCompute::new(vk_core).expect("Failed to initialize DensityCompute");
 
 
  

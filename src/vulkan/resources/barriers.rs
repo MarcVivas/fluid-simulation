@@ -120,6 +120,20 @@ pub fn barrier_transfer_to_compute(
         .dst_access_mask(dst_access)
 }
 
+pub fn barrier_compute_to_transfer(
+    buffer: vk::Buffer,
+    size: u64,
+    dst_access: vk::AccessFlags2,
+) -> vk::BufferMemoryBarrier2<'static> {
+    vk::BufferMemoryBarrier2::default()
+        .buffer(buffer)
+        .size(size)
+        .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+        .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+        .dst_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+        .dst_access_mask(dst_access)
+}
+
 /// Transition a buffer written by a compute shader so it can be safely 
 /// read or written by a subsequent compute shader.
 pub fn barrier_compute_to_compute(

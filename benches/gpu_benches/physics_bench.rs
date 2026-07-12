@@ -111,7 +111,6 @@ fn prepare_gpu_resources(
         &particles,
         max_levels,
         search_radius,
-        neighbor_list.super_cluster_size(),
     ).expect("Failed to initialize PhysicsEngine");
 
     

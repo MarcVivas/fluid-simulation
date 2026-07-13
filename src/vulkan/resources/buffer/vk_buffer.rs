@@ -172,10 +172,18 @@ impl<T: Copy> VkBuffer<T> {
     /// Creates a buffer with uninitialized data that can be used for GPU only operations.
     pub fn new_gpu_only_uninitialized(vk_core: &Arc<VkCore>, len: usize, name: &str) -> Result<Self, Box<dyn Error>>
     {
+        let graphics_family = vk_core.graphics_queue_family_index();
+        let compute_family = vk_core.compute_queue_family_index();
+                
+        let (sharing_mode, queue_family_indices) = if graphics_family == compute_family { (vk::SharingMode::EXCLUSIVE, vec![]) } else {
+            (vk::SharingMode::CONCURRENT, vec![graphics_family, compute_family])
+        };
+                
         let buffer_create_info = vk::BufferCreateInfo::default()
             .size((len * size_of::<T>()) as vk::DeviceSize)
             .usage(vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+            .sharing_mode(sharing_mode)
+            .queue_family_indices(&queue_family_indices);
 
         let allocation_create_desc = AllocationCreateDesc{
             name,
@@ -190,30 +198,40 @@ impl<T: Copy> VkBuffer<T> {
 
     /// Creates a buffer with the given data that can be used for GPU only operations.
     pub fn new_gpu_only(
-        vk_core: &Arc<VkCore>,
-        data: &[T],
-        name: &str,
-        command_pool: vk::CommandPool,
-        queue: vk::Queue
-    ) -> Result<Self, Box<dyn Error>> {
-        Self::new(
-            vk_core,
-            data,
-            vk::BufferCreateInfo::default()
-                .size((data.len() * size_of::<T>()) as vk::DeviceSize)
-                .usage(vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
-                .sharing_mode(vk::SharingMode::EXCLUSIVE),
-            AllocationCreateDesc{
-                name,
-                requirements: vk::MemoryRequirements::default(),
-                location: MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged
-            },
-            command_pool,
-            queue
-        )
-    }
+          vk_core: &Arc<VkCore>,
+          data: &[T],
+          name: &str,
+          command_pool: vk::CommandPool,
+          queue: vk::Queue
+      ) -> Result<Self, Box<dyn Error>> {
+          let graphics_family = vk_core.graphics_queue_family_index();
+          let compute_family = vk_core.compute_queue_family_index();
+          
+          let (sharing_mode, queue_family_indices) = if graphics_family == compute_family {
+              (vk::SharingMode::EXCLUSIVE, vec![])
+          } else {
+              (vk::SharingMode::CONCURRENT, vec![graphics_family, compute_family])
+          };
+  
+          Self::new(
+              vk_core,
+              data,
+              vk::BufferCreateInfo::default()
+                  .size((data.len() * size_of::<T>()) as vk::DeviceSize)
+                  .usage(vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS)
+                  .sharing_mode(sharing_mode)
+                  .queue_family_indices(&queue_family_indices), 
+              AllocationCreateDesc{
+                  name,
+                  requirements: vk::MemoryRequirements::default(),
+                  location: MemoryLocation::GpuOnly,
+                  linear: true,
+                  allocation_scheme: AllocationScheme::GpuAllocatorManaged
+              },
+              command_pool,
+              queue
+          )
+      }
 
     fn create_staging_buffer(vk_core: &Arc<VkCore>, buffer_size: vk::DeviceSize) -> Result<AllocatedBuffer, Box<dyn Error>> {
         let staging_buffer_create_info = vk::BufferCreateInfo{

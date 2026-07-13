@@ -6,7 +6,7 @@ use crate::rendering::surface::Surface;
 use crate::rendering::window_render_target::WindowRenderTarget;
 use crate::world::{particles::ParticleRenderData};
 use crate::vulkan::core::VkCore;
-use crate::vulkan::resources;
+use crate::vulkan::{resources};
 use crate::vulkan::resources::{
     CommandBuffer, CommandPool
 };
@@ -196,8 +196,6 @@ impl Renderer {
         &self,
         cmd_buffer: &CommandBuffer,
         image_index: usize,
-        shared_buffer: vk::Buffer,
-        compute_paused: bool,
     ) {
         let device = self.vk_core.device();
 
@@ -218,21 +216,7 @@ impl Renderer {
             )
             .expect("failed to begin recording command buffer");
 
-        if !compute_paused {
-            // Compute is active.
-            // We need to transition the queue family indices
-            let acquire_from_compute = [vk::BufferMemoryBarrier2::default()
-                .src_stage_mask(vk::PipelineStageFlags2::NONE)
-                .src_access_mask(vk::AccessFlags2::NONE)
-                .dst_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT) // Valid on Graphics Queue
-                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
-                .src_queue_family_index(self.vk_core.compute_queue_family_index())
-                .dst_queue_family_index(self.vk_core.graphics_queue_family_index())
-                .buffer(shared_buffer)
-                .size(vk::WHOLE_SIZE)];
-
-            cmd_buffer.pipeline_memory_barrier(self.vk_core.device(), &acquire_from_compute, &[]);
-        }
+       
 
         // TRANSITION TO RENDER TARGET
         // Create Color Image Transition Barrier: Undefined/Present -> Color Attachment Optimal
@@ -290,8 +274,7 @@ impl Renderer {
     fn end_render_pass(
         &self,
         cmd_buffer: &CommandBuffer,
-        image_index: usize,
-        shared_buffer: vk::Buffer,
+        image_index: usize
     ) {
         let device = self.vk_core.device();
 
@@ -310,18 +293,9 @@ impl Renderer {
             vk::ImageAspectFlags::COLOR,
         );
 
-        let release_to_compute = [vk::BufferMemoryBarrier2::default()
-            .src_stage_mask(vk::PipelineStageFlags2::TASK_SHADER_EXT)
-            .src_access_mask(vk::AccessFlags2::SHADER_READ)
-            .dst_stage_mask(vk::PipelineStageFlags2::NONE)
-            .dst_access_mask(vk::AccessFlags2::NONE)
-            .src_queue_family_index(self.vk_core.graphics_queue_family_index())
-            .dst_queue_family_index(self.vk_core.compute_queue_family_index())
-            .buffer(shared_buffer)
-            .size(vk::WHOLE_SIZE)];
-
-        cmd_buffer.pipeline_memory_barrier(self.vk_core.device(), &release_to_compute, &[image_barrier]);
-
+       
+        cmd_buffer.pipeline_memory_barrier(device, &[], &[image_barrier]);
+        
         // Finished recording commands
         cmd_buffer
             .end_command_buffer(device)
@@ -382,7 +356,6 @@ impl Renderer {
             particles: &ParticleRenderData,
             image_index: u32,
             current_frame_idx: usize,
-            compute_paused: bool,
         ) {
 
             self.update_camera(current_frame_idx);
@@ -390,9 +363,9 @@ impl Renderer {
             let cmd_buffer = self.frame_data[current_frame_idx].command_buffer();
             
             
-            self.begin_render_pass(cmd_buffer, image_index as usize, particles.positions_buffer, compute_paused);
+            self.begin_render_pass(cmd_buffer, image_index as usize);
             self.render_drawables(cmd_buffer, particles);
-            self.end_render_pass(cmd_buffer, image_index as usize, particles.positions_buffer);
+            self.end_render_pass(cmd_buffer, image_index as usize);
         }
 
         pub fn submit_and_present(

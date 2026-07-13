@@ -161,8 +161,7 @@ impl ApplicationHandler for App {
                 rayon::join(
                     ||{
                         if !self.paused {
-                            let first_frame = self.total_frames_proccessed == 0;
-                            world.update(vk_core, compute_engine, first_frame, self.gpu_profiler.as_ref().unwrap());
+                            world.update(vk_core, compute_engine, self.gpu_profiler.as_ref().unwrap());
 
                             let render_data = world.extract_render_data();
 
@@ -181,7 +180,6 @@ impl ApplicationHandler for App {
                                 render_data,
                                 image_index,
                                 current_frame_idx,
-                                self.paused
                             );
                         }
                        

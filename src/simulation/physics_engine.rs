@@ -144,10 +144,10 @@ impl PhysicsEngine {
        
         
 
-        for _ in 0..self.physics_config.solver_iterations {
+        for i in 0..self.physics_config.solver_iterations {
 
-            
-            gpu_profiler.profile_scope(device, vk_cmd_buffer, "Density compute", ||{
+            let density_label = format!("Density compute {}", i);
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, &density_label, ||{
                 self.density_compute.execute(
                     vk_core,
                     command_buffer,
@@ -157,8 +157,9 @@ impl PhysicsEngine {
                 );
             });
             
+            let constraint_label = format!("Constraint solver {}", i);
             
-            gpu_profiler.profile_scope(device, vk_cmd_buffer, "Constraint solver", ||{
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, &constraint_label, ||{
                 self.constraint_solver.execute(
                     vk_core,
                     command_buffer,

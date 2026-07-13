@@ -65,24 +65,13 @@ impl World{
     }
 
     /// Updates the world
-    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, first_frame: bool, gpu_profiler: &GpuProfiler){
+    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, gpu_profiler: &GpuProfiler){
         let world_min = self.world_min();
         let world_size = self.world_size();
 
         compute_engine.record_commands(|cmd_buffer| {
-            if !first_frame {
-                let acquire_from_graphics = [vk::BufferMemoryBarrier2::default()
-                    .src_stage_mask(vk::PipelineStageFlags2::MESH_SHADER_EXT)
-                    .dst_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                    .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
-                    .dst_access_mask(vk::AccessFlags2::SHADER_WRITE | vk::AccessFlags2::SHADER_READ)
-                    .src_queue_family_index(vk_core.graphics_queue_family_index())
-                    .dst_queue_family_index(vk_core.compute_queue_family_index())
-                    .buffer(self.particle_system.buffers().positions_buffer.current().vk_buffer())
-                    .size(vk::WHOLE_SIZE)];
-    
-                cmd_buffer.pipeline_memory_barrier(vk_core.device(), &acquire_from_graphics, &[]);
-            } 
+            
+          
             
             self.physics_engine.update(
                  vk_core,
@@ -100,8 +89,8 @@ impl World{
                 .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
                 .dst_stage_mask(vk::PipelineStageFlags2::NONE) // NONE for release operations
                 .dst_access_mask(vk::AccessFlags2::NONE)       // NONE for release operations
-                .src_queue_family_index(vk_core.compute_queue_family_index())
-                .dst_queue_family_index(vk_core.graphics_queue_family_index())
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                 .buffer(self.particle_system.buffers().positions_buffer.current().vk_buffer())
                 .size(vk::WHOLE_SIZE)];
                         

@@ -6,8 +6,8 @@ use crate::simulation::physics_config::PhysicsConfig;
 use crate::simulation::neighbor_list::{NeighborList};
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
 use crate::world::{particles::Particles};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::commands::{CommandBuffer, compute_buffer_barrier};
 
 pub struct DensityCompute{
     density_compute_pass: ComputePass,
@@ -39,7 +39,7 @@ struct DensityComputePushConstants {
 
 impl DensityCompute{
 
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (density_compute_pass, density_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "density_compute")
             .entry_points(&["main"])
             .compile_time_constants(ShaderCompileTimeConstants::new()
@@ -55,7 +55,7 @@ impl DensityCompute{
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &VulkanContext, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.hilbert_keys.len() as u32;

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 use criterion::{BenchmarkId, Criterion, Throughput};
-use engine::{algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{compute::ComputeEngine, headless::VkHeadless, profiler::GpuProfiler, core::VkCore, resources::buffer::VkBuffer}};
+use engine::{algorithms::exclusive_prefix_sum::ExclusivePrefixSum, vulkan::{compute::ComputeEngine, headless::VkHeadless, profiler::GpuProfiler, core::VulkanContext, buffers::VkBuffer}};
 use rand::{Rng, rngs::ThreadRng};
 use engine::vulkan::shaders::traits::GpuTask; 
 use crate::gpu_benches::gpu_bench_utils::execute_and_profile;
@@ -9,7 +9,8 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion){
     
     VkHeadless::run(|engine, vk_core, mut rng|{
         // Initialize profiler (Max 10 zones, 1 frame in flight for benchmarking)
-        let profiler = GpuProfiler::new(vk_core.clone(), 10, 1);
+        let profiler = GpuProfiler::new(vk_core.clone(), 10, 1)
+            .expect("failed to create GPU profiler");
         
         let mut group = criterion.benchmark_group("GPU_Exclusive_prefix_sum");
         group.warm_up_time(Duration::from_secs(1));
@@ -18,7 +19,8 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion){
         let label = ExclusivePrefixSum::profiling_label();
 
         let max_size = 1 << 24;
-        let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, max_size);
+        let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, max_size)
+            .expect("Failed to initialize ExclusivePrefixSum");
 
         
         for exponent in 10u32..=24u32 {
@@ -58,7 +60,7 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion){
 
 // Helper to keep the bench code clean
 fn prepare_gpu_resources(
-    vk_core: &Arc<VkCore>, 
+    vk_core: &Arc<VulkanContext>, 
     engine: &ComputeEngine, 
     rng: &mut ThreadRng,
     num_elements: u32

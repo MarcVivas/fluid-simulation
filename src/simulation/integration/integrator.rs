@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use ash::prelude::VkResult;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
@@ -7,8 +6,8 @@ use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::vulkan::shaders::traits::{GpuTask, ShaderName};
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::Particles};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::commands::{CommandBuffer, compute_buffer_barrier};
 
 pub struct Integrator{
     integration_pass: ComputePass,
@@ -30,12 +29,12 @@ pub struct IntegrationPushConstants {
 
 impl Integrator{
 
-    pub fn new(vk_core: &Arc<VkCore>) -> VkResult<Self> {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
 
         let (integration_pass, integration_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .push_constants::<IntegrationPushConstants>()
             .entry_points(&["main"])
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
 
         Ok(
             Self {
@@ -45,7 +44,7 @@ impl Integrator{
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, particles: &Particles, delta_time: f32, world_size: &Vec3, command_buffer: &CommandBuffer) {
+    pub fn execute(&mut self, vk_core: &VulkanContext, particles: &Particles, delta_time: f32, world_size: &Vec3, command_buffer: &CommandBuffer) {
 
         let buffers = particles.buffers();
 

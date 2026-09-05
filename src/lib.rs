@@ -5,3 +5,4 @@ pub mod app;
 pub mod algorithms;
 pub mod simulation;
 pub mod input_manager;
+pub mod engine_session;

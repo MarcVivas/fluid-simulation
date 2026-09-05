@@ -2,7 +2,7 @@ use std::{sync::Arc};
 use ash::vk::{self, CommandPool};
 use glam::Vec4;
 
-use crate::{simulation::octree::{octree_constructor::OctreeConstructor, octree_data::OctreeData}, vulkan::{core::VkCore, resources::{CommandBuffer, buffer::VkBuffer}}};
+use crate::{simulation::octree::{octree_constructor::OctreeConstructor, octree_data::OctreeData}, vulkan::{buffers::VkBuffer, commands::CommandBuffer, core::VulkanContext}};
 
 /// Based on: 
 /// "Cornerstone: Octree Construction Algorithms for Scalable Particle Simulations" 
@@ -31,25 +31,25 @@ pub struct Octree {
 }
 
 impl Octree {
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_elements: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, num_elements: u32) -> anyhow::Result<Self> {
         
-        let max_elements_per_leaf = vk_core.subgroup_size();
+        let max_elements_per_leaf = vk_core.device_properties().subgroup_size();
         let max_leaves = Self::max_leaves(num_elements, max_elements_per_leaf);
         let max_internal_nodes = Self::max_internal_nodes(max_leaves);
         let max_nodes = max_leaves + max_internal_nodes;
         
-        let octree_data = OctreeData::new(vk_core, cmd_pool, max_leaves, max_internal_nodes, MAX_LEVELS, SENTINEL_VALUE);
-        let octree_constructor = OctreeConstructor::new(vk_core, cmd_pool, max_leaves, SENTINEL_VALUE, MAX_LEVELS, MAX_BITS, max_nodes);
+        let octree_data = OctreeData::new(vk_core, cmd_pool, max_leaves, max_internal_nodes, MAX_LEVELS, SENTINEL_VALUE)?;
+        let octree_constructor = OctreeConstructor::new(vk_core, cmd_pool, max_leaves, SENTINEL_VALUE, MAX_LEVELS, MAX_BITS, max_nodes)?;
         
-        Self {
+        Ok(Self {
             octree_data,
             max_elements_per_leaf,
             octree_constructor,
             max_leaves
-        }
+        })
     }
 
-    pub fn build(&mut self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, maintenance_mode: bool, world_min: Vec4, world_size: f32){
+    pub fn build(&mut self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, maintenance_mode: bool, world_min: Vec4, world_size: f32){
 
         let n_crit = self.n_crit();
         self.octree_constructor.build(vk_core, cmd_buffer, keys, &mut self.octree_data, MAX_LEVELS, n_crit, maintenance_mode, world_min, world_size);
@@ -93,15 +93,15 @@ impl Octree {
         node_idx == LEAF
     }
 
-    pub fn leaf_indexes(&self, vk_core: &Arc<VkCore>, command_pool: CommandPool) -> Vec<u32>{
-        let node_first_child = self.data().node_first_child().read_back(vk_core, command_pool).unwrap();
-        let node_count = self.data().node_count().read_back(vk_core, command_pool).unwrap()[0] as usize;
+    pub fn leaf_indexes(&self, vk_core: &Arc<VulkanContext>, command_pool: CommandPool) -> anyhow::Result<Vec<u32>>{
+        let node_first_child = self.data().node_first_child().read_back(vk_core, command_pool)?;
+        let node_count = self.data().node_count().read_back(vk_core, command_pool)?[0] as usize;
         
         let leaves: Vec<u32> = (0u32..node_count as u32)
             .filter(|&i| Self::is_leaf(node_first_child[i as usize]))
             .collect();
     
-        leaves
+        Ok(leaves)
     }
 
 }

@@ -1,15 +1,16 @@
-use std::ffi::{CString};
+use std::ffi::CString;
 use std::sync::Arc;
+use anyhow::{anyhow, Context, Result};
 use ash::vk;
 use ash::vk::PushConstantRange;
 use crate::vulkan::compute::ComputePass;
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{DescriptorSetLayoutConfig, PipelineLayout};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::descriptors::{DescriptorSetLayoutConfig, PipelineLayout};
 
 /// A builder that helps create gpu compute systems.
 pub struct ComputeSystemBuilder {
-    vk_core: Arc<VkCore>,
+    vk_core: Arc<VulkanContext>,
     shader_name: String,
     entry_points: Vec<&'static str>,
     bindings: Vec<vk::DescriptorSetLayoutBinding<'static>>,
@@ -23,7 +24,7 @@ pub struct ComputeSystemResources {
 }
 
 impl ComputeSystemBuilder {
-    pub fn new(vk_core: Arc<VkCore>, shader_name: impl Into<String>) -> ComputeSystemBuilder {
+    pub fn new(vk_core: Arc<VulkanContext>, shader_name: impl Into<String>) -> ComputeSystemBuilder {
         Self {
             vk_core,
             shader_name: shader_name.into(),
@@ -65,25 +66,25 @@ impl ComputeSystemBuilder {
         self.entry_points.len() > 0 
     } 
     
-    pub fn build_with_single_pass(self) -> Result<(ComputePass, ShaderModule), Box<dyn std::error::Error>>{
+    pub fn build_with_single_pass(self) -> Result<(ComputePass, ShaderModule)> {
         let mut resources = self.build()?;
         Ok(
             (
-                resources.compute_passes.pop().ok_or("Failed to get compute pass")?,
+                resources.compute_passes.pop().ok_or_else(|| anyhow!("Failed to get compute pass"))?,
                 resources.shader
             )
         )
     }
     
-    pub fn build_with_multiple_passes(self) -> Result<ComputeSystemResources, Box<dyn std::error::Error>>{
+    pub fn build_with_multiple_passes(self) -> Result<ComputeSystemResources> {
         self.build()
     }
-    fn build(self) -> Result<ComputeSystemResources, Box<dyn std::error::Error>> {
+    fn build(self) -> Result<ComputeSystemResources> {
         if self.can_build() == false {
-            return Err("ComputeSystemBuilder::build() failed".into());
+            return Err(anyhow!("ComputeSystemBuilder::build() failed"));
         }
         
-        let shader = ShaderModule::new(self.vk_core.clone(), &self.shader_name, self.compile_time_constants.as_ref());
+        let shader = ShaderModule::new(self.vk_core.clone(), &self.shader_name, self.compile_time_constants.as_ref())?;
 
         let descriptor_config = [
             DescriptorSetLayoutConfig {
@@ -110,7 +111,8 @@ impl ComputeSystemBuilder {
         for entry_point in &self.entry_points{
             let pipeline_layout = PipelineLayout::new(self.vk_core.clone(), &descriptor_config, &push_constant_ranges)?;
             
-            let shader_name = CString::new(*entry_point).unwrap();
+            let shader_name = CString::new(*entry_point)
+                .context("compute entry point contains an interior NUL byte")?;
             let shader_stage_create_infos = vk::PipelineShaderStageCreateInfo::default()
                 .module(shader.vk_shader_module())
                 .name(shader_name.as_c_str())
@@ -125,8 +127,9 @@ impl ComputeSystemBuilder {
                     vk::PipelineCache::null(),
                     &[pipeline_info],
                     None
-                ).expect("Failed to create compute pipeline")[0]
-            };
+                )
+            }.map_err(|(_, error)| error)
+                .context("Failed to create compute pipeline")?[0];
 
             let compute_pass = ComputePass::new(
                 self.vk_core.clone(),

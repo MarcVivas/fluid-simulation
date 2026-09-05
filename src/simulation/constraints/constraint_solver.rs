@@ -6,8 +6,8 @@ use crate::simulation::physics_config::PhysicsConfig;
 use crate::simulation::neighbor_list::NeighborList;
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
 use crate::world::{particles::Particles};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::commands::{CommandBuffer, compute_buffer_barrier};
 
 pub struct ConstraintSolver {
     constraint_solver_pass: ComputePass,
@@ -41,7 +41,7 @@ struct ConstraintSolverPushConstants {
 const THREAD_GROUP_SIZE: u32 = 64;
 
 impl ConstraintSolver {
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (constraint_solver_pass, constraint_solver_shader) = ComputeSystemBuilder::new(vk_core.clone(), "constraint_solver")
             .entry_points(&["main"])
             .compile_time_constants(
@@ -54,7 +54,7 @@ impl ConstraintSolver {
         Ok(Self { constraint_solver_pass, constraint_solver_shader })
     }
 
-    pub fn execute(&self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
+    pub fn execute(&self, vk_core: &VulkanContext, command_buffer: &CommandBuffer, neighbor_list: &NeighborList, particles: &Particles, physics_config: &PhysicsConfig) {
         let device = vk_core.device();
         let num_elements = particles.len() as u32;
 

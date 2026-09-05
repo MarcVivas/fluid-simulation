@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use ash::prelude::VkResult;
+use anyhow::Result;
 use ash::vk;
 use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
@@ -8,9 +8,8 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::KeyCode;
 
-use crate::rendering::renderer::MAX_FRAME_LATENCY;
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandPool, buffer::VkBuffer};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::buffers::VkBuffer;
 
 pub struct Camera {
     pub position: Vec3,
@@ -27,11 +26,12 @@ pub struct Camera {
 
 impl Camera {
     pub fn new(
-        vk_core: &Arc<VkCore>,
+        vk_core: &Arc<VulkanContext>,
         world_size: &Vec3,
         window_size: &PhysicalSize<u32>,
-        command_pool: &CommandPool
-    ) -> VkResult<Self>
+        command_pool: vk::CommandPool,
+        frames_in_flight: usize,
+    ) -> Result<Self>
     {
         let target = Vec3::new(world_size.x / 2.0, world_size.y / 2.0, world_size.z / 2.0);
 
@@ -51,9 +51,9 @@ impl Camera {
 
         let aspect_ratio = window_size.width as f32 / window_size.height as f32;
         let camera_uniform = CameraUniform::new();
-        let mut camera_buffers = Vec::with_capacity(MAX_FRAME_LATENCY);
+        let mut camera_buffers = Vec::with_capacity(frames_in_flight);
 
-        for _ in 0..MAX_FRAME_LATENCY {
+        for _ in 0..frames_in_flight {
             let camera_buffer = VkBuffer::new(
                 &vk_core,
                 &[camera_uniform],
@@ -68,9 +68,9 @@ impl Camera {
                     linear: false,
                     allocation_scheme: AllocationScheme::GpuAllocatorManaged
                 },
-                command_pool.vk_cmd_pool(),
+                command_pool,
                 *vk_core.graphics_queue()
-            ).expect("Failed to create camera uniform buffer");
+            )?;
 
             camera_buffers.push(camera_buffer);
         }

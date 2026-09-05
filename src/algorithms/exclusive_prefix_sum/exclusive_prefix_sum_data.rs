@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::vulkan::{core::VkCore, resources::{CommandBuffer, barrier_transfer_to_compute, buffer::VkBuffer}};
+use crate::vulkan::{buffers::VkBuffer, commands::{CommandBuffer, barrier_transfer_to_compute}, core::VulkanContext};
 
 
 pub struct ExclusivePrefixSumData {
@@ -11,25 +11,25 @@ pub struct ExclusivePrefixSumData {
 }
 
 impl ExclusivePrefixSumData {
-    pub fn new(vk_core: &Arc<VkCore>, num_thread_groups: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, num_thread_groups: u32) -> anyhow::Result<Self> {
 
         let sync_counter = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
             1,
             "Sync counter"
-        ).unwrap();
+        )?;
 
 
         let status_array = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
             num_thread_groups as usize,
             "Status array"
-        ).unwrap();
+        )?;
 
-        Self {
+        Ok(Self {
             status_array,
             sync_counter
-        }
+        })
     }
 
     pub fn status_array(&self) -> &VkBuffer<u32> {

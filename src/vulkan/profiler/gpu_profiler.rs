@@ -1,20 +1,20 @@
-use std::sync::{Arc, Mutex, atomic::{self, AtomicUsize}};
-use crate::{vulkan::profiler::profiling_zones::GpuProfilingZones, vulkan::{core::VkCore, resources::QueryPool}};
+use std::sync::{Arc, Mutex};
+use crate::vulkan::{core::VulkanContext, frame::frame_pacer::FramePacer, profiler::profiling_zones::GpuProfilingZones, queries::QueryPool};
 use ash::vk;
 use std::collections::HashMap;
+use anyhow::Result;
 
 
 pub struct GpuProfiler {
     query_pools: Vec<QueryPool>,
     timestamp_period: f32,
     query_count: u32,
-    frame_index: AtomicUsize,
     zones: Mutex<GpuProfilingZones>,
 }
 
 
 impl GpuProfiler {
-    pub fn new(vk_core: Arc<VkCore>, max_zones: u32, frames_in_flight: usize) -> Self {
+    pub fn new(vk_core: Arc<VulkanContext>, max_zones: u32, frames_in_flight: usize) -> Result<Self> {
         let properties = unsafe {
             vk_core
                 .instance()
@@ -31,31 +31,29 @@ impl GpuProfiler {
         let mut query_pools = Vec::with_capacity(frames_in_flight);
 
         for _ in 0..frames_in_flight {
-            let query_pool = QueryPool::new(vk_core.clone(), create_info).unwrap();
+            let query_pool = QueryPool::new(vk_core.clone(), create_info)?;
             query_pools.push(query_pool);
         }
 
 
-        Self {
+        Ok(Self {
             query_pools,
             timestamp_period,
             query_count,
-            frame_index: AtomicUsize::new(0),
             zones: Mutex::new(GpuProfilingZones::new(query_count)),
-        }
+        })
     }
     
     // Call this every time at the start of the frame
-    pub fn reset(&self, device: &ash::Device, command_buffer: vk::CommandBuffer) {
-        let pool = &self.query_pools[self.frame_index.load(atomic::Ordering::Relaxed)];
+    pub fn reset(&self, device: &ash::Device, command_buffer: vk::CommandBuffer, ring_idx: usize) {
+        let pool = &self.query_pools[ring_idx];
         unsafe {
             device.cmd_reset_query_pool(command_buffer, pool.vk_query_pool(), 0, self.query_count);
         }
     }
     
-    pub fn reset_on_host(&self, device: &ash::Device) {
-        let frame_idx = self.frame_index.load(atomic::Ordering::Relaxed);
-        let pool = &self.query_pools[frame_idx];
+    pub fn reset_on_host(&self, device: &ash::Device, ring_idx: usize) {
+        let pool = &self.query_pools[ring_idx];
         
         unsafe {
             (device.fp_v1_2().reset_query_pool)(
@@ -67,25 +65,29 @@ impl GpuProfiler {
         }
     }
     
-    pub fn begin_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, label: &str) -> u32 {
-        let start_index = self.zones.lock().unwrap().get_or_create_zone_index(label);
+    pub fn begin_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, label: &str, ring_idx: usize) -> u32 {
+        let start_index = self
+            .zones
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get_or_create_zone_index(label);
         unsafe {
             device.cmd_write_timestamp(
                 cb,
                 vk::PipelineStageFlags::TOP_OF_PIPE,
-                self.query_pools[self.frame_index.load(atomic::Ordering::Relaxed)].vk_query_pool(),
+                self.query_pools[ring_idx].vk_query_pool(),
                 start_index,
             );
         }
         start_index
     }
     
-    pub fn end_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, idx: u32) {
+    pub fn end_timestamp_zone(&self, device: &ash::Device, cb: vk::CommandBuffer, idx: u32, ring_idx: usize) {
         
         let zone_start_index = idx;
         let zone_end_index = zone_start_index + 1; 
         
-        let pool = &self.query_pools[self.frame_index.load(atomic::Ordering::Relaxed)];
+        let pool = &self.query_pools[ring_idx];
 
         unsafe {
             device.cmd_write_timestamp(
@@ -98,42 +100,38 @@ impl GpuProfiler {
     }
     
     
-    pub fn profile_scope<F, R>(&self, device: &ash::Device, cmd_buffer: vk::CommandBuffer, label: &str, scope: F) -> R
+    pub fn profile_scope<F, R>(&self, device: &ash::Device, cmd_buffer: vk::CommandBuffer, label: &str, ring_idx: usize, scope: F) -> R
         where F: FnOnce() -> R
     {
-        let idx = self.begin_timestamp_zone(device, cmd_buffer, label);
+        let idx = self.begin_timestamp_zone(device, cmd_buffer, label, ring_idx);
         let res = scope();
-        self.end_timestamp_zone(device, cmd_buffer, idx);
+        self.end_timestamp_zone(device, cmd_buffer, idx, ring_idx);
         res
     }
     
-    
-
-    pub fn set_frame_index(&self, frame_index: usize){
-        self.frame_index.store(frame_index, atomic::Ordering::Relaxed);
-    }
-
-
-
     pub fn get_results(
         &self,
         device: &ash::Device,
-        total_frames_processed: u64,
-    ) -> Result<HashMap<String, f64>, Box<dyn std::error::Error>> {
+        frame_pacer: &FramePacer,
+    ) -> Result<HashMap<String, f64>> {
         let frames_in_flight = self.query_pools.len();
+        let total_frames_processed = frame_pacer.total_frames_processed();
         if total_frames_processed < frames_in_flight as u64 {
             return Ok(HashMap::new())
         }
         
-        let zones_lock = self.zones.lock().unwrap();
+        let zones_lock = self
+            .zones
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let active_queries = zones_lock.get_active_query_count();
 
         if active_queries == 0 {
             return Ok(HashMap::new());
         }
 
-        let frame_idx = self.frame_index.load(atomic::Ordering::Relaxed);
-        let pool = &self.query_pools[frame_idx];
+        let ring_idx = frame_pacer.ring_index();
+        let pool = &self.query_pools[ring_idx];
         let mut results = vec![0u64; active_queries as usize];
         
         unsafe {
@@ -155,5 +153,16 @@ impl GpuProfiler {
         }
         
         Ok(processed_results)
+    }
+
+    /// Print profiler metrics
+    pub fn print_metrics(&self, device: &ash::Device, frame_pacer: &FramePacer){
+        let timings = self.get_results(device, frame_pacer)
+            .unwrap_or_default();
+        for (label, time) in timings {
+            if time != 0.0 {
+                println!("Pass {}: {:.4} ms", label, time);
+            }
+        }
     }
 }

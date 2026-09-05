@@ -4,7 +4,7 @@ use ash::vk;
 use bytemuck::{Pod, Zeroable, bytes_of};
 use glam::Vec4;
 
-use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::CommandBuffer}};
+use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VulkanContext, commands::CommandBuffer}};
 
 pub struct OctreeLinker {
     octree_linker: ComputePass,
@@ -29,7 +29,7 @@ struct OctreeLinkerPushConstants {
 
 
 impl OctreeLinker {
-    pub fn new(vk_core: &Arc<VkCore>, max_levels: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
         let (octree_linker, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "octree_linker")
             .entry_points(&["main"])
             .push_constants::<OctreeLinkerPushConstants>()
@@ -38,16 +38,16 @@ impl OctreeLinker {
                     .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
                     .add("MAX_LEVELS", max_levels)
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
         
         
-        Self {
+        Ok(Self {
             octree_linker,
             shader_module
-        }
+        })
     }
     
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData, world_min: Vec4, world_size: f32){
+    pub fn indirect_dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, octree_data: &OctreeData, world_min: Vec4, world_size: f32){
         let push_constants = OctreeLinkerPushConstants {
             node_keys: octree_data.node_keys().address(),
             node_count: octree_data.node_count().address(),

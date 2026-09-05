@@ -2,8 +2,8 @@ use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::vulkan::shaders::traits::GpuTask;
 use crate::algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, buffer::VkBuffer, compute_buffer_barrier, global_sync_compute, sync_compute_to_indirect};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::{buffers::VkBuffer, commands::{CommandBuffer, compute_buffer_barrier, global_sync_compute, sync_compute_to_indirect}};
 use crate::algorithms::sorting::kv_radix_sort::radix_sort_data::RadixSortData;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
@@ -63,11 +63,11 @@ struct SortingPushConstants {
 
 impl<T: RadixSortPayload> GpuKVRadixSort <T> {
     pub fn new(
-        vk_core: &Arc<VkCore>,
+        vk_core: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         max_keys: u32,
         keys_bit_count: Option<u32>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
         let shader_name = T::shader_name();
 
 
@@ -108,12 +108,12 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
 
         sorting_resources.compute_passes.reverse();
 
-        let counting_pass = sorting_resources.compute_passes.pop().unwrap();
-        let scan_pass = sorting_resources.compute_passes.pop().unwrap();
-        let scatter_pass = sorting_resources.compute_passes.pop().unwrap();
-        let reduce_pass = sorting_resources.compute_passes.pop().unwrap();
-        let scan_add_pass = sorting_resources.compute_passes.pop().unwrap();
-        let setup_indirect_pass = sorting_resources.compute_passes.pop().unwrap();
+        let counting_pass = sorting_resources.compute_passes.pop().ok_or_else(|| anyhow::anyhow!("missing key/value radix counting pass"))?;
+        let scan_pass = sorting_resources.compute_passes.pop().ok_or_else(|| anyhow::anyhow!("missing key/value radix scan pass"))?;
+        let scatter_pass = sorting_resources.compute_passes.pop().ok_or_else(|| anyhow::anyhow!("missing key/value radix scatter pass"))?;
+        let reduce_pass = sorting_resources.compute_passes.pop().ok_or_else(|| anyhow::anyhow!("missing key/value radix reduce pass"))?;
+        let scan_add_pass = sorting_resources.compute_passes.pop().ok_or_else(|| anyhow::anyhow!("missing key/value radix scan-add pass"))?;
+        let setup_indirect_pass = sorting_resources.compute_passes.pop().ok_or_else(|| anyhow::anyhow!("missing key/value radix indirect setup pass"))?;
 
         Ok(Self {
             sorting_shader: sorting_resources.shader,
@@ -129,7 +129,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
 
     pub fn sort(
         &self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
         command_buffer: &CommandBuffer,
@@ -280,7 +280,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
 
     pub fn sort_indirect(
         &self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         count_buffer_address: vk::DeviceAddress,
         keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
@@ -361,7 +361,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort <T> {
 }
 
 fn barrier_scatter_pass(
-    vk_core: &Arc<VkCore>,
+    vk_core: &VulkanContext,
     cmd_buffer: &CommandBuffer,
     dst_keys: vk::Buffer,
     dst_payload: vk::Buffer,

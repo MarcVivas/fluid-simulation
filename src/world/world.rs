@@ -1,13 +1,14 @@
 use std::sync::Arc;
-use ash::vk;
 use glam::{Vec3};
 use crate::simulation::neighbor_list::{NeighborList};
 use crate::simulation::octree::octree::Octree;
 use crate::vulkan::compute::ComputeEngine;
+use crate::vulkan::frame::frame_pacer::{FramePacer};
 use crate::vulkan::profiler::GpuProfiler;
+use crate::vulkan::commands::CommandBuffer;
 use crate::world::particles::{Particles, ParticleRenderData};
 use crate::simulation::physics_engine::PhysicsEngine;
-use crate::vulkan::core::VkCore;
+use crate::vulkan::core::VulkanContext;
 use crate::world::particles::ParticleInitPreset;
 
 pub struct World{
@@ -22,7 +23,7 @@ pub struct World{
 const NUM_PARTICLES: usize = 1000000; 
 
 impl World{
-    pub fn new(vk_core: &Arc<VkCore>, world_max: &Vec3, compute_engine: &ComputeEngine) -> Self{
+    pub fn new(vk_core: &Arc<VulkanContext>, world_max: &Vec3, compute_engine: &ComputeEngine) -> anyhow::Result<Self>{
 
         let world_min = glam::Vec4::new(0., 0., 0.0, 0.);
         let world_size = world_max.max_element();
@@ -35,25 +36,25 @@ impl World{
             compute_engine.command_pool(),
             ParticleInitPreset::DoubleDamBreak,
             search_radius
-        ).expect("Failed to create particle system");
+        )?;
 
 
         let cmd_pool = compute_engine.command_pool();
         
-        let octree = Octree::new(vk_core, cmd_pool, particle_system.len() as u32);
-        let neighbor_list = NeighborList::new(vk_core, cmd_pool, NUM_PARTICLES, octree.max_expected_leaves(), vk_core.subgroup_size(), Octree::max_levels());
+        let octree = Octree::new(vk_core, cmd_pool, particle_system.len() as u32)?;
+        let neighbor_list = NeighborList::new(vk_core, cmd_pool, NUM_PARTICLES, octree.max_expected_leaves(), vk_core.device_properties().subgroup_size(), Octree::max_levels())?;
 
-        let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius).unwrap();
+        let physics_engine = PhysicsEngine::new(vk_core, cmd_pool, &particle_system, Octree::max_levels(), search_radius)?;
 
 
-        Self {
+        Ok(Self {
             particle_system,
             physics_engine,
             world_size,
             world_min,
             octree,
             neighbor_list
-        }
+        })
     }
 
     pub fn world_size(&self) -> f32 {
@@ -65,41 +66,20 @@ impl World{
     }
 
     /// Updates the world
-    pub fn update(&mut self, vk_core: &Arc<VkCore>, compute_engine: &ComputeEngine, gpu_profiler: &GpuProfiler){
+    pub fn update(&mut self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, gpu_profiler: &GpuProfiler, frame_pacer: &FramePacer){
         let world_min = self.world_min();
         let world_size = self.world_size();
-
-        compute_engine.record_commands(|cmd_buffer| {
-            
-          
-            
-            self.physics_engine.update(
-                 vk_core,
-                 cmd_buffer,
-                 &mut self.particle_system,
-                 world_size,
-                 world_min,
-                 &mut self.octree,
-                 &self.neighbor_list,
-                 gpu_profiler
-            );
-
-            let release_to_graphics =[vk::BufferMemoryBarrier2::default()
-                .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
-                .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
-                .dst_stage_mask(vk::PipelineStageFlags2::NONE) // NONE for release operations
-                .dst_access_mask(vk::AccessFlags2::NONE)       // NONE for release operations
-                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .buffer(self.particle_system.buffers().positions_buffer.current().vk_buffer())
-                .size(vk::WHOLE_SIZE)];
-                        
-            cmd_buffer.pipeline_memory_barrier(vk_core.device(), &release_to_graphics, &[]);
-        });
-
-
-        
-      
+        self.physics_engine.update(
+             vk_core,
+             cmd_buffer,
+             &mut self.particle_system,
+             world_size,
+             world_min,
+             &mut self.octree,
+             &self.neighbor_list,
+             gpu_profiler,
+             frame_pacer
+        );   
     }
 
     pub fn extract_render_data(&self) -> ParticleRenderData {

@@ -1,34 +1,42 @@
-use std::ffi;
-use ash::{vk, Entry};
 use ash::ext::debug_utils;
 use ash::vk::DebugUtilsMessengerEXT;
+use ash::{Entry, vk};
+use anyhow::Result;
+use std::ffi;
 
-
-pub struct DebugMessenger{
+pub struct DebugMessenger {
     debug_messenger: DebugUtilsMessengerEXT,
     debug_utils_loader: debug_utils::Instance,
 }
 
 impl DebugMessenger {
-    pub fn new(entry: &Entry, instance: &ash::Instance) -> Option<Self> {
+    pub fn new(entry: &Entry, instance: &ash::Instance) -> Result<Option<Self>> {
         #[cfg(not(debug_assertions))]
-        { return None }
+        {
+            return Ok(None);
+        }
 
-        let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default().message_severity(
-            vk::DebugUtilsMessageSeverityFlagsEXT::ERROR | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
-        ).message_type(
-            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
-        ).pfn_user_callback(Some(Self::vulkan_debug_callback));
+        let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
+            .message_severity(
+                vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::INFO,
+            )
+            .message_type(
+                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+            )
+            .pfn_user_callback(Some(Self::vulkan_debug_callback));
 
         let debug_utils_loader = debug_utils::Instance::new(entry, instance);
-        let debug_callback = unsafe {
-            debug_utils_loader.create_debug_utils_messenger(&debug_info, None)
-        }.expect("failed to set up debug messenger");
+        let debug_callback =
+            unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }?;
 
-        Some(Self {
+        Ok(Some(Self {
             debug_utils_loader,
             debug_messenger: debug_callback,
-        })
+        }))
     }
     unsafe extern "system" fn vulkan_debug_callback(
         message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,

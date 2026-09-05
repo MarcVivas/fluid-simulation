@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use bytemuck::bytes_of;
 
-use crate::{algorithms::exclusive_prefix_sum::{exclusive_prefix_sum_data::ExclusivePrefixSumData, exclusive_prefix_sum_push_constants::ExclusivePrefixSumPushConstants}, vulkan::{compute::{ComputePass, ComputeSystemBuilder}, core::VkCore, resources::{CommandBuffer, barrier_compute_to_compute, buffer::{IndirectBuffer, VkBuffer}, global_sync_compute,}, shaders::{ShaderCompileTimeConstants, ShaderModule, traits::GpuTask}}};
+use crate::{algorithms::exclusive_prefix_sum::{exclusive_prefix_sum_data::ExclusivePrefixSumData, exclusive_prefix_sum_push_constants::ExclusivePrefixSumPushConstants}, vulkan::{buffers::{IndirectBuffer, VkBuffer}, commands::{CommandBuffer, barrier_compute_to_compute, global_sync_compute}, compute::{ComputePass, ComputeSystemBuilder}, core::VulkanContext, shaders::{ShaderCompileTimeConstants, ShaderModule, traits::GpuTask}}};
 
 const THREAD_GROUP_SIZE: u32 = 64;
 
@@ -15,7 +15,7 @@ pub struct ExclusivePrefixSum {
 }
 
 impl ExclusivePrefixSum {
-    pub fn new(vk_core: &Arc<VkCore>, num_elements: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, num_elements: u32) -> anyhow::Result<Self> {
         
         let (prefix_sum_pass, prefix_sum_shader) = ComputeSystemBuilder::new(vk_core.clone(), "exclusive_prefix_sum")
             .push_constants::<ExclusivePrefixSumPushConstants>()
@@ -25,21 +25,21 @@ impl ExclusivePrefixSum {
             .compile_time_constants(
                 ShaderCompileTimeConstants::default()
                     .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
-                    .add("WAVE_SIZE", vk_core.subgroup_size())
+                    .add("WAVE_SIZE", vk_core.device_properties().subgroup_size())
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
         
-        let prefix_sum_data = ExclusivePrefixSumData::new(vk_core, Self::num_thread_groups(num_elements, THREAD_GROUP_SIZE)[0]);
+        let prefix_sum_data = ExclusivePrefixSumData::new(vk_core, Self::num_thread_groups(num_elements, THREAD_GROUP_SIZE)[0])?;
         
-        Self { 
+        Ok(Self { 
             prefix_sum_shader,
             prefix_sum_pass,
             data: prefix_sum_data,
-        }
+        })
     }
     
     
-    pub fn dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, src_nums: &VkBuffer<u32>, out_nums: &VkBuffer<u32>){
+    pub fn dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, src_nums: &VkBuffer<u32>, out_nums: &VkBuffer<u32>){
         
         self.data.clear_buffers(vk_core.device(), cmd_buffer);
         
@@ -65,7 +65,7 @@ impl ExclusivePrefixSum {
         [(num_elements + thread_group_size - 1) / thread_group_size, 1, 1]
     }
     
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, src_nums: &VkBuffer<u32>, out_nums: &VkBuffer<u32>, dispatch_buffer: &IndirectBuffer, count_buffer: &VkBuffer<u32>){
+    pub fn indirect_dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, src_nums: &VkBuffer<u32>, out_nums: &VkBuffer<u32>, dispatch_buffer: &IndirectBuffer, count_buffer: &VkBuffer<u32>){
         self.data.clear_buffers(vk_core.device(), cmd_buffer);
 
         let push_constant = ExclusivePrefixSumPushConstants {

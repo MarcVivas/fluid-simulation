@@ -1,7 +1,7 @@
+use ash::ext::debug_utils;
+use ash::{Entry, Instance, vk};
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use ash::{vk, Entry, Instance};
-use ash::ext::debug_utils;
 
 const VALIDATION_LAYERS: [&CStr; 1] = [c"VK_LAYER_KHRONOS_validation"];
 #[cfg(debug_assertions)]
@@ -10,8 +10,10 @@ const ENABLE_VALIDATION_LAYERS: bool = true;
 const ENABLE_VALIDATION_LAYERS: bool = false;
 
 /// The instance is the connection between your application and the Vulkan library
-pub fn create_instance(entry: &Entry, required_extensions: &[*const c_char]) -> Instance {
-
+pub fn create_instance(
+    entry: &Entry,
+    required_extensions: &[*const c_char],
+) -> anyhow::Result<Instance> {
     let app_name = c"Vulkan";
     let app_info = vk::ApplicationInfo::default()
         .application_name(app_name)
@@ -22,25 +24,21 @@ pub fn create_instance(entry: &Entry, required_extensions: &[*const c_char]) -> 
 
     let create_flags = if cfg!(any(target_os = "macos", target_os = "ios")) {
         vk::InstanceCreateFlags::empty()
-    }
-    else {
+    } else {
         vk::InstanceCreateFlags::default()
     };
 
-    let layers_names_raw: Vec<*const c_char> = if check_validation_support(entry)
-        && ENABLE_VALIDATION_LAYERS
-    {
-        VALIDATION_LAYERS.iter()
-            .map(|raw_name| raw_name.as_ptr())
-            .collect()
-    }
-    else {
-        vec![]
-    };
-
+    let layers_names_raw: Vec<*const c_char> =
+        if check_validation_support(entry) && ENABLE_VALIDATION_LAYERS {
+            VALIDATION_LAYERS
+                .iter()
+                .map(|raw_name| raw_name.as_ptr())
+                .collect()
+        } else {
+            vec![]
+        };
 
     let mut extension_names = required_extensions.to_vec();
-
 
     #[cfg(debug_assertions)]
     {
@@ -54,7 +52,6 @@ pub fn create_instance(entry: &Entry, required_extensions: &[*const c_char]) -> 
         extension_names.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
     }
 
-
     let mut instance_create_info = vk::InstanceCreateInfo::default()
         .application_info(&app_info)
         .enabled_layer_names(&layers_names_raw)
@@ -62,24 +59,18 @@ pub fn create_instance(entry: &Entry, required_extensions: &[*const c_char]) -> 
         .flags(create_flags);
 
     // This is to enable printf in shaders
-    let enabled_validation_features = [
-        vk::ValidationFeatureEnableEXT::DEBUG_PRINTF,
-    ];
+    let enabled_validation_features = [vk::ValidationFeatureEnableEXT::DEBUG_PRINTF];
 
     let mut validation_features = vk::ValidationFeaturesEXT::default()
         .enabled_validation_features(&enabled_validation_features);
-    
+
     if ENABLE_VALIDATION_LAYERS {
         instance_create_info = instance_create_info.push_next(&mut validation_features);
     }
 
-    let instance: Instance = unsafe {
-        entry.create_instance(&instance_create_info, None)
-    }.expect("failed to create instance");
+    let instance: Instance = unsafe { entry.create_instance(&instance_create_info, None) }?;
 
-    instance
-
-
+    Ok(instance)
 }
 
 fn check_validation_support(entry: &Entry) -> bool {
@@ -89,21 +80,14 @@ fn check_validation_support(entry: &Entry) -> bool {
     };
 
     for required_layer_name in VALIDATION_LAYERS {
-
-        let is_layer_found = available_layers
-            .iter()
-            .any(
-                |layer_properties| {
-                    let layer_name = unsafe { CStr::from_ptr(layer_properties.layer_name.as_ptr()) };
-                    let layer_name_str = layer_name.to_str().unwrap();
-                    required_layer_name.to_str().unwrap() == layer_name_str
-                }
-        );
+        let is_layer_found = available_layers.iter().any(|layer_properties| {
+            let layer_name = unsafe { CStr::from_ptr(layer_properties.layer_name.as_ptr()) };
+            *layer_name == *required_layer_name
+        });
 
         if !is_layer_found {
             return false;
         }
     }
     true
-
 }

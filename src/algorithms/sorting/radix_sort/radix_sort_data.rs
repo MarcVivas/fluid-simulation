@@ -1,6 +1,6 @@
-use crate::vulkan::resources::buffer::VkBuffer;
+use crate::vulkan::buffers::VkBuffer;
 use std::sync::Arc;
-use crate::vulkan::core::VkCore;
+use crate::vulkan::core::VulkanContext;
 
 pub struct RadixSortData {
     #[allow(unused)]
@@ -15,13 +15,13 @@ pub struct RadixSortData {
 
 impl RadixSortData {
     pub fn new(
-        vk_core: &Arc<VkCore>,
+        vk_core: &Arc<VulkanContext>,
         max_keys: u32,
         keys_bit_count: Option<u32>,
         bits_per_pass: u32,
         block_size: u32, 
         bin_count: u32
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
         let histogram_buffer = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
             Self::calculate_histogram_len(max_keys, block_size, bin_count) as usize,

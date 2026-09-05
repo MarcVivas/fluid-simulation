@@ -1,12 +1,11 @@
 use std::sync::Arc;
-use ash::prelude::VkResult;
 use ash::vk::{self};
 use bytemuck::{Pod, Zeroable};
 use glam::{Vec4};
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::vulkan::shaders::{ShaderCompileTimeConstants, ShaderModule};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, buffer::VkBuffer, compute_buffer_barrier};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::{buffers::VkBuffer, commands::{CommandBuffer, compute_buffer_barrier}};
 use crate::vulkan::shaders::traits::{GpuTask, ShaderName};
 
 
@@ -35,7 +34,7 @@ pub struct HilbertEncodingPushConstants {
 }
 
 impl HilbertEncoder {
-    pub fn new(vk_core: &Arc<VkCore>, max_levels: u32) -> VkResult<Self> {
+    pub fn new(vk_core: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
         let (hilbert_encoding_pass, hilbert_encoding_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .entry_points(&["main"])
             .push_constants::<HilbertEncodingPushConstants>()
@@ -43,7 +42,7 @@ impl HilbertEncoder {
                 .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
                 .add("MAX_LEVELS", max_levels)
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
 
         Ok(
             Self {
@@ -56,7 +55,7 @@ impl HilbertEncoder {
 
     pub fn dispatch(
         &self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         num_points: u32,
         world_min: Vec4,
         world_size: f32,
@@ -93,7 +92,7 @@ impl HilbertEncoder {
     }
 }
 
-fn barrier(vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, morton_codes: vk::Buffer, object_indices: vk::Buffer){
+fn barrier(vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, morton_codes: vk::Buffer, object_indices: vk::Buffer){
 
     let buffer_memory_barriers = [
         compute_buffer_barrier(

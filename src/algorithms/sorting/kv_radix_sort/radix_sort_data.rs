@@ -1,9 +1,9 @@
 use ash::vk;
 
 use crate::algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
-use crate::vulkan::resources::buffer::{IndirectBuffer, VkBuffer};
+use crate::vulkan::buffers::{IndirectBuffer, VkBuffer};
 use std::sync::Arc;
-use crate::vulkan::core::VkCore;
+use crate::vulkan::core::VulkanContext;
 
 pub struct RadixSortData<T: RadixSortPayload> {
     #[allow(unused)]
@@ -31,14 +31,14 @@ pub struct SortingMetadata {
 
 impl <T: RadixSortPayload> RadixSortData<T> {
     pub fn new(
-        vk_core: &Arc<VkCore>,
+        vk_core: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         max_keys: u32,
         keys_bit_count: Option<u32>,
         bits_per_pass: u32,
         block_size: u32, 
         bin_count: u32
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
         let histogram_buffer = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
             Self::calculate_histogram_len(max_keys, block_size, bin_count) as usize,
@@ -66,8 +66,8 @@ impl <T: RadixSortPayload> RadixSortData<T> {
         let keys_bit_count = keys_bit_count.unwrap_or(32);
         let num_passes = Self::calculate_number_of_passes(keys_bit_count, bits_per_pass);
 
-        let metadata_buffer = VkBuffer::new_gpu_only_uninitialized(vk_core, 1, "Sorting metadata").unwrap();
-        let indirect_dispatch_buffer = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0); 5]);
+        let metadata_buffer = VkBuffer::new_gpu_only_uninitialized(vk_core, 1, "Sorting metadata")?;
+        let indirect_dispatch_buffer = IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0); 5])?;
         
         Ok(Self {
             keys_bit_count,

@@ -1,10 +1,9 @@
-use std::error::Error;
 use std::sync::Arc;
 use ash::vk;
 use glam::{Vec3, Vec4, Vec4Swizzles};
 use rand::Rng;
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::buffer::{VkBuffer, PingPong};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::buffers::{VkBuffer, PingPong};
 
 pub struct Particles {
     total_particles: usize,
@@ -56,11 +55,11 @@ impl Particles {
     pub fn new(
         num_particles: usize,
         world_dim: &Vec3,
-        vk_core: &Arc<VkCore>,
+        vk_core: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         preset: ParticleInitPreset,
         search_radius: f32, 
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> anyhow::Result<Self> {
         let mut positions: Vec<Vec4> = Vec::with_capacity(num_particles);
         let mut previous_positions: Vec<Vec4> = Vec::with_capacity(num_particles);
         let mut velocities: Vec<Vec4> = Vec::with_capacity(num_particles);
@@ -278,13 +277,13 @@ impl Particles {
 }
 
 fn create_particle_data(
-    vk_core: &Arc<VkCore>,
+    vk_core: &Arc<VulkanContext>,
     command_pool: vk::CommandPool,
     queue: vk::Queue,
     positions: &[Vec4],
     previous_positions: &[Vec4],
     velocities: &[Vec4],
-) -> Result<ParticleData, Box<dyn Error>> {
+) -> anyhow::Result<ParticleData> {
     let len = positions.len();
 
     let positions_buffer = PingPong::new_vk_buffer(

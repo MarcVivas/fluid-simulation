@@ -3,7 +3,7 @@ use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
-use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::CommandBuffer}};
+use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VulkanContext, commands::CommandBuffer}};
 
 const THREAD_GROUP_SIZE: u32 = 64;
 
@@ -28,7 +28,7 @@ struct RebalancerPushConstants {
 }
 
 impl Rebalancer {
-    pub fn new(vk_core: &Arc<VkCore>, sentinel_value: u32)-> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, sentinel_value: u32)-> anyhow::Result<Self> {
         let (rebalancer, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "octree_rebalancer")
             .entry_points(&["main"])
             .push_constants::<RebalancerPushConstants>()
@@ -37,14 +37,14 @@ impl Rebalancer {
                     .add("SENTINEL_VALUE", sentinel_value)
                     .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
             )
-            .build_with_single_pass().unwrap();
-        Self {
+            .build_with_single_pass()?;
+        Ok(Self {
             rebalancer,
             shader_module
-        }
+        })
     }
     
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData){
+    pub fn indirect_dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, octree_data: &OctreeData){
         let (cornerstone_array, next_cornerstone_array) = octree_data.cornerstone_array_read_write();
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves();
         let (current_leaf_count, new_leaf_count) = octree_data.leaf_count_read_write();

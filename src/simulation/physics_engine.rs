@@ -9,13 +9,14 @@ use crate::simulation::integration::{Integrator, VelocityUpdater};
 use crate::simulation::neighbor_list::NeighborList;
 use crate::simulation::octree::octree::Octree;
 use crate::simulation::physics_config::PhysicsConfig;
+use crate::vulkan::frame::frame_pacer::FramePacer;
 use crate::vulkan::profiler::GpuProfiler;
-use crate::vulkan::resources::CommandBuffer;
+use crate::vulkan::commands::CommandBuffer;
 use crate::world::{particles::Particles, particles::ParticleReorderer};
 
 use crate::vulkan::shaders::traits::{GpuTask};
 
-use crate::vulkan::core::VkCore;
+use crate::vulkan::core::VulkanContext;
 use std::sync::Arc;
 
 pub struct PhysicsEngine {
@@ -33,12 +34,12 @@ pub struct PhysicsEngine {
 
 impl PhysicsEngine {
     pub fn new(
-        vk_core: &Arc<VkCore>,
+        vk_core: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         particles: &Particles,
         max_levels: u32,
         search_radius: f32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> anyhow::Result<Self> {
 
         let max_objects: u32 = particles.len() as u32;
         let integrator = Integrator::new(vk_core)?;
@@ -69,7 +70,7 @@ impl PhysicsEngine {
 
     pub fn update(
         &mut self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         command_buffer: &CommandBuffer,
         particles: &mut Particles,
         world_size: f32,
@@ -77,6 +78,7 @@ impl PhysicsEngine {
         octree: &mut Octree,
         neighbor_list: &NeighborList,
         gpu_profiler: &GpuProfiler,
+        frame_pacer: &FramePacer
     ) { 
         
         let delta_time = self.physics_config.time_step;
@@ -87,8 +89,9 @@ impl PhysicsEngine {
         let particle_data = particles.buffers();
         let device = vk_core.device();
         let vk_cmd_buffer = command_buffer.vk_cmd_buffer();
+        let ring_idx = frame_pacer.ring_index();
         
-        gpu_profiler.profile_scope(device, vk_cmd_buffer, Integrator::profiling_label(), ||{
+        gpu_profiler.profile_scope(device, vk_cmd_buffer, Integrator::profiling_label(), ring_idx, ||{
             self.integrator.execute(
                 vk_core,
                 particles,
@@ -101,7 +104,7 @@ impl PhysicsEngine {
        
        
         
-        gpu_profiler.profile_scope(device, vk_cmd_buffer, HilbertEncoder::profiling_label(), ||{
+        gpu_profiler.profile_scope(device, vk_cmd_buffer, HilbertEncoder::profiling_label(), ring_idx, ||{
             self.hilbert_encoder.dispatch(
                 vk_core,
                 particle_data.hilbert_keys.len() as u32,
@@ -114,7 +117,7 @@ impl PhysicsEngine {
             );
         });
         
-        gpu_profiler.profile_scope(device, vk_cmd_buffer, GpuKVRadixSort::<u32>::profiling_label(), ||{
+        gpu_profiler.profile_scope(device, vk_cmd_buffer, GpuKVRadixSort::<u32>::profiling_label(), ring_idx, ||{
             self.sorter.sort(
                 vk_core,
                 &particle_data.hilbert_keys,
@@ -124,7 +127,7 @@ impl PhysicsEngine {
             );
         });
         
-        gpu_profiler.profile_scope(device, vk_cmd_buffer, ParticleReorderer::profiling_label(), ||{
+        gpu_profiler.profile_scope(device, vk_cmd_buffer, ParticleReorderer::profiling_label(), ring_idx, ||{
             self.particle_reorderer
                 .execute(vk_core, particle_data, command_buffer);
         });
@@ -132,13 +135,13 @@ impl PhysicsEngine {
 
         particles.buffers_mut().swap();
 
-        gpu_profiler.profile_scope(device, vk_cmd_buffer, "Octree construction", ||{
+        gpu_profiler.profile_scope(device, vk_cmd_buffer, "Octree construction", ring_idx, ||{
             octree.build(vk_core, command_buffer, &particles.buffers().hilbert_keys, false, world_min, world_size);
         });
 
         let search_radius = self.physics_config.search_radius;
         
-        gpu_profiler.profile_scope(device, vk_cmd_buffer, "Neighbor list construction", ||{
+        gpu_profiler.profile_scope(device, vk_cmd_buffer, "Neighbor list construction", ring_idx, ||{
             neighbor_list.build(vk_core, command_buffer, octree, particles.buffers(), search_radius, world_min, world_size);
         });
        
@@ -147,7 +150,7 @@ impl PhysicsEngine {
         for i in 0..self.physics_config.solver_iterations {
 
             let density_label = format!("Density compute {}", i);
-            gpu_profiler.profile_scope(device, vk_cmd_buffer, &density_label, ||{
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, &density_label, ring_idx, ||{
                 self.density_compute.execute(
                     vk_core,
                     command_buffer,
@@ -159,7 +162,7 @@ impl PhysicsEngine {
             
             let constraint_label = format!("Constraint solver {}", i);
             
-            gpu_profiler.profile_scope(device, vk_cmd_buffer, &constraint_label, ||{
+            gpu_profiler.profile_scope(device, vk_cmd_buffer, &constraint_label, ring_idx, ||{
                 self.constraint_solver.execute(
                     vk_core,
                     command_buffer,

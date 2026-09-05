@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use glam::Vec4;
 
-use crate::{algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::kv_radix_sort::GpuKVRadixSort}, simulation::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::LevelOffsetGenerator, node_key_generator::NodeKeyGenerator, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, vulkan::{core::VkCore, resources::{CommandBuffer, barrier_compute_to_compute, barrier_compute_to_indirect, barrier_transfer_to_compute, buffer::VkBuffer}}};
+use crate::{algorithms::{exclusive_prefix_sum::ExclusivePrefixSum, sorting::kv_radix_sort::GpuKVRadixSort}, simulation::octree::{leaves_histogram::LeavesHistogram, level_offset_generator::LevelOffsetGenerator, node_key_generator::NodeKeyGenerator, octree_data::OctreeData, octree_linker::OctreeLinker, rebalancer::Rebalancer, rebalancing_ops_marker::RebalancingOpsMarker}, vulkan::{buffers::VkBuffer, commands::{CommandBuffer, barrier_compute_to_compute, barrier_compute_to_indirect, barrier_transfer_to_compute}, core::VulkanContext}};
 
 pub struct OctreeConstructor {
     
@@ -31,18 +31,18 @@ pub struct OctreeConstructor {
 }
 
 impl OctreeConstructor {
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, max_leaves: u32, sentinel_val: u32, max_level: u32, max_bits: u32, max_node_keys: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, max_leaves: u32, sentinel_val: u32, max_level: u32, max_bits: u32, max_node_keys: u32) -> anyhow::Result<Self> {
         
-        let leaves_histogram = LeavesHistogram::new(vk_core);
-        let rebalancing_ops_marker = RebalancingOpsMarker::new(vk_core);
-        let prefix_sum: ExclusivePrefixSum = ExclusivePrefixSum::new(vk_core, max_leaves);
-        let rebalancer = Rebalancer::new(vk_core, sentinel_val);
-        let node_key_generator = NodeKeyGenerator::new(vk_core, max_level, max_bits);
-        let node_key_sorter = GpuKVRadixSort::new(vk_core, cmd_pool, max_node_keys, None).unwrap();
-        let octree_linker = OctreeLinker::new(vk_core, max_level);
-        let level_offset_generator = LevelOffsetGenerator::new(vk_core, max_level);
+        let leaves_histogram = LeavesHistogram::new(vk_core)?;
+        let rebalancing_ops_marker = RebalancingOpsMarker::new(vk_core)?;
+        let prefix_sum: ExclusivePrefixSum = ExclusivePrefixSum::new(vk_core, max_leaves)?;
+        let rebalancer = Rebalancer::new(vk_core, sentinel_val)?;
+        let node_key_generator = NodeKeyGenerator::new(vk_core, max_level, max_bits)?;
+        let node_key_sorter = GpuKVRadixSort::new(vk_core, cmd_pool, max_node_keys, None)?;
+        let octree_linker = OctreeLinker::new(vk_core, max_level)?;
+        let level_offset_generator = LevelOffsetGenerator::new(vk_core, max_level)?;
         
-        Self {
+        Ok(Self {
             leaves_histogram,
             prefix_sum,
             rebalancing_ops_marker,
@@ -51,10 +51,10 @@ impl OctreeConstructor {
             node_key_sorter,
             octree_linker,
             level_offset_generator
-        }
+        })
     }
     
-    pub fn build(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, octree_data: &mut OctreeData, max_levels: u32, n_crit: u32, maintenance_mode: bool, world_min: Vec4, world_size: f32){
+    pub fn build(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, keys: &VkBuffer<u32>, octree_data: &mut OctreeData, max_levels: u32, n_crit: u32, maintenance_mode: bool, world_min: Vec4, world_size: f32){
 
         let device = vk_core.device();
     
@@ -155,7 +155,7 @@ impl OctreeConstructor {
 
     } 
 
-    fn build_internal_nodes(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &mut OctreeData, world_min: Vec4, world_size: f32){
+    fn build_internal_nodes(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, octree_data: &mut OctreeData, world_min: Vec4, world_size: f32){
         let device = vk_core.device();
         
         self.node_key_generator.indirect_dispatch(vk_core, cmd_buffer, octree_data);

@@ -4,8 +4,8 @@ use bytemuck::{Pod, Zeroable};
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::ParticleData};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::commands::{CommandBuffer, compute_buffer_barrier};
 use crate::vulkan::shaders::traits::{GpuTask, ShaderName};
 
 
@@ -30,7 +30,7 @@ struct RearrangePushConstants {
 }
 
 impl ParticleReorderer {
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (rearranging_pass, rearranging_shader) = ComputeSystemBuilder::new(vk_core.clone(), Self::shader_name())
             .entry_points(&["main"])
             .push_constants::<RearrangePushConstants>()
@@ -39,7 +39,7 @@ impl ParticleReorderer {
         Ok(Self { rearranging_pass, rearranging_shader })
     }
 
-    pub fn execute(&self, vk_core: &Arc<VkCore>, particle_data: &ParticleData, command_buffer: &CommandBuffer){
+    pub fn execute(&self, vk_core: &VulkanContext, particle_data: &ParticleData, command_buffer: &CommandBuffer){
         let device = vk_core.device();
 
         let num_elements = particle_data.particle_indexes.len() as u32;

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use engine::vulkan::compute::ComputeEngine;
 use engine::vulkan::headless::VkHeadless;
-use engine::vulkan::core::VkCore;
-use engine::vulkan::resources::buffer::VkBuffer;
+use engine::vulkan::core::VulkanContext;
+use engine::vulkan::buffers::VkBuffer;
 use glam::{Vec4};
 use rand::Rng;
 use engine::algorithms::hilbert_encoding::HilbertEncoder;
@@ -13,6 +13,7 @@ use rand::rngs::ThreadRng;
 #[test]
 pub fn test_hilbert_encoder() {
     VkHeadless::run(|engine, vk_core, mut rng| {
+        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
         let count = 1_000_000;
         let cmd_pool = engine.command_pool();
         
@@ -26,7 +27,7 @@ pub fn test_hilbert_encoder() {
                 
         let hilbert_encoder = HilbertEncoder::new(vk_core, max_levels).unwrap();
         
-        engine.record_commands(|cmd| {
+        engine.record_commands(&frame_pacer, |cmd| {
             hilbert_encoder.dispatch(
                 vk_core,
                 count as u32,
@@ -37,9 +38,10 @@ pub fn test_hilbert_encoder() {
                 &points_indexes,
                 cmd
             );
-        });
+        }).expect("failed to record Hilbert-encoder commands");
         
-        engine.submit_without_signaling();
+        engine.submit_without_signaling(&frame_pacer)
+            .expect("failed to submit Hilbert-encoder commands");
         unsafe { vk_core.device().device_wait_idle().unwrap(); }
         
         let result_keys: Vec<u32> = hilbert_buffer.read_back(vk_core, cmd_pool).unwrap();
@@ -120,7 +122,7 @@ fn validate(result_keys: &Vec<u32>, result_point_ids: &Vec<u32>, original_points
 }
 
 fn generate_test_data(
-    vk_core: &Arc<VkCore>, 
+    vk_core: &Arc<VulkanContext>, 
     engine: &ComputeEngine, 
     rng: &mut ThreadRng, 
     count: usize, 

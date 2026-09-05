@@ -4,8 +4,8 @@ use glam::Vec3;
 use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::Particles};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{compute_buffer_barrier, CommandBuffer};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::commands::{compute_buffer_barrier, CommandBuffer};
 
 pub struct VelocityUpdater {
     update_velocities_pass: ComputePass,
@@ -26,7 +26,7 @@ struct UpdateVelocitiesPushConstants{
 }
 
 impl VelocityUpdater {
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (update_velocities_pass, update_velocities_shader) = ComputeSystemBuilder::new(vk_core.clone(), "velocity_updater")
             .entry_points(&["main"])
             .push_constants::<UpdateVelocitiesPushConstants>()
@@ -36,7 +36,7 @@ impl VelocityUpdater {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, delta_time: f32, world_size: &Vec3) {
+    pub fn execute(&mut self, vk_core: &VulkanContext, command_buffer: &CommandBuffer, particles: &Particles, delta_time: f32, world_size: &Vec3) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.hilbert_keys.len() as u32;

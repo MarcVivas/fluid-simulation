@@ -3,7 +3,7 @@ use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
-use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::CommandBuffer}};
+use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VulkanContext, commands::CommandBuffer}};
 
 pub struct LevelOffsetGenerator {
     level_offset_generator: ComputePass,
@@ -24,7 +24,7 @@ struct LevelOffsetGeneratorPushConstants {
 
 
 impl LevelOffsetGenerator {
-    pub fn new(vk_core: &Arc<VkCore>, max_levels: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
         let (level_offset_generator, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "level_offset_generator")
             .entry_points(&["main"])
             .push_constants::<LevelOffsetGeneratorPushConstants>()
@@ -33,16 +33,16 @@ impl LevelOffsetGenerator {
                     .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
                     .add("MAX_LEVELS", max_levels)
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
         
         
-        Self {
+        Ok(Self {
             level_offset_generator,
             shader_module
-        }
+        })
     }
     
-    pub fn dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData){
+    pub fn dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, octree_data: &OctreeData){
         let push_constants = LevelOffsetGeneratorPushConstants {
             node_count: octree_data.node_count().address(),
             node_keys: octree_data.node_keys().address(),

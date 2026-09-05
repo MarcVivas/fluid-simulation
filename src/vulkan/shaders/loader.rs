@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use anyhow::{Context, Result, bail};
 
 use crate::vulkan::shaders::ShaderCompileTimeConstants;
 
@@ -45,7 +46,7 @@ fn collect_shader_directories(dir: &Path, shader_dirs: &mut Vec<PathBuf>) {
 }
 
 /// Runtime shader compilation with disk-based caching
-pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstants) -> Vec<u32> {
+pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstants) -> Result<Vec<u32>> {
     // Resolve basic directories
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let project_root = PathBuf::from(manifest_dir);
@@ -54,10 +55,10 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
     // Locate the original shader file recursively to read its contents
     let shader_filename = format!("{}.slang", file_name);
     let original_path = find_file_recursive(&src_dir, &shader_filename)
-        .unwrap_or_else(|| panic!("Failed to locate shader file '{}' inside {:?}", shader_filename, src_dir));
+        .with_context(|| format!("Failed to locate shader file '{}' inside {:?}", shader_filename, src_dir))?;
 
     let original_source = fs::read_to_string(&original_path)
-        .unwrap_or_else(|_| panic!("Failed to read original shader: {:?}", original_path));
+        .with_context(|| format!("Failed to read original shader: {:?}", original_path))?;
     
     let constants_header = constants.as_source_code_header();
 
@@ -81,10 +82,10 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
     // Try to load from cache
     if cached_spv_path.exists() {
         if let Ok(spirv_bytes) = fs::read(&cached_spv_path) {
-            return spirv_bytes
+            return Ok(spirv_bytes
                 .chunks_exact(4)
                 .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect();
+                .collect());
         }
     }
 
@@ -92,7 +93,7 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
     println!("Compiling shader (Cache Miss): {:?}", file_name);
 
     let shader_dir = original_path.parent()
-        .expect("Failed to get parent directory of the shader");
+        .context("Failed to get parent directory of the shader")?;
 
     // Collect search paths only when compiling
     let mut shader_search_paths = Vec::new();
@@ -106,12 +107,12 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
     // Combine constants and original source (using the raw, original constants_header for actual compilation)
     let dynamic_source = format!("{}\n{}", constants_header, original_source);
     fs::write(&temp_input_path, &dynamic_source)
-        .unwrap_or_else(|_| panic!("Failed to write temp file: {:?}", temp_input_path));
+        .with_context(|| format!("Failed to write temp file: {:?}", temp_input_path))?;
 
     // Locate the compiler
     let sdk_dir = project_root.join("target/slang-sdk");
     let slangc_path = find_slangc_executable(&sdk_dir)
-        .expect("Slang compiler executable (slangc) could not be found in target/slang-sdk");
+        .context("Slang compiler executable (slangc) could not be found in target/slang-sdk")?;
 
     let mut command = Command::new(&slangc_path);
     command
@@ -129,7 +130,7 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
         .arg("-o")
         .arg(&temp_output_path)
         .output()
-        .expect("Failed to execute slangc compiler process");
+        .context("Failed to execute slangc compiler process")?;
 
     // Clean up temporary input file
     let _ = fs::remove_file(&temp_input_path);
@@ -137,25 +138,25 @@ pub fn get_shader_bytecode(file_name: &str, constants: &ShaderCompileTimeConstan
     if !output.status.success() {
         let error_message = String::from_utf8_lossy(&output.stderr);
         let _ = fs::remove_file(&temp_output_path);
-        panic!("Slang Compilation Failed for {}:\n{}", file_name, error_message);
+        bail!("Slang compilation failed for {}:\n{}", file_name, error_message);
     }
 
     // Read the compiled binary
     let spirv_bytes = fs::read(&temp_output_path)
-        .unwrap_or_else(|_| panic!("Failed to read compiled SPIR-V output: {:?}", temp_output_path));
+        .with_context(|| format!("Failed to read compiled SPIR-V output: {:?}", temp_output_path))?;
 
     // Clean up the temporary compiler output
     let _ = fs::remove_file(&temp_output_path);
 
     // Save the compiled output to our persistent cache with explicit error checking
     fs::create_dir_all(&cache_dir)
-        .unwrap_or_else(|e| panic!("Failed to create shader cache directory {:?}: {:?}", cache_dir, e));
+        .with_context(|| format!("Failed to create shader cache directory {:?}", cache_dir))?;
     
     fs::write(&cached_spv_path, &spirv_bytes)
-        .unwrap_or_else(|e| panic!("Failed to write cached SPV to {:?}: {:?}", cached_spv_path, e));
+        .with_context(|| format!("Failed to write cached SPV to {:?}", cached_spv_path))?;
 
-    spirv_bytes
+    Ok(spirv_bytes
         .chunks_exact(4)
         .map(|chunk| u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect()
+        .collect())
 }

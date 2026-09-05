@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk;
 
-use crate::{vulkan::{core::VkCore, resources::buffer::VkBuffer}};
+use crate::{vulkan::{core::VulkanContext, buffers::VkBuffer}};
 
 const QUEUE_MEMORY_PER_WORKGROUP: u32 = 128;
 
@@ -42,21 +42,21 @@ pub struct NeighborListData {
 
 impl NeighborListData {
 
-    pub fn new(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, num_particles: usize, max_expected_leaves: u32, max_neighbors_per_particle: u32, max_neighbors_per_leaf: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, num_particles: usize, max_expected_leaves: u32, max_neighbors_per_particle: u32, max_neighbors_per_leaf: u32) -> anyhow::Result<Self> {
 
         let total_leaf_to_leaf_neighbors: usize = (max_neighbors_per_leaf * max_expected_leaves) as usize;
         
                 
-        let leaf_to_leaf_neighbors: VkBuffer<LeafNeighbor> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_leaf_to_leaf_neighbors, "Leaf to leaf neighbors").unwrap();
+        let leaf_to_leaf_neighbors: VkBuffer<LeafNeighbor> = VkBuffer::new_gpu_only_uninitialized(vk_core, total_leaf_to_leaf_neighbors, "Leaf to leaf neighbors")?;
 
-        let processed_leaves_counter = VkBuffer::new_gpu_only(vk_core, &vec![0], "Processed leaves counter", cmd_pool, *vk_core.compute_queue()).unwrap();
-        let allocator = VkBuffer::new_gpu_only(vk_core, &vec![0], "Allocator", cmd_pool, *vk_core.compute_queue()).unwrap();
+        let processed_leaves_counter = VkBuffer::new_gpu_only(vk_core, &vec![0], "Processed leaves counter", cmd_pool, *vk_core.compute_queue())?;
+        let allocator = VkBuffer::new_gpu_only(vk_core, &vec![0], "Allocator", cmd_pool, *vk_core.compute_queue())?;
 
-        let particle_to_neighborhood: VkBuffer<NeighborRange> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles, "Particle to neighborhood").unwrap(); 
+        let particle_to_neighborhood: VkBuffer<NeighborRange> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles, "Particle to neighborhood")?;
 
-        let particle_to_particle_neighbors: VkBuffer<u32> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles * max_neighbors_per_particle as usize, "particle_to_particle_neighbors").unwrap(); 
+        let particle_to_particle_neighbors: VkBuffer<u32> = VkBuffer::new_gpu_only_uninitialized(vk_core, num_particles * max_neighbors_per_particle as usize, "particle_to_particle_neighbors")?;
         
-        Self { leaf_to_leaf_neighbors, processed_leaves_counter, allocator, particle_to_neighborhood, particle_to_particle_neighbors}
+        Ok(Self { leaf_to_leaf_neighbors, processed_leaves_counter, allocator, particle_to_neighborhood, particle_to_particle_neighbors})
     }
 
 
@@ -89,4 +89,3 @@ impl NeighborListData {
          &self.particle_to_particle_neighbors
      }
 }
-

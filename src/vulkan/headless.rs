@@ -1,42 +1,46 @@
-use std::sync::{Arc, Mutex, OnceLock};
-use crate::vulkan::{compute::ComputeEngine, core::{VkCore, init_headless}};
+use crate::vulkan::{
+    compute::ComputeEngine,
+    core::{VulkanContext, init_headless},
+};
 use rand::rngs::ThreadRng;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct VkHeadless {
-    pub vk_core: Arc<VkCore>,
+    pub vk_core: Arc<VulkanContext>,
     pub engine: ComputeEngine,
-    pub mutex: Mutex<()>,    // Mutex to prevent multiple tests use the same queue
-    
+    pub mutex: Mutex<()>, // Mutex to prevent multiple tests use the same queue
 }
 
 impl VkHeadless {
     fn new() -> &'static VkHeadless {
         static CONTEXT: OnceLock<VkHeadless> = OnceLock::new();
-        CONTEXT.get_or_init(||{
+        CONTEXT.get_or_init(|| {
             // Initialize headless vulkan
-            let vk_core = Arc::new(init_headless());
-            
+            let vk_core =
+                Arc::new(init_headless().expect("failed to initialize headless Vulkan context"));
+
             // Initialize the compute engine
             let engine = ComputeEngine::new(vk_core.clone(), Self::frames_in_flight())
-                .expect("Failed to create Compute engine");   
-            
+                .expect("Failed to create Compute engine");
+
             // Return the TestContext
             VkHeadless {
                 vk_core: vk_core,
                 mutex: Mutex::new(()),
-                engine
+                engine,
             }
         })
     }
-    
+
     pub fn run<F>(code: F)
-        where
-            F: FnOnce(&ComputeEngine, &Arc<VkCore>, ThreadRng)
+    where
+        F: FnOnce(&ComputeEngine, &Arc<VulkanContext>, ThreadRng),
     {
         let ctx = VkHeadless::new();
-        let _lock = ctx.mutex.lock().unwrap_or_else(|poisoned| {
-            poisoned.into_inner()
-        });
+        let _lock = ctx
+            .mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let vk_core = &ctx.vk_core;
         let engine = &ctx.engine;
         let rng = rand::rng();
@@ -47,10 +51,3 @@ impl VkHeadless {
         1
     }
 }
-
-
-
-
-
-
-

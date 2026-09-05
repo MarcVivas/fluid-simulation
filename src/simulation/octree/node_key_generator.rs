@@ -3,7 +3,7 @@ use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
-use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::CommandBuffer}};
+use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VulkanContext, commands::CommandBuffer}};
 
 const THREAD_GROUP_SIZE: u32 = 64;
 
@@ -27,7 +27,7 @@ pub struct NodeKeyGenerator {
 }
 
 impl NodeKeyGenerator {
-    pub fn new(vk_core: &Arc<VkCore>, max_level: u32, max_bits: u32) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>, max_level: u32, max_bits: u32) -> anyhow::Result<Self> {
         let (node_key_generator, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "node_key_generator")
             .entry_points(&["main"])
             .push_constants::<NodeKeyGeneratorPushConstants>()
@@ -37,15 +37,15 @@ impl NodeKeyGenerator {
                     .add("MAX_LEVELS", max_level)
                     .add("MAX_BITS", max_bits)
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
         
-        Self {
+        Ok(Self {
             node_key_generator,
             shader_module
-        }
+        })
     }
 
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData){
+    pub fn indirect_dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, octree_data: &OctreeData){
 
         let push_constants = NodeKeyGeneratorPushConstants{
             leaf_count: octree_data.leaf_count().address(),
@@ -62,4 +62,3 @@ impl NodeKeyGenerator {
         self.node_key_generator.indirect_dispatch(vk_core, cmd_buffer, &[], &[], bytes_of(&push_constants), dispatch_buffer, 0);
     }
 }
-

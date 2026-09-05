@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ash::vk::{self, DeviceAddress};
 
-use crate::{simulation::{neighbor_list::{NeighborList, NeighborListData}, octree::{octree::Octree}}, vulkan::{compute::{ComputePass, ComputeSystemBuilder}, core::VkCore, resources::{CommandBuffer, barrier_compute_to_compute, barrier_transfer_to_compute}, shaders::{ShaderCompileTimeConstants, ShaderModule}}, world::particles::ParticleData};
+use crate::{simulation::{neighbor_list::{NeighborList, NeighborListData}, octree::{octree::Octree}}, vulkan::{compute::{ComputePass, ComputeSystemBuilder}, core::VulkanContext, commands::{CommandBuffer, barrier_compute_to_compute, barrier_transfer_to_compute}, shaders::{ShaderCompileTimeConstants, ShaderModule}}, world::particles::ParticleData};
 use bytemuck::{Pod, Zeroable, bytes_of};
 
 pub struct ParticleToParticleNeighborsConstructor {
@@ -30,7 +30,7 @@ struct PushConstants{
 }
 
 impl ParticleToParticleNeighborsConstructor {
-    pub fn new(vk_core: &Arc<VkCore>) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (build_particle_to_particle_neighbors, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "build_particle_to_particle_neighbors")
             .entry_points(&["main"])
             .push_constants::<PushConstants>()
@@ -39,17 +39,17 @@ impl ParticleToParticleNeighborsConstructor {
                     .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
                     .add("MAX_PARTICLE_NEIGHBORS", NeighborList::max_particle_neighbors())
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
 
-        Self {
+        Ok(Self {
             build_particle_to_particle_neighbors,
             shader_module
-        }
+        })
 
     }
 
     pub fn build(&self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         particles: &ParticleData,
         search_radius: f32,

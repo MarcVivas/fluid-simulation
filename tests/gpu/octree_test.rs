@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ash::vk;
-use engine::{simulation::octree::{LeafParticles, octree::Octree}, vulkan::{compute::ComputeEngine, core::VkCore, headless::VkHeadless, resources::buffer::VkBuffer}};
+use engine::{simulation::octree::{LeafParticles, octree::Octree}, vulkan::{compute::ComputeEngine, core::VulkanContext, headless::VkHeadless, buffers::VkBuffer}};
 use rand::rngs::ThreadRng;
 use rand::Rng;
 use engine::simulation::bounding_box::{BoundingBox};
@@ -9,16 +9,19 @@ use engine::simulation::bounding_box::{BoundingBox};
 #[test]
 pub fn octree_test(){
     VkHeadless::run(|engine, vk_core, mut rng|{
+        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
         let num_elements = 300000;
         let cmd_pool = engine.command_pool();
         let (keys, keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements);
-        let mut octree = Octree::new(vk_core, cmd_pool, num_elements);
+        let mut octree = Octree::new(vk_core, cmd_pool, num_elements)
+            .expect("Failed to initialize Octree");
 
-        engine.record_commands(|cmd_buffer|{
+        engine.record_commands(&frame_pacer, |cmd_buffer|{
             octree.build(vk_core, cmd_buffer, &keys_buffer, false, glam::Vec4::new(0., 0., 0., 0.), 256.0);
-        });
+        }).expect("failed to record octree commands");
 
-        engine.submit_without_signaling();
+        engine.submit_without_signaling(&frame_pacer)
+            .expect("failed to submit octree commands");
         unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
         validate(vk_core, cmd_pool, &octree, &keys);
@@ -28,19 +31,22 @@ pub fn octree_test(){
 #[test]
 pub fn octree_maintenance_test() {
     VkHeadless::run(|engine, vk_core, mut rng| {
+        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
         let cmd_pool = engine.command_pool();
 
         // Initial Build with Dense Data
         let num_elements_initial = 30000;
         let (mut keys, mut keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
-        let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial);
+        let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial)
+            .expect("Failed to initialize Octree");
 
 
         for _ in 0..20 {
-            engine.record_commands(|cmd_buffer| {
+            engine.record_commands(&frame_pacer, |cmd_buffer| {
                 octree.build(vk_core, cmd_buffer, &keys_buffer, true, glam::Vec4::new(0., 0., 0., 0.), 256.0);
-            });
-            engine.submit_without_signaling();
+            }).expect("failed to record octree maintenance commands");
+            engine.submit_without_signaling(&frame_pacer)
+                .expect("failed to submit octree maintenance commands");
             unsafe { vk_core.device().device_wait_idle().unwrap(); }
 
             validate(vk_core, cmd_pool, &octree, &keys);
@@ -60,7 +66,7 @@ pub fn octree_maintenance_test() {
     });
 }
 
-fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, keys: &Vec<u32>){
+fn validate(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, octree: &Octree, keys: &Vec<u32>){
     // Get back the data
     let sentinel = Octree::sentinel();
     let octree_data = octree.data();
@@ -132,7 +138,7 @@ fn validate(vk_core: &Arc<VkCore>, cmd_pool: vk::CommandPool, octree: &Octree, k
 }
 
 pub fn validate_octree_bulletproof(
-    vk_core: &Arc<VkCore>,
+    vk_core: &Arc<VulkanContext>,
     cmd_pool: vk::CommandPool,
     octree: &Octree,
     num_particles: usize,
@@ -496,7 +502,7 @@ pub fn decode_warren_salmon_key(key: u32, world_size: f32,  world_min: glam::Vec
     return BoundingBox { min, max };
 }
 
-fn generate_test_data(vk_core: &Arc<VkCore>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32) -> (Vec<u32>, VkBuffer<u32>){
+fn generate_test_data(vk_core: &Arc<VulkanContext>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32) -> (Vec<u32>, VkBuffer<u32>){
     let mut keys: Vec<u32> = Vec::with_capacity(num_elements as usize);
     let sentinel = Octree::sentinel();
 

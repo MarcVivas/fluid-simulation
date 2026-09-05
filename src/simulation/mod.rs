@@ -6,3 +6,4 @@ pub mod integration;
 pub mod fluids;
 mod constraints;
 pub mod bounding_box;
+pub mod simulation;

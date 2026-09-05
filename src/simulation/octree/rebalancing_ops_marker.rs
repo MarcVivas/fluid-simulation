@@ -3,7 +3,7 @@ use ash::vk;
 
 use bytemuck::{Pod, Zeroable, bytes_of};
 
-use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VkCore, resources::CommandBuffer}};
+use crate::{vulkan::compute::{ComputePass, ComputeSystemBuilder}, simulation::octree::octree_data::OctreeData, vulkan::{shaders::{ShaderCompileTimeConstants, ShaderModule}, core::VulkanContext, commands::CommandBuffer}};
 
 pub struct RebalancingOpsMarker {
     #[allow(unused)]
@@ -26,7 +26,7 @@ struct RebalancingOpsMarkerPushConstants{
 }
 
 impl RebalancingOpsMarker {
-    pub fn new(vk_core: &Arc<VkCore>) -> Self {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (rebalancing_ops_marker, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), "rebalancing_ops_marker")
             .entry_points(&["main"])
             .push_constants::<RebalancingOpsMarkerPushConstants>()
@@ -34,16 +34,16 @@ impl RebalancingOpsMarker {
                 ShaderCompileTimeConstants::default()
                     .add("THREAD_GROUP_SIZE", THREAD_GROUP_SIZE)
             )
-            .build_with_single_pass().unwrap();
+            .build_with_single_pass()?;
         
         
-        Self {
+        Ok(Self {
             rebalancing_ops_marker,
             shader_module
-        }
+        })
     }
     
-    pub fn indirect_dispatch(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, octree_data: &OctreeData, maintainance_mode: bool, n_crit: u32){
+    pub fn indirect_dispatch(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, octree_data: &OctreeData, maintainance_mode: bool, n_crit: u32){
         let push_constants = RebalancingOpsMarkerPushConstants {
             leaf_count: octree_data.leaf_count().address(),
             cornerstone_array: octree_data.cornerstone_array().address(),

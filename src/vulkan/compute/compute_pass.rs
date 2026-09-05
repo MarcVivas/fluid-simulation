@@ -1,17 +1,17 @@
 use std::sync::Arc;
 use ash::vk;
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, PipelineLayout};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::{commands::CommandBuffer, descriptors::PipelineLayout};
 
 pub struct ComputePass {
-    vk_core: Arc<VkCore>,
+    vk_core: Arc<VulkanContext>,
     pipeline_layout: PipelineLayout,
     pipeline: vk::Pipeline,
 }
 
 impl ComputePass {
     pub fn new(
-        vk_core: Arc<VkCore>,
+        vk_core: Arc<VulkanContext>,
         pipeline: vk::Pipeline,
         pipeline_layout: PipelineLayout
     ) -> Self {
@@ -52,7 +52,7 @@ impl ComputePass {
         }
     }
     
-    fn push_descriptors(&self, vk_core: &Arc<VkCore>, cmd_buffer: &CommandBuffer, buffers: &[vk::Buffer], images: &[ImageDescriptor]){
+    fn push_descriptors(&self, vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, buffers: &[vk::Buffer], images: &[ImageDescriptor]){
         // Descriptors
         let mut descriptor_writes = Vec::new();
         let mut desc_buffer_infos = Vec::with_capacity(buffers.len());
@@ -114,7 +114,7 @@ impl ComputePass {
     /// Dispatch with buffers, images and push constants.
     pub fn dispatch_compute(
         &self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         thread_groups: [u32; 3],
         buffers: &[vk::Buffer],
@@ -139,7 +139,7 @@ impl ComputePass {
     /// Indirect Dispatch with buffers, images and push constants.
     pub fn indirect_dispatch(
         &self,
-        vk_core: &Arc<VkCore>,
+        vk_core: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         buffers: &[vk::Buffer],
         images: &[ImageDescriptor],

@@ -5,8 +5,8 @@ use crate::vulkan::compute::{ComputePass, ComputeSystemBuilder};
 use crate::simulation::physics_config::PhysicsConfig;
 use crate::vulkan::shaders::ShaderModule;
 use crate::world::{particles::Particles};
-use crate::vulkan::core::VkCore;
-use crate::vulkan::resources::{CommandBuffer, compute_buffer_barrier, compute_to_graphics_memory_barrier};
+use crate::vulkan::core::VulkanContext;
+use crate::vulkan::commands::{CommandBuffer, compute_buffer_barrier, compute_to_graphics_memory_barrier};
 
 pub struct VorticityForceCompute {
     vorticity_force_compute_pass: ComputePass,
@@ -32,7 +32,7 @@ struct VorticityForceComputePushConstants {
 }
 
 impl VorticityForceCompute {
-    pub fn new(vk_core: &Arc<VkCore>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (vorticity_force_compute_pass, vorticity_force_compute_shader) = ComputeSystemBuilder::new(vk_core.clone(), "vorticity_force_compute")
             .entry_points(&["main"])
             .push_constants::<VorticityForceComputePushConstants>()
@@ -42,7 +42,7 @@ impl VorticityForceCompute {
         )
     }
 
-    pub fn execute(&mut self, vk_core: &Arc<VkCore>, command_buffer: &CommandBuffer, particles: &Particles, neighbor_list: &NeighborList, physics_config: &PhysicsConfig) {
+    pub fn execute(&mut self, vk_core: &VulkanContext, command_buffer: &CommandBuffer, particles: &Particles, neighbor_list: &NeighborList, physics_config: &PhysicsConfig) {
         let particle_data = particles.buffers();
 
         let num_elements = particle_data.hilbert_keys.len() as u32;

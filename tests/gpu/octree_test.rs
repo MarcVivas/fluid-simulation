@@ -1,28 +1,45 @@
 use std::sync::Arc;
 
 use ash::vk;
-use engine::{simulation::octree::{LeafParticles, octree::Octree}, vulkan::{compute::ComputeEngine, core::VulkanContext, headless::VkHeadless, buffers::VkBuffer}};
-use rand::rngs::ThreadRng;
+use engine::backends::vulkan::particles::physics::octree::LeafParticles;
+use engine::backends::vulkan::particles::physics::octree::octree::Octree;
+use engine::backends::vulkan::runtime::buffers::VkBuffer;
+use engine::backends::vulkan::runtime::compute::ComputeExecutor;
+use engine::backends::vulkan::runtime::core::VulkanContext;
+use engine::backends::vulkan::runtime::headless::VkHeadless;
+use engine::world::bounds::BoundingBox;
 use rand::Rng;
-use engine::simulation::bounding_box::{BoundingBox};
+use rand::rngs::ThreadRng;
 
 #[test]
-pub fn octree_test(){
-    VkHeadless::run(|engine, vk_core, mut rng|{
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+pub fn octree_test() {
+    VkHeadless::run(|engine, vk_core, mut rng| {
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let num_elements = 300000;
         let cmd_pool = engine.command_pool();
         let (keys, keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements);
-        let mut octree = Octree::new(vk_core, cmd_pool, num_elements)
-            .expect("Failed to initialize Octree");
+        let mut octree =
+            Octree::new(vk_core, cmd_pool, num_elements).expect("Failed to initialize Octree");
 
-        engine.record_commands(&frame_pacer, |cmd_buffer|{
-            octree.build(vk_core, cmd_buffer, &keys_buffer, false, glam::Vec4::new(0., 0., 0., 0.), 256.0);
-        }).expect("failed to record octree commands");
+        engine
+            .record_commands(&frame_pacer, |cmd_buffer| {
+                octree.build(
+                    vk_core,
+                    cmd_buffer,
+                    &keys_buffer,
+                    false,
+                    glam::Vec4::new(0., 0., 0., 0.),
+                    256.0,
+                );
+            })
+            .expect("failed to record octree commands");
 
-        engine.submit_without_signaling(&frame_pacer)
+        engine
+            .submit_without_signaling(&frame_pacer)
             .expect("failed to submit octree commands");
-        unsafe { vk_core.device().device_wait_idle().unwrap(); }
+        unsafe {
+            vk_core.device().device_wait_idle().unwrap();
+        }
 
         validate(vk_core, cmd_pool, &octree, &keys);
     });
@@ -31,84 +48,144 @@ pub fn octree_test(){
 #[test]
 pub fn octree_maintenance_test() {
     VkHeadless::run(|engine, vk_core, mut rng| {
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let cmd_pool = engine.command_pool();
 
         // Initial Build with Dense Data
         let num_elements_initial = 30000;
-        let (mut keys, mut keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
+        let (mut keys, mut keys_buffer) =
+            generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
         let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial)
             .expect("Failed to initialize Octree");
 
-
         for _ in 0..20 {
-            engine.record_commands(&frame_pacer, |cmd_buffer| {
-                octree.build(vk_core, cmd_buffer, &keys_buffer, true, glam::Vec4::new(0., 0., 0., 0.), 256.0);
-            }).expect("failed to record octree maintenance commands");
-            engine.submit_without_signaling(&frame_pacer)
+            engine
+                .record_commands(&frame_pacer, |cmd_buffer| {
+                    octree.build(
+                        vk_core,
+                        cmd_buffer,
+                        &keys_buffer,
+                        true,
+                        glam::Vec4::new(0., 0., 0., 0.),
+                        256.0,
+                    );
+                })
+                .expect("failed to record octree maintenance commands");
+            engine
+                .submit_without_signaling(&frame_pacer)
                 .expect("failed to submit octree maintenance commands");
-            unsafe { vk_core.device().device_wait_idle().unwrap(); }
+            unsafe {
+                vk_core.device().device_wait_idle().unwrap();
+            }
 
             validate(vk_core, cmd_pool, &octree, &keys);
 
-            // Simulate Particles Moving/Dispersing
+            // Simulate ParticleStorage Moving/Dispersing
             // We will severely reduce the number of particles to trigger merges
             let num_elements_sparse = num_elements_initial;
             keys.clear();
             for _ in 0..num_elements_sparse {
-                keys.push(rng.random_range(0..Octree::sentinel())); 
+                keys.push(rng.random_range(0..Octree::sentinel()));
             }
             keys.sort();
-    
+
             // Upload the new sparse data
-            keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys_sparse", cmd_pool, *vk_core.compute_queue()).unwrap();
+            keys_buffer = VkBuffer::new_gpu_only(
+                vk_core,
+                &keys,
+                "keys_sparse",
+                cmd_pool,
+                *vk_core.compute_queue(),
+            )
+            .unwrap();
         }
     });
 }
 
-fn validate(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, octree: &Octree, keys: &Vec<u32>){
+fn validate(
+    vk_core: &Arc<VulkanContext>,
+    cmd_pool: vk::CommandPool,
+    octree: &Octree,
+    keys: &Vec<u32>,
+) {
     // Get back the data
     let sentinel = Octree::sentinel();
     let octree_data = octree.data();
-    let cornerstone_array = octree_data.cornerstone_array().read_back(vk_core, cmd_pool).unwrap();
-    let leaves_histogram = octree_data.leaves_histogram().read_back(vk_core, cmd_pool).unwrap();
-    let leaf_count = octree_data.leaf_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
-    let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
-    let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
-    let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
-    let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
-    let leaf_particles = octree_data.leaf_particles().read_back(vk_core, cmd_pool).unwrap();
+    let cornerstone_array = octree_data
+        .cornerstone_array()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let leaves_histogram = octree_data
+        .leaves_histogram()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let leaf_count = octree_data
+        .leaf_count()
+        .read_back(vk_core, cmd_pool)
+        .unwrap()[0] as usize;
+    let node_keys = octree_data
+        .node_keys()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let node_count = octree_data
+        .node_count()
+        .read_back(vk_core, cmd_pool)
+        .unwrap()[0] as usize;
+    let level_offsets = octree_data
+        .level_offsets()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let node_first_child = octree_data
+        .node_first_child()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let leaf_particles = octree_data
+        .leaf_particles()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
     let n_crit = octree.n_crit();
     let num_internal_nodes = (leaf_count - 1) / 7;
     let total_nodes = leaf_count + num_internal_nodes;
     let max_levels = Octree::max_levels();
     let num_elements = keys.len();
-    
+
     assert_eq!(node_count, total_nodes);
 
     let active_histogram = &leaves_histogram[0..leaf_count];
-    let active_cornerstone = &cornerstone_array[0..leaf_count+1];
+    let active_cornerstone = &cornerstone_array[0..leaf_count + 1];
     let active_node_keys = &node_keys[0..total_nodes];
     let active_node_first_child = &node_first_child[0..total_nodes];
     let active_leaf_data = &leaf_particles[0..total_nodes];
     let active_level_offsets = &level_offsets[0..max_levels as usize + 2];
-    
+
     // 1. Verify 1D physical boundaries and histograms
-    verify_spatial_integrity(sentinel, n_crit, &keys, &active_cornerstone, &active_histogram, leaf_count);
-    
+    verify_spatial_integrity(
+        sentinel,
+        n_crit,
+        &keys,
+        &active_cornerstone,
+        &active_histogram,
+        leaf_count,
+    );
+
     // 2. Verify tree node key sorting
     validate_sorted_node_keys(active_node_keys);
-    
+
     // 3. Verify topological connectivity
-    validate_octree_topology(active_node_keys, active_level_offsets, active_node_first_child, max_levels as usize);
-    
+    validate_octree_topology(
+        active_node_keys,
+        active_level_offsets,
+        active_node_first_child,
+        max_levels as usize,
+    );
+
     // 4. Verify node key-range containment
     validate_leaf_data(
-        active_node_keys, 
-        active_node_first_child, 
-        active_leaf_data, 
+        active_node_keys,
+        active_node_first_child,
+        active_leaf_data,
         &keys,
-        max_levels as usize
+        max_levels as usize,
     );
 
     // 5. Verify physical 1D-to-3D mathematical loop closure and cornerstone alignment
@@ -118,7 +195,7 @@ fn validate(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, octree: &Oc
         active_leaf_data,
         &active_cornerstone,
         &active_histogram,
-        leaf_count
+        leaf_count,
     );
 
     // 6. Verify Hierarchical AABB Query Performance
@@ -129,12 +206,15 @@ fn validate(vk_core: &Arc<VulkanContext>, cmd_pool: vk::CommandPool, octree: &Oc
         &keys,
         max_levels as usize,
     );
-    
+
     validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements);
 
-
     let total_counted: u32 = active_histogram.iter().sum();
-    assert_eq!(total_counted, keys.len() as u32, "Lost particles during octree build!");
+    assert_eq!(
+        total_counted,
+        keys.len() as u32,
+        "Lost particles during octree build!"
+    );
 }
 
 pub fn validate_octree_bulletproof(
@@ -144,11 +224,26 @@ pub fn validate_octree_bulletproof(
     num_particles: usize,
 ) {
     let octree_data = octree.data();
-    let node_keys = octree_data.node_keys().read_back(vk_core, cmd_pool).unwrap();
-    let node_first_child = octree_data.node_first_child().read_back(vk_core, cmd_pool).unwrap();
-    let leaf_data = octree_data.leaf_particles().read_back(vk_core, cmd_pool).unwrap();
-    let level_offsets = octree_data.level_offsets().read_back(vk_core, cmd_pool).unwrap();
-    let node_count = octree_data.node_count().read_back(vk_core, cmd_pool).unwrap()[0] as usize;
+    let node_keys = octree_data
+        .node_keys()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let node_first_child = octree_data
+        .node_first_child()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let leaf_data = octree_data
+        .leaf_particles()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let level_offsets = octree_data
+        .level_offsets()
+        .read_back(vk_core, cmd_pool)
+        .unwrap();
+    let node_count = octree_data
+        .node_count()
+        .read_back(vk_core, cmd_pool)
+        .unwrap()[0] as usize;
     let max_levels = Octree::max_levels() as usize;
 
     let node_keys = &node_keys[0..node_count];
@@ -163,20 +258,25 @@ pub fn validate_octree_bulletproof(
             assert!(
                 fci + 7 < node_count,
                 "Node {}: node_first_child={} places children [{}, {}] out of bounds (node_count={})",
-                i, fci, fci, fci + 7, node_count
+                i,
+                fci,
+                fci,
+                fci + 7,
+                node_count
             );
             // Child index must be strictly greater than parent (no back-edges → no cycles)
             assert!(
                 fci > i,
                 "Node {}: node_first_child={} is a back-edge — guaranteed BFS cycle!",
-                i, fci
+                i,
+                fci
             );
         }
     }
 
     // ── 2. Every internal node's children have the mathematically correct keys ──
     // Also verify no internal node accidentally got node_first_child=0
-    // by cross-checking: if a node's child key EXISTS in node_keys, 
+    // by cross-checking: if a node's child key EXISTS in node_keys,
     // then node_first_child must NOT be 0
     for i in 0..node_count {
         let key = node_keys[i];
@@ -190,7 +290,10 @@ pub fn validate_octree_bulletproof(
                 assert!(
                     node_keys.binary_search(&child_key).is_err(),
                     "Node {} (key={}, level={}): node_first_child=0 (leaf) but child key {} EXISTS in tree — linker missed it!",
-                    i, key, level, child_key
+                    i,
+                    key,
+                    level,
+                    child_key
                 );
             }
         } else {
@@ -209,7 +312,7 @@ pub fn validate_octree_bulletproof(
 
     // ── 3. leaf_data sanity for ALL nodes ──
     // Internal nodes: leaf_data doesn't matter structurally, but
-    // particle_count must not be a garbage value that would cause 
+    // particle_count must not be a garbage value that would cause
     // the BFS to iterate billions of clusters
     for i in 0..node_count {
         let fci = node_first_child[i] as usize;
@@ -221,28 +324,38 @@ pub fn validate_octree_bulletproof(
             assert!(
                 count <= num_particles,
                 "Leaf node {}: particle_count={} exceeds total num_particles={}",
-                i, count, num_particles
+                i,
+                count,
+                num_particles
             );
             assert!(
                 start <= num_particles,
                 "Leaf node {}: start_idx={} exceeds total num_particles={}",
-                i, start, num_particles
+                i,
+                start,
+                num_particles
             );
             assert!(
                 start + count <= num_particles,
                 "Leaf node {}: start_idx={} + count={} = {} overflows num_particles={}",
-                i, start, count, start + count, num_particles
+                i,
+                start,
+                count,
+                start + count,
+                num_particles
             );
         } else {
             // Internal node — leaf_data is meaningless but must not be
-            // a huge garbage value that would hang the BFS if it were 
+            // a huge garbage value that would hang the BFS if it were
             // ever mistakenly treated as a leaf
             assert!(
                 count == 0 || count == 0xFFFF || count <= num_particles,
                 "Internal node {}: leaf_data.count={} is a dangerous garbage value \
                  that would cause BFS to iterate {} clusters if this node is \
                  mistakenly treated as a leaf",
-                i, count, count
+                i,
+                count,
+                count
             );
         }
     }
@@ -308,7 +421,8 @@ pub fn validate_octree_bulletproof(
         level_offsets[max_levels + 1] as usize,
         node_count,
         "level_offsets[MAX_LEVELS+1]={} != node_count={}",
-        level_offsets[max_levels + 1], node_count
+        level_offsets[max_levels + 1],
+        node_count
     );
     for level in 0..=max_levels {
         let start = level_offsets[level] as usize;
@@ -324,9 +438,12 @@ pub fn validate_octree_bulletproof(
         }
     }
 
-    println!("Bulletproof octree validation passed! {} nodes, {} leaves.",
+    println!(
+        "Bulletproof octree validation passed! {} nodes, {} leaves.",
         node_count,
-        node_keys.iter().zip(node_first_child.iter())
+        node_keys
+            .iter()
+            .zip(node_first_child.iter())
             .filter(|(_, fci)| **fci == 0)
             .count()
     );
@@ -358,7 +475,11 @@ fn validate_leaf_data_alignment(
         if node_first_child[i] == 0 {
             let key = node_keys[i];
             let leading_zeros = key.leading_zeros();
-            let bit_high = if leading_zeros == 32 { 0 } else { 31 - leading_zeros };
+            let bit_high = if leading_zeros == 32 {
+                0
+            } else {
+                31 - leading_zeros
+            };
             let level = (bit_high / 3) as usize;
             let path = key ^ (1 << (3 * level));
 
@@ -375,7 +496,11 @@ fn validate_leaf_data_alignment(
         }
     }
 
-    assert_eq!(decoded_leaves.len(), leaf_count, "Collected leaf count does not match leaf_count");
+    assert_eq!(
+        decoded_leaves.len(),
+        leaf_count,
+        "Collected leaf count does not match leaf_count"
+    );
 
     // 2. Sort the leaves by their 30-bit Hilbert key start bounds to align them with the cornerstone order
     decoded_leaves.sort_by_key(|leaf| leaf.path << (3 * (10 - leaf.level)));
@@ -389,7 +514,8 @@ fn validate_leaf_data_alignment(
         let delta = right - left;
 
         // Verify Cornerstone Alignment
-        let is_power_of_8 = delta > 0 && (delta.trailing_zeros() % 3 == 0) && (delta & (delta - 1) == 0);
+        let is_power_of_8 =
+            delta > 0 && (delta.trailing_zeros() % 3 == 0) && (delta & (delta - 1) == 0);
         assert!(
             is_power_of_8,
             "CORNERSTONE ALIGNMENT VIOLATION: Leaf {} interval [{}, {}) has delta {}, which is NOT a power of 8. The cornerstone generator created unaligned boundaries.",
@@ -452,10 +578,22 @@ pub fn decode_hilbert_3d_cpu(code: u32, max_levels: u32) -> glam::UVec3 {
 
         let mask = (1u32 << level) - 1;
 
-        // Safe bitmasks 
-        let mask_x = if xi != 0 && (yi != 0 || zi != 0) { mask } else { 0 };
-        let mask_y = if (xi != 0 && (yi == 0 || zi == 0)) || (xi == 0 && yi != 0 && zi != 0) { mask } else { 0 };
-        let mask_z = if (xi != 0 && yi == 0 && zi == 0) || (yi != 0 && zi != 0) { mask } else { 0 };
+        // Safe bitmasks
+        let mask_x = if xi != 0 && (yi != 0 || zi != 0) {
+            mask
+        } else {
+            0
+        };
+        let mask_y = if (xi != 0 && (yi == 0 || zi == 0)) || (xi == 0 && yi != 0 && zi != 0) {
+            mask
+        } else {
+            0
+        };
+        let mask_z = if (xi != 0 && yi == 0 && zi == 0) || (yi != 0 && zi != 0) {
+            mask
+        } else {
+            0
+        };
 
         px ^= mask_x;
         py ^= mask_y;
@@ -469,11 +607,9 @@ pub fn decode_hilbert_3d_cpu(code: u32, max_levels: u32) -> glam::UVec3 {
     glam::UVec3::new(px, py, pz)
 }
 
+pub fn decode_warren_salmon_key(key: u32, world_size: f32, world_min: glam::Vec3) -> BoundingBox {
+    let max_levels = Octree::max_levels();
 
-pub fn decode_warren_salmon_key(key: u32, world_size: f32,  world_min: glam::Vec3) -> BoundingBox 
-{
-    let max_levels = Octree::max_levels(); 
-    
     // Get the tree depth (level)
     // The leading '1' indicates the depth
     let level = key.ilog2() / 3;
@@ -495,14 +631,25 @@ pub fn decode_warren_salmon_key(key: u32, world_size: f32,  world_min: glam::Vec
 
     let grid_resolution = 1u32 << max_levels;
     let physical_node_size = (world_size / grid_resolution as f32) * node_size_3d as f32;
-  
+
     let min = (world_min + grid_pos.as_vec3() * (world_size / grid_resolution as f32)).extend(0.0);
-    let max = min + glam::Vec4::new(physical_node_size, physical_node_size, physical_node_size, 0.0);
-   
+    let max = min
+        + glam::Vec4::new(
+            physical_node_size,
+            physical_node_size,
+            physical_node_size,
+            0.0,
+        );
+
     return BoundingBox { min, max };
 }
 
-fn generate_test_data(vk_core: &Arc<VulkanContext>, engine: &ComputeEngine, rng: &mut ThreadRng, num_elements: u32) -> (Vec<u32>, VkBuffer<u32>){
+fn generate_test_data(
+    vk_core: &Arc<VulkanContext>,
+    engine: &ComputeExecutor,
+    rng: &mut ThreadRng,
+    num_elements: u32,
+) -> (Vec<u32>, VkBuffer<u32>) {
     let mut keys: Vec<u32> = Vec::with_capacity(num_elements as usize);
     let sentinel = Octree::sentinel();
 
@@ -522,12 +669,16 @@ fn generate_test_data(vk_core: &Arc<VulkanContext>, engine: &ComputeEngine, rng:
     }
 
     keys.sort();
-    let keys_buffer = VkBuffer::new_gpu_only(vk_core, &keys, "keys", engine.command_pool(), *vk_core.compute_queue()).unwrap();
+    let keys_buffer = VkBuffer::new_gpu_only(
+        vk_core,
+        &keys,
+        "keys",
+        engine.command_pool(),
+        *vk_core.compute_queue(),
+    )
+    .unwrap();
     (keys, keys_buffer)
 }
-
-
-
 
 pub fn validate_leaf_data(
     node_keys: &[u32],
@@ -537,30 +688,34 @@ pub fn validate_leaf_data(
     max_levels: usize, // e.g., 10
 ) {
     let total_nodes = node_keys.len();
-    assert_eq!(leaf_particles.len(), total_nodes, "LeafData array length mismatch");
-    
+    assert_eq!(
+        leaf_particles.len(),
+        total_nodes,
+        "LeafData array length mismatch"
+    );
+
     let mut total_particles_in_leaves = 0;
 
     for i in 0..total_nodes {
         // If first child index is 0, this node is a leaf
-        if node_first_child[i] == 0 { 
+        if node_first_child[i] == 0 {
             let start_idx = leaf_particles[i].start_idx as usize;
             let count = leaf_particles[i].count as usize;
-            
+
             let key = node_keys[i];
             let key_level = ((31 - key.leading_zeros()) / 3) as usize;
-            
+
             // 1. Calculate the 3D bounding box of this leaf node in grid units
             let placeholder = 1 << (3 * key_level);
             let path = key ^ placeholder;
-            
+
             // Align the leaf's path to the maximum depth (30-bit)
-            let shift = 3 * (max_levels - key_level); 
+            let shift = 3 * (max_levels - key_level);
             let min_30bit_code = path << shift;
-            
+
             // Decode the bottom-left-down corner of the leaf node in 3D grid coordinates
             let mut node_min_3d = decode_hilbert_3d_cpu(min_30bit_code, Octree::max_levels());
-            
+
             // The size of this node in grid units (e.g., level 10 = size 1, level 9 = size 2, etc.)
             let node_size_3d = 1u32 << (max_levels - key_level);
             let mask = !(node_size_3d - 1);
@@ -568,38 +723,46 @@ pub fn validate_leaf_data(
             node_min_3d.y &= mask;
             node_min_3d.z &= mask;
             let node_max_3d = node_min_3d + glam::UVec3::splat(node_size_3d);
-            
+
             // 2. Verify that every particle assigned to this leaf physically sits inside this 3D box
             for p in 0..count {
                 let particle_key = sorted_keys[start_idx + p];
-                
+
                 // Decode the particle's 30-bit key into 3D grid coordinates
                 let particle_3d = decode_hilbert_3d_cpu(particle_key, Octree::max_levels());
-                
+
                 // Assert spatial containment in all three dimensions
                 assert!(
-                    particle_3d.x >= node_min_3d.x && particle_3d.x < node_max_3d.x &&
-                    particle_3d.y >= node_min_3d.y && particle_3d.y < node_max_3d.y &&
-                    particle_3d.z >= node_min_3d.z && particle_3d.z < node_max_3d.z,
+                    particle_3d.x >= node_min_3d.x
+                        && particle_3d.x < node_max_3d.x
+                        && particle_3d.y >= node_min_3d.y
+                        && particle_3d.y < node_max_3d.y
+                        && particle_3d.z >= node_min_3d.z
+                        && particle_3d.z < node_max_3d.z,
                     "Particle at index {} (3D Pos: {:?}) in leaf {} (Level {}) is physically outside the 3D bounds [min: {:?}, max: {:?})",
-                    start_idx + p, particle_3d, i, key_level, node_min_3d, node_max_3d
+                    start_idx + p,
+                    particle_3d,
+                    i,
+                    key_level,
+                    node_min_3d,
+                    node_max_3d
                 );
             }
-            
+
             total_particles_in_leaves += count;
         }
     }
-    
+
     assert_eq!(
-        total_particles_in_leaves, 
+        total_particles_in_leaves,
         sorted_keys.len(),
         "Total particles in leaves ({}) does not match the simulation total ({})!",
-        total_particles_in_leaves, sorted_keys.len()
+        total_particles_in_leaves,
+        sorted_keys.len()
     );
-    
+
     println!("3D Geometric LeafData Validation Passed!");
 }
-
 
 fn verify_spatial_integrity(
     sentinel: u32,
@@ -607,62 +770,94 @@ fn verify_spatial_integrity(
     sorted_keys: &[u32],
     cornerstone: &[u32],
     counts: &[u32],
-    num_leaves: usize
+    num_leaves: usize,
 ) {
     assert_eq!(counts.len(), num_leaves, "Histogram slice size mismatch");
-    assert_eq!(cornerstone.len(), num_leaves + 1, "Cornerstone slice size mismatch");
+    assert_eq!(
+        cornerstone.len(),
+        num_leaves + 1,
+        "Cornerstone slice size mismatch"
+    );
 
     assert_eq!(cornerstone[0], 0, "First key must be 0");
-    assert_eq!(cornerstone[num_leaves], sentinel, "Last key must be sentinel");
+    assert_eq!(
+        cornerstone[num_leaves], sentinel,
+        "Last key must be sentinel"
+    );
 
     for i in 0..num_leaves {
         let left = cornerstone[i];
-        let right = cornerstone[i+1];
+        let right = cornerstone[i + 1];
 
         // Check Monotonicity
-        assert!(left < right, "Cornerstone array not monotonic at index {}", i);
+        assert!(
+            left < right,
+            "Cornerstone array not monotonic at index {}",
+            i
+        );
 
         // Manual CPU Count
-        let expected_count = sorted_keys.iter()
+        let expected_count = sorted_keys
+            .iter()
             .filter(|&&k| k >= left && k < right)
             .count() as u32;
 
         // Verify Histogram Accuracy
-        assert_eq!(counts[i], expected_count,
+        assert_eq!(
+            counts[i],
+            expected_count,
             "Mismatch at leaf {}. Range: [{}, {}). GPU: {}, CPU: {}. Keys: [{}, {}, {}, {}]",
-            i, left, right, counts[i], expected_count,
+            i,
+            left,
+            right,
+            counts[i],
+            expected_count,
             cornerstone[i.saturating_sub(1)],
             cornerstone[i],
-            cornerstone[i+1],
-            cornerstone[(i+2).min(cornerstone.len()-1)]
+            cornerstone[i + 1],
+            cornerstone[(i + 2).min(cornerstone.len() - 1)]
         );
 
         // Verify Balance (unless max depth reached)
         let delta = right - left;
-        if delta > 7 { // If not at max depth
-            assert!(counts[i] <= n_crit,
-                "Leaf {} is overfilled: {} particles > ncrit {}", i, counts[i], n_crit);
+        if delta > 7 {
+            // If not at max depth
+            assert!(
+                counts[i] <= n_crit,
+                "Leaf {} is overfilled: {} particles > ncrit {}",
+                i,
+                counts[i],
+                n_crit
+            );
         }
     }
 }
 
-
 pub fn validate_sorted_node_keys(nk: &[u32]) {
     assert!(nk.len() > 0, "Tree is empty!");
-    
+
     // 1. The Root node must always be exactly 1 and at the very beginning
     assert_eq!(nk[0], 1, "Array not sorted, or root node is missing!");
 
     // 2. Strict Monotonicity (No duplicates, perfectly sorted)
     for i in 0..nk.len() - 1 {
-        assert!(nk[i] < nk[i + 1], "Tree is not strictly monotonic at index {} (Keys: {}, {})", i, nk[i], nk[i+1]);
-        assert!(nk[i] > 0, "A key of 0 was found. Shader left uninitialized memory!");
+        assert!(
+            nk[i] < nk[i + 1],
+            "Tree is not strictly monotonic at index {} (Keys: {}, {})",
+            i,
+            nk[i],
+            nk[i + 1]
+        );
+        assert!(
+            nk[i] > 0,
+            "A key of 0 was found. Shader left uninitialized memory!"
+        );
     }
 
     // 3. Parent-Child Relationship Verification
     // Since empty buckets aren't eliminated, EVERY internal node MUST have exactly 8 children
     let mut num_internal_nodes = 0;
-    
+
     for i in 0..nk.len() {
         let parent_key = nk[i];
         let first_child_key = (parent_key << 3) | 0; // Append 000
@@ -672,56 +867,80 @@ pub fn validate_sorted_node_keys(nk: &[u32]) {
         // Binary search to see if the first child exists
         if let Ok(child_idx) = nk.binary_search(&first_child_key) {
             num_internal_nodes += 1;
-            
+
             // If the first child exists, the next 7 elements MUST be the other 7 children
             for octant in 1..8 {
                 let expected_child = (parent_key << 3) | octant;
                 assert_eq!(
-                    nk[child_idx + octant as usize], 
-                    expected_child, 
-                    "Parent {} is missing child {}", parent_key, octant
+                    nk[child_idx + octant as usize],
+                    expected_child,
+                    "Parent {} is missing child {}",
+                    parent_key,
+                    octant
                 );
             }
         }
     }
-    
+
     // 4. Verify tree sizing math (n_i = (n_l - 1) / 7)
     let n_l = nk.len() - num_internal_nodes;
-    assert_eq!(num_internal_nodes, (n_l - 1) / 7, "Tree structure is unbalanced or missing nodes!");
-    
-    println!("Tree Validation Passed! {} Internal Nodes, {} Leaves.", num_internal_nodes, n_l);
+    assert_eq!(
+        num_internal_nodes,
+        (n_l - 1) / 7,
+        "Tree structure is unbalanced or missing nodes!"
+    );
+
+    println!(
+        "Tree Validation Passed! {} Internal Nodes, {} Leaves.",
+        num_internal_nodes, n_l
+    );
 }
 
-pub fn validate_octree_topology(
-    nk: &[u32],
-    lo: &[u32],
-    co: &[u32],
-    max_levels: usize,
-) {
+pub fn validate_octree_topology(nk: &[u32], lo: &[u32], co: &[u32], max_levels: usize) {
     let total_nodes = nk.len();
-    
-    assert_eq!(co.len(), total_nodes, "CO array length must exactly match NK array length");
-    assert_eq!(lo.len(), max_levels + 2, "LO array must have exactly MAX_LEVELS + 2 elements");
+
+    assert_eq!(
+        co.len(),
+        total_nodes,
+        "CO array length must exactly match NK array length"
+    );
+    assert_eq!(
+        lo.len(),
+        max_levels + 2,
+        "LO array must have exactly MAX_LEVELS + 2 elements"
+    );
 
     // ==========================================
     // 1. Validate Level Offsets (LO)
     // ==========================================
     assert_eq!(lo[0], 0, "Level 0 must always start at index 0 (Root)");
-    assert_eq!(lo[max_levels + 1] as usize, total_nodes, "The final LO element must mark the end of the array (total_nodes)");
+    assert_eq!(
+        lo[max_levels + 1] as usize,
+        total_nodes,
+        "The final LO element must mark the end of the array (total_nodes)"
+    );
 
     for level in 0..=max_levels {
         let start = lo[level] as usize;
         let end = lo[level + 1] as usize;
 
-        assert!(start <= end, "LO array is not monotonically increasing at level {}", level);
-        assert!(end <= total_nodes, "LO array points out of bounds at level {}", level);
+        assert!(
+            start <= end,
+            "LO array is not monotonically increasing at level {}",
+            level
+        );
+        assert!(
+            end <= total_nodes,
+            "LO array points out of bounds at level {}",
+            level
+        );
 
         // Verify every single key in this range ACTUALLY belongs to this level
         for i in start..end {
             let key = nk[i];
             // Decode the level using the Warren-Salmon placeholder bit
             let key_level = ((31 - key.leading_zeros()) / 3) as usize;
-            
+
             assert_eq!(
                 key_level, level,
                 "Node at index {} (Key: {}) is level {}, but LO array claims it is in level {}!",
@@ -744,28 +963,42 @@ pub fn validate_octree_topology(
         if first_child_idx == 0 {
             // --- IT IS A LEAF ---
             leaf_count += 1;
-            
+
             // Prove it physically has no children in the array
             if key_level < max_levels {
                 let first_child_key = (key << 3) | 0;
                 assert!(
                     nk.binary_search(&first_child_key).is_err(),
-                    "Node {} claims to be a leaf (CO=0), but its child ACTUALLY EXISTS in the tree!", key
+                    "Node {} claims to be a leaf (CO=0), but its child ACTUALLY EXISTS in the tree!",
+                    key
                 );
             }
         } else {
             // --- IT IS AN INTERNAL NODE ---
             internal_count += 1;
 
-            assert!(first_child_idx > i, "Child index ({}) must be strictly greater than parent index ({})", first_child_idx, i);
-            assert!(first_child_idx + 7 < total_nodes, "Child indices point out of bounds for parent {}", key);
+            assert!(
+                first_child_idx > i,
+                "Child index ({}) must be strictly greater than parent index ({})",
+                first_child_idx,
+                i
+            );
+            assert!(
+                first_child_idx + 7 < total_nodes,
+                "Child indices point out of bounds for parent {}",
+                key
+            );
 
             // 2a. Verify the child is located in the CORRECT level block according to LO
             let child_level = key_level + 1;
             assert!(
-                first_child_idx >= lo[child_level] as usize && first_child_idx < lo[child_level + 1] as usize,
+                first_child_idx >= lo[child_level] as usize
+                    && first_child_idx < lo[child_level + 1] as usize,
                 "Child index {} does not fall within the expected LO bounds[{}, {}) for Level {}!",
-                first_child_idx, lo[child_level], lo[child_level + 1], child_level
+                first_child_idx,
+                lo[child_level],
+                lo[child_level + 1],
+                child_level
             );
 
             // 2b. Verify the 8 children's keys are mathematically perfect
@@ -774,13 +1007,19 @@ pub fn validate_octree_topology(
                 assert_eq!(
                     nk[first_child_idx + octant as usize],
                     expected_child_key,
-                    "CO array points to incorrect child key at octant {} for parent {}", octant, key
+                    "CO array points to incorrect child key at octant {} for parent {}",
+                    octant,
+                    key
                 );
             }
         }
     }
 
-    assert_eq!(internal_count, (leaf_count - 1) / 7, "Final tree traversal counts violate 8-ary tree math!");
+    assert_eq!(
+        internal_count,
+        (leaf_count - 1) / 7,
+        "Final tree traversal counts violate 8-ary tree math!"
+    );
 
     println!("Topology Validation Passed! LO and CO arrays perfectly map the spatial hierarchy.");
 }
@@ -813,9 +1052,13 @@ pub fn validate_bounding_box_queries(
         let mut expected_indices = Vec::new();
         for (idx, &key) in keys.iter().enumerate() {
             let pos = decode_hilbert_3d_cpu(key, Octree::max_levels());
-            if pos.x >= query_min.x && pos.x <= query_max.x &&
-               pos.y >= query_min.y && pos.y <= query_max.y &&
-               pos.z >= query_min.z && pos.z <= query_max.z {
+            if pos.x >= query_min.x
+                && pos.x <= query_max.x
+                && pos.y >= query_min.y
+                && pos.y <= query_max.y
+                && pos.z >= query_min.z
+                && pos.z <= query_max.z
+            {
                 expected_indices.push(idx);
             }
         }
@@ -843,9 +1086,12 @@ pub fn validate_bounding_box_queries(
             let node_max = node_min + glam::UVec3::splat(node_size - 1);
 
             // Check for AABB intersection between the query box and the node box
-            let overlaps = node_min.x <= query_max.x && node_max.x >= query_min.x &&
-                           node_min.y <= query_max.y && node_max.y >= query_min.y &&
-                           node_min.z <= query_max.z && node_max.z >= query_min.z;
+            let overlaps = node_min.x <= query_max.x
+                && node_max.x >= query_min.x
+                && node_min.y <= query_max.y
+                && node_max.y >= query_min.y
+                && node_min.z <= query_max.z
+                && node_max.z >= query_min.z;
 
             if overlaps {
                 let fci = node_first_child[node_idx] as usize;
@@ -859,9 +1105,13 @@ pub fn validate_bounding_box_queries(
                         let particle_key = keys[particle_idx];
                         let pos = decode_hilbert_3d_cpu(particle_key, Octree::max_levels());
 
-                        if pos.x >= query_min.x && pos.x <= query_max.x &&
-                           pos.y >= query_min.y && pos.y <= query_max.y &&
-                           pos.z >= query_min.z && pos.z <= query_max.z {
+                        if pos.x >= query_min.x
+                            && pos.x <= query_max.x
+                            && pos.y >= query_min.y
+                            && pos.y <= query_max.y
+                            && pos.z >= query_min.z
+                            && pos.z <= query_max.z
+                        {
                             actual_indices.push(particle_idx);
                         }
                     }
@@ -879,10 +1129,14 @@ pub fn validate_bounding_box_queries(
 
         // 4. Assert that the hierarchical search matches the flat scan exactly
         assert_eq!(
-            actual_indices, 
+            actual_indices,
             expected_indices,
             "AABB Query mismatch at trial {}!\nQuery Box: [min: {:?}, max: {:?}]\nHierarchical traversal found {} particles, but ground truth found {}.",
-            trial, query_min, query_max, actual_indices.len(), expected_indices.len()
+            trial,
+            query_min,
+            query_max,
+            actual_indices.len(),
+            expected_indices.len()
         );
     }
 

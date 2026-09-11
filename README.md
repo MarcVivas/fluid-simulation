@@ -1,6 +1,11 @@
 # Fluid simulation
 A highly optimized GPU fluid simulation. Particle based, uses an octree for neighbor search. 
 
+## Code organization
+
+See [the architecture guide](docs/architecture.md) for module responsibilities,
+ownership, and the naming changes.
+
 ## Prerequisites
 This is what I had to install to run the project. 
 - Install [LLVM](https://github.com/llvm/llvm-project/releases)
@@ -10,6 +15,10 @@ This is what I had to install to run the project.
 Something else? I do not know. 
 
 ## Run
+
+Slang shaders are compiled during the Cargo build and embedded in the executable.
+The build downloads Slang if needed.
+
 ```bash
 cargo run --release
 ``` 
@@ -39,6 +48,6 @@ System:
 
 
 ## References
-- [Position based fluids](https://mmacklin.com/pbf_sig_preprint.pdf)
+- [Divergence-free SPH](https://dl.acm.org/doi/epdf/10.1145/2786784.2786796)
 - [Cornerstone: Octree Construction Algorithms for Scalable Particle Simulations](https://arxiv.org/abs/2307.06345)
 - [Single-pass Parallel Prefix Scan with Decoupled Look-back](https://research.nvidia.com/sites/default/files/pubs/2016-03_Single-pass-Parallel-Prefix/nvr-2016-002.pdf)

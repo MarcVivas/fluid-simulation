@@ -1,6 +1,5 @@
-use winit::event_loop::{ControlFlow, EventLoop};
 use engine::app::App;
-
+use winit::event_loop::{ControlFlow, EventLoop};
 
 #[allow(unused)]
 fn main() {
@@ -9,4 +8,3 @@ fn main() {
     let mut app = App::new();
     event_loop.run_app(&mut app);
 }
-

@@ -1,8 +1,7 @@
-pub mod rendering;
-pub mod vulkan;
-pub mod world;
 pub mod app;
-pub mod algorithms;
-pub mod simulation;
-pub mod input_manager;
-pub mod engine_session;
+pub mod app_session;
+pub mod backends;
+pub mod session;
+pub mod session_factory;
+pub mod viewer;
+pub mod world;

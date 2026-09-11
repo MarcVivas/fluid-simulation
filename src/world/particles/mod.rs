@@ -1,5 +1,7 @@
-mod particles;
-pub use particles::*;
+//! Backend-independent particle initialization and physics parameters.
+pub mod initial_state;
+pub mod physics_config;
+pub mod presets;
 
-mod particle_reorderer;
-pub use particle_reorderer::*;
+pub use initial_state::ParticleState;
+pub use presets::ParticleInitPreset;

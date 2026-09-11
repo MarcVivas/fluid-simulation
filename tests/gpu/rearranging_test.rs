@@ -1,14 +1,15 @@
-use engine::algorithms::hilbert_encoding::HilbertEncoder;
-use engine::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
-use engine::vulkan::compute::ComputeEngine;
-use engine::vulkan::core::VulkanContext;
-use engine::vulkan::frame::frame_pacer::FramePacer;
-use engine::vulkan::headless::VkHeadless;
-use engine::world::particles::{ParticleReorderer, Particles};
+use engine::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
+use engine::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use engine::backends::vulkan::particles::ParticleStorage;
+use engine::backends::vulkan::particles::physics::reorder::ParticleReorderer;
+use engine::backends::vulkan::runtime::compute::ComputeExecutor;
+use engine::backends::vulkan::runtime::core::VulkanContext;
+use engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer;
+use engine::backends::vulkan::runtime::headless::VkHeadless;
 use std::sync::Arc;
 
 struct RearrangingSystemTest {
-    particles: Particles,
+    particles: ParticleStorage,
     hilbert_encoder: HilbertEncoder,
     sorting_system: GpuKVRadixSort<u32>,
     rearranging_system: ParticleReorderer,
@@ -20,7 +21,7 @@ struct RearrangingSystemTest {
 impl RearrangingSystemTest {
     pub fn new(
         vk_core: &Arc<VulkanContext>,
-        engine: &ComputeEngine,
+        engine: &ComputeExecutor,
         num_particles: u32,
         world_size: f32,
         world_min: &glam::Vec3,
@@ -28,7 +29,7 @@ impl RearrangingSystemTest {
         let cmd_pool = engine.command_pool();
         let world_max = world_min + world_size;
 
-        let particles = Particles::new(
+        let particles = ParticleStorage::new(
             num_particles as usize,
             &world_max,
             vk_core,
@@ -56,36 +57,39 @@ impl RearrangingSystemTest {
     pub fn run_test(
         &mut self,
         vk_core: &Arc<VulkanContext>,
-        engine: &ComputeEngine,
+        engine: &ComputeExecutor,
         frame_pacer: &FramePacer,
     ) {
         let cmd_pool = engine.command_pool();
 
         // 1. Generate Morton codes and sort them to get a valid permutation map (object_indices_buffer)
-        engine.record_commands(&frame_pacer, |cmd_buffer| {
-            let particle_data = self.particles.buffers();
+        engine
+            .record_commands(&frame_pacer, |cmd_buffer| {
+                let particle_data = self.particles.buffers();
 
-            self.hilbert_encoder.dispatch(
-                vk_core,
-                self.num_particles,
-                glam::Vec4::new(self.world_min.x, self.world_min.y, self.world_min.z, 0.0),
-                self.world_size,
-                particle_data.positions_buffer.current(),
-                &particle_data.hilbert_keys,
-                &particle_data.particle_indexes,
-                cmd_buffer,
-            );
+                self.hilbert_encoder.dispatch(
+                    vk_core,
+                    self.num_particles,
+                    glam::Vec4::new(self.world_min.x, self.world_min.y, self.world_min.z, 0.0),
+                    self.world_size,
+                    particle_data.positions_buffer.current(),
+                    &particle_data.hilbert_keys,
+                    &particle_data.particle_indexes,
+                    cmd_buffer,
+                );
 
-            // Sort Morton codes (keys) and object indices (values)
-            self.sorting_system.sort(
-                vk_core,
-                &particle_data.hilbert_keys,
-                &particle_data.particle_indexes,
-                cmd_buffer,
-                self.num_particles as usize,
-            );
-        }).expect("failed to record rearrangement setup commands");
-        engine.submit_without_signaling(&frame_pacer)
+                // Sort Morton codes (keys) and object indices (values)
+                self.sorting_system.sort(
+                    vk_core,
+                    &particle_data.hilbert_keys,
+                    &particle_data.particle_indexes,
+                    cmd_buffer,
+                    self.num_particles as usize,
+                );
+            })
+            .expect("failed to record rearrangement setup commands");
+        engine
+            .submit_without_signaling(&frame_pacer)
             .expect("failed to submit rearrangement setup commands");
         unsafe {
             vk_core.device().device_wait_idle().unwrap();
@@ -96,13 +100,6 @@ impl RearrangingSystemTest {
             .particles
             .buffers()
             .positions_buffer
-            .current()
-            .read_back(vk_core, cmd_pool)
-            .unwrap();
-        let unsorted_prev_positions = self
-            .particles
-            .buffers()
-            .previous_positions_buffer
             .current()
             .read_back(vk_core, cmd_pool)
             .unwrap();
@@ -121,12 +118,15 @@ impl RearrangingSystemTest {
             .unwrap();
 
         // 3. Execute the GPU RearrangingSystem (writes sorted values into .next())
-        engine.record_commands(&frame_pacer, |cmd_buffer| {
-            let particle_data = self.particles.buffers();
-            self.rearranging_system
-                .execute(vk_core, particle_data, cmd_buffer);
-        }).expect("failed to record rearrangement commands");
-        engine.submit_without_signaling(&frame_pacer)
+        engine
+            .record_commands(&frame_pacer, |cmd_buffer| {
+                let particle_data = self.particles.buffers();
+                self.rearranging_system
+                    .execute(vk_core, particle_data, cmd_buffer);
+            })
+            .expect("failed to record rearrangement commands");
+        engine
+            .submit_without_signaling(&frame_pacer)
             .expect("failed to submit rearrangement commands");
         unsafe {
             vk_core.device().device_wait_idle().unwrap();
@@ -140,13 +140,6 @@ impl RearrangingSystemTest {
             .next()
             .read_back(vk_core, cmd_pool)
             .unwrap();
-        let sorted_prev_positions = self
-            .particles
-            .buffers()
-            .previous_positions_buffer
-            .next()
-            .read_back(vk_core, cmd_pool)
-            .unwrap();
         let sorted_velocities = self
             .particles
             .buffers()
@@ -157,13 +150,11 @@ impl RearrangingSystemTest {
 
         // 5. Perform the identical rearrangement on the CPU for verification
         let mut expected_positions = vec![glam::Vec4::ZERO; self.num_particles as usize];
-        let mut expected_prev_positions = vec![glam::Vec4::ZERO; self.num_particles as usize];
         let mut expected_velocities = vec![glam::Vec4::ZERO; self.num_particles as usize];
 
         for i in 0..self.num_particles as usize {
             let sorted_source_index = object_indices[i] as usize;
             expected_positions[i] = unsorted_positions[sorted_source_index];
-            expected_prev_positions[i] = unsorted_prev_positions[sorted_source_index];
             expected_velocities[i] = unsorted_velocities[sorted_source_index];
         }
 
@@ -173,11 +164,6 @@ impl RearrangingSystemTest {
                 sorted_positions[i], expected_positions[i],
                 "Positions mismatch at index {}! Sorted index map pointed to source index {}",
                 i, object_indices[i]
-            );
-            assert_eq!(
-                sorted_prev_positions[i], expected_prev_positions[i],
-                "Previous positions mismatch at index {}",
-                i
             );
             assert_eq!(
                 sorted_velocities[i], expected_velocities[i],
@@ -196,7 +182,7 @@ impl RearrangingSystemTest {
 #[test]
 pub fn test_rearranging_system_logic() {
     VkHeadless::run(|engine, vk_core, _| {
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let num_particles = 105024;
         let world_size = 3000.0;
         let world_min = glam::Vec3::new(0.0, 0.0, 0.0);

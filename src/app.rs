@@ -1,16 +1,20 @@
-use crate::engine_session::{EngineSession};
-use crate::vulkan::core::init_with_window;
+use crate::app_session::AppSession;
+use crate::backends::BackendKind;
+use crate::session_factory::create_session;
+use crate::world::World;
+use crate::world::particles::ParticleInitPreset;
 use anyhow::Context;
 use winit::application::ApplicationHandler;
-use winit::{dpi};
-use winit::event::{WindowEvent};
+use winit::dpi;
+use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
-use crate::input_manager; 
 
 pub struct App {
+    session: Option<Box<dyn AppSession>>,
     window: Option<Window>,
-    session: Option<EngineSession>,
+    backend: BackendKind,
 }
 
 impl App {
@@ -18,6 +22,7 @@ impl App {
         Self {
             window: None,
             session: None,
+            backend: BackendKind::Vulkan,
         }
     }
 }
@@ -34,10 +39,15 @@ impl ApplicationHandler for App {
                 .expect("Failed to create window")
         };
 
-        let (vk_core, surface) = init_with_window(&window)
-            .expect("failed to initialize Vulkan context");
-        let session = EngineSession::new(vk_core, &window, surface).expect("failed to initialize engine session");
-        
+        let world = World::new(
+            glam::Vec3::splat(256.0),
+            100_000,
+            ParticleInitPreset::CollidingBlocks,
+            1.7,
+        );
+
+        let session = create_session(&window, self.backend, world).expect("Failed to initialize session");
+
         self.window = Some(window);
         self.session = Some(session);
     }
@@ -47,31 +57,38 @@ impl ApplicationHandler for App {
         let (Some(session), Some(window)) = (&mut self.session, &self.window) else {
             return;
         };
-      
+
         match event {
             WindowEvent::CloseRequested => {
-                if let Err(err) = session.close() {
+                if let Err(err) = session.shutdown() {
                     eprintln!("Error during engine shutdown: {:?}", err);
                 }
                 event_loop.exit();
+                return;
             }
             WindowEvent::Resized(_logical_size) => {
-                if let Err(err) =  session.resize_window(window).context("Couldn't resize the window") {
+                if let Err(err) = session.resize(window).context("Couldn't resize the window") {
                     eprintln!("Error while resizing the window: {:?}", err);
-                }                  
+                }
             }
 
             WindowEvent::RedrawRequested => {
-                if let Err(err) = session.update_and_render(window) {
+                if let Err(err) = session.frame(window) {
                     eprintln!("Error during update_and_render: {:?}", err);
                 }
-                window.request_redraw();                                    
-            },
+                window.request_redraw();
+            }
             _ => (),
         }
 
-        input_manager::handle_input(&event, event_loop, session);
-    }
+        if let WindowEvent::KeyboardInput { ref event, .. } = event {
+            if event.physical_key == PhysicalKey::Code(KeyCode::Escape) && event.state.is_pressed()
+            {
+                event_loop.exit();
+                return;
+            }
+        }
 
-    
+        session.handle_input(&event);
+    }
 }

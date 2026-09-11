@@ -1,22 +1,24 @@
 use std::sync::Arc;
 
+use engine::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
+use engine::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use engine::backends::vulkan::particles::ParticleStorage;
 
-use engine::{
-    algorithms::{hilbert_encoding::HilbertEncoder, sorting::kv_radix_sort::GpuKVRadixSort},
-    simulation::{
-        integration::{Integrator, VelocityUpdater},
-        neighbor_list::{NeighborList, NeighborRange},
-        octree::{octree::Octree},
-    },
-    vulkan::{compute::ComputeEngine, core::VulkanContext, headless::VkHeadless, commands::CommandBuffer},
-    world::particles::{ParticleReorderer, Particles},
-};
+use engine::backends::vulkan::particles::physics::neighbors::NeighborList;
+use engine::backends::vulkan::particles::physics::neighbors::NeighborRange;
+use engine::backends::vulkan::particles::physics::octree::octree::Octree;
+use engine::backends::vulkan::particles::physics::reorder::ParticleReorderer;
+use engine::backends::vulkan::runtime::commands::CommandBuffer;
+use engine::backends::vulkan::runtime::compute::ComputeExecutor;
+use engine::backends::vulkan::runtime::core::VulkanContext;
+use engine::backends::vulkan::runtime::headless::VkHeadless;
 use glam::{Vec4, Vec4Swizzles};
 
-use crate::gpu::octree_test::{decode_hilbert_3d_cpu, decode_warren_salmon_key};
+use crate::gpu::octree_test::decode_hilbert_3d_cpu;
+use crate::gpu::octree_test::decode_warren_salmon_key;
 
 struct NeighborListTest {
-    particles: Particles,
+    particles: ParticleStorage,
     octree: Octree,
     hilbert_encoder: HilbertEncoder,
     neighbor_list: NeighborList,
@@ -25,14 +27,12 @@ struct NeighborListTest {
     world_min: glam::Vec4,
     particle_sorter: GpuKVRadixSort<u32>,
     particle_rearranger: ParticleReorderer,
-    particle_integrator: Integrator,
-    particle_velocity_updater: VelocityUpdater,
 }
 
 impl NeighborListTest {
     pub fn new(
         vk_core: &Arc<VulkanContext>,
-        engine: &ComputeEngine,
+        engine: &ComputeExecutor,
         num_particles: u32,
         search_radius: f32,
         world_size: f32,
@@ -41,7 +41,7 @@ impl NeighborListTest {
         let cmd_pool = engine.command_pool();
         let world_max = world_min + world_size;
 
-        let particles = Particles::new(
+        let particles = ParticleStorage::new(
             num_particles as usize,
             &world_max,
             vk_core,
@@ -50,10 +50,10 @@ impl NeighborListTest {
             search_radius,
         )
         .unwrap();
-        
-        let octree = Octree::new(vk_core, cmd_pool, num_particles)
-            .expect("Failed to initialize Octree");
-        
+
+        let octree =
+            Octree::new(vk_core, cmd_pool, num_particles).expect("Failed to initialize Octree");
+
         let neighbor_list = NeighborList::new(
             vk_core,
             cmd_pool,
@@ -61,13 +61,14 @@ impl NeighborListTest {
             octree.max_expected_leaves(),
             vk_core.subgroup_size(),
             Octree::max_levels(),
-        ).expect("Failed to initialize NeighborList");
-        
+        )
+        .expect("Failed to initialize NeighborList");
+
         let hilbert_encoder = HilbertEncoder::new(vk_core, Octree::max_levels()).unwrap();
-        let particle_sorter = GpuKVRadixSort::new(vk_core, cmd_pool, particles.len() as u32, None).unwrap();
+        let particle_sorter =
+            GpuKVRadixSort::new(vk_core, cmd_pool, particles.len() as u32, None).unwrap();
         let particle_rearranger = ParticleReorderer::new(vk_core).unwrap();
-        let particle_velocity_updater = VelocityUpdater::new(vk_core).unwrap();
-        let particle_integrator = Integrator::new(vk_core).unwrap();
+
 
         Self {
             particles,
@@ -78,26 +79,14 @@ impl NeighborListTest {
             world_size,
             particle_sorter,
             particle_rearranger,
-            particle_velocity_updater,
             hilbert_encoder,
-            particle_integrator,
         }
     }
 
     pub fn run_test(&mut self, vk_core: &Arc<VulkanContext>, cmd_buffer: &CommandBuffer) {
-        let delta_time = 0.016;
-        let world_max = self.world_min + self.world_size;
-        let world_max = &glam::Vec3::new(world_max.x, world_max.y, world_max.z);
 
         let particle_data = self.particles.buffers();
 
-        self.particle_integrator.execute(
-            vk_core,
-            &self.particles,
-            delta_time,
-            world_max,
-            cmd_buffer,
-        );
 
         self.hilbert_encoder.dispatch(
             vk_core,
@@ -118,7 +107,8 @@ impl NeighborListTest {
             particle_data.hilbert_keys.len(),
         );
 
-        self.particle_rearranger.execute(vk_core, particle_data, cmd_buffer);
+        self.particle_rearranger
+            .execute(vk_core, particle_data, cmd_buffer);
 
         self.particles.buffers_mut().swap();
 
@@ -141,27 +131,35 @@ impl NeighborListTest {
             self.world_size,
         );
 
-        self.particle_velocity_updater.execute(
-            vk_core,
-            cmd_buffer,
-            &self.particles,
-            delta_time,
-            world_max,
-        );
+
     }
 
-    pub fn validate(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeEngine) {
+    pub fn validate(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeExecutor) {
         let command_pool = engine.command_pool();
-        
+
         // Read back the updated flat particle-to-particle neighbor arrays from the GPU
-        let particle_to_neighborhood = self.neighbor_list.particle_to_neighborhood().read_back(vk_core, command_pool).unwrap();
-        let neighbor_particle_indices = self.neighbor_list.neighbor_particle_indices().read_back(vk_core, command_pool).unwrap();
-        
-        let positions = self.particles.buffers().positions_buffer.current().read_back(vk_core, command_pool).unwrap();
+        let particle_to_neighborhood = self
+            .neighbor_list
+            .particle_to_neighborhood()
+            .read_back(vk_core, command_pool)
+            .unwrap();
+        let neighbor_particle_indices = self
+            .neighbor_list
+            .neighbor_particle_indices()
+            .read_back(vk_core, command_pool)
+            .unwrap();
+
+        let positions = self
+            .particles
+            .buffers()
+            .positions_buffer
+            .current()
+            .read_back(vk_core, command_pool)
+            .unwrap();
 
         // 1. Verify octree geometry consistency (independent of neighbor list)
         self.validate_octree_geometry(vk_core, engine);
-        
+
         // 2. Direct physical brute-force validation of your flat GPU particle-to-particle list
         self.validate_flat_particle_neighbors(
             &particle_to_neighborhood,
@@ -170,12 +168,33 @@ impl NeighborListTest {
         );
     }
 
-    pub fn validate_octree_geometry(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeEngine) {
+    pub fn validate_octree_geometry(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeExecutor) {
         let command_pool = engine.command_pool();
-        let node_keys = self.octree.data().node_keys().read_back(vk_core, command_pool).unwrap();
-        let node_first_child = self.octree.data().node_first_child().read_back(vk_core, command_pool).unwrap();
-        let leaf_particles = self.octree.data().leaf_particles().read_back(vk_core, command_pool).unwrap();
-        let positions = self.particles.buffers().positions_buffer.current().read_back(vk_core, command_pool).unwrap();
+        let node_keys = self
+            .octree
+            .data()
+            .node_keys()
+            .read_back(vk_core, command_pool)
+            .unwrap();
+        let node_first_child = self
+            .octree
+            .data()
+            .node_first_child()
+            .read_back(vk_core, command_pool)
+            .unwrap();
+        let leaf_particles = self
+            .octree
+            .data()
+            .leaf_particles()
+            .read_back(vk_core, command_pool)
+            .unwrap();
+        let positions = self
+            .particles
+            .buffers()
+            .positions_buffer
+            .current()
+            .read_back(vk_core, command_pool)
+            .unwrap();
 
         let leaf_indices: Vec<u32> = (0..node_first_child.len() as u32)
             .filter(|&i| node_keys[i as usize] != 0 && node_first_child[i as usize] == 0)
@@ -184,7 +203,12 @@ impl NeighborListTest {
         println!("Checking geometry of {} leaf nodes...", leaf_indices.len());
 
         let eps = 0.5f32; // Drift tolerance
-        let gpu_keys = self.particles.buffers().hilbert_keys.read_back(vk_core, command_pool).unwrap();
+        let gpu_keys = self
+            .particles
+            .buffers()
+            .hilbert_keys
+            .read_back(vk_core, command_pool)
+            .unwrap();
 
         for &leaf_idx in &leaf_indices {
             let key = node_keys[leaf_idx as usize];
@@ -215,7 +239,10 @@ impl NeighborListTest {
                     let hilbert_key = key ^ (1 << (3 * level));
                     let grid_pos = decode_hilbert_3d_cpu(hilbert_key, level);
 
-                    println!("Leaf Key: {}, Level: {}, Decoded Grid Pos: {:?}", key, level, grid_pos);
+                    println!(
+                        "Leaf Key: {}, Level: {}, Decoded Grid Pos: {:?}",
+                        key, level, grid_pos
+                    );
                     println!("Leaf Bounding Box Min: {:?}, Max: {:?}", bbox.min, bbox.max);
                     println!(
                         "Leaf Particle Range in Sorted Buffer: [{} .. {}]",
@@ -223,10 +250,11 @@ impl NeighborListTest {
                         leaf.start_idx + leaf.count
                     );
 
-                    println!("Particles inside this leaf:");
+                    println!("ParticleStorage inside this leaf:");
                     for idx in leaf.start_idx..(leaf.start_idx + leaf.count) {
                         let p_pos = positions[idx as usize].xyz();
-                        let grid_pos_p = position_to_grid_cpu(p_pos, self.world_min.xyz(), self.world_size, 10);
+                        let grid_pos_p =
+                            position_to_grid_cpu(p_pos, self.world_min.xyz(), self.world_size, 10);
                         let key_p = encode_hilbert_3d_cpu(grid_pos_p, 10);
 
                         println!(
@@ -260,7 +288,7 @@ impl NeighborListTest {
             // 1. Gather all GPU-reported particle neighbors
             let range = particle_to_neighborhood[i];
             let mut gpu_neighbors = std::collections::HashSet::new();
-            
+
             for n in 0..range.neighbor_count {
                 let neighbor_idx = neighbor_particle_indices[(range.neighbor_index + n) as usize];
                 gpu_neighbors.insert(neighbor_idx as usize);
@@ -271,7 +299,7 @@ impl NeighborListTest {
             for j in 0..num_particles {
                 let pos_j = positions[j].xyz();
                 let dist = pos_i.distance(pos_j);
-                
+
                 if dist < self.search_radius {
                     cpu_neighbors.insert(j);
                 }
@@ -280,20 +308,23 @@ impl NeighborListTest {
             // 3. Compare sets
             if gpu_neighbors != cpu_neighbors {
                 println!("====================================================");
-                println!("FLAT PARTICLE-TO-PARTICLE NEIGHBOR MISMATCH AT INDEX: {}", i);
+                println!(
+                    "FLAT PARTICLE-TO-PARTICLE NEIGHBOR MISMATCH AT INDEX: {}",
+                    i
+                );
                 println!("GPU reported neighbor count: {}", gpu_neighbors.len());
                 println!("CPU brute-force neighbor count: {}", cpu_neighbors.len());
-                
+
                 let missing_in_gpu: Vec<_> = cpu_neighbors.difference(&gpu_neighbors).collect();
                 let extra_in_gpu: Vec<_> = gpu_neighbors.difference(&cpu_neighbors).collect();
-                
+
                 println!("Missing in GPU flat array: {:?}", missing_in_gpu);
                 println!("Extra in GPU flat array: {:?}", extra_in_gpu);
                 println!("====================================================");
                 panic!("Stopping on diagnostic failure.");
             }
         }
-        
+
         println!("SUCCESS: Flat particle-to-particle neighbor list is 100% correct!");
     }
 }
@@ -301,22 +332,31 @@ impl NeighborListTest {
 #[test]
 pub fn test_neighbor_list_building() {
     VkHeadless::run(|engine, vk_core, _| {
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let num_particles = 4200;
         let search_radius = 2.0f32;
         let world_size = 256.0;
         let world_min = glam::Vec3::new(0.0, 0.0, 0.0);
 
-        let mut neighbor_list_test =
-            NeighborListTest::new(vk_core, engine, num_particles, search_radius, world_size, &world_min);
+        let mut neighbor_list_test = NeighborListTest::new(
+            vk_core,
+            engine,
+            num_particles,
+            search_radius,
+            world_size,
+            &world_min,
+        );
 
         let iterations = 20;
 
         for _ in 0..iterations {
-            engine.record_commands(&frame_pacer, |cmd_buffer| {
-                neighbor_list_test.run_test(vk_core, cmd_buffer);
-            }).expect("failed to record neighbor-list commands");
-            engine.submit_without_signaling(&frame_pacer)
+            engine
+                .record_commands(&frame_pacer, |cmd_buffer| {
+                    neighbor_list_test.run_test(vk_core, cmd_buffer);
+                })
+                .expect("failed to record neighbor-list commands");
+            engine
+                .submit_without_signaling(&frame_pacer)
                 .expect("failed to submit neighbor-list commands");
             unsafe {
                 vk_core.device().device_wait_idle().unwrap();
@@ -366,9 +406,21 @@ fn encode_hilbert_3d_cpu(grid_pos: glam::UVec3, max_levels: u32) -> u32 {
         let octant = (xi << 2) | (yi << 1) | zi;
         key = (key << 3) + morton_to_hilbert[octant as usize];
 
-        let mask_x = if xi != 0 && (yi == 0 || zi != 0) { 0xFFFFFFFF } else { 0 };
-        let mask_y = if (xi != 0 && (yi != 0 || zi != 0)) || (yi != 0 && zi == 0) { 0xFFFFFFFF } else { 0 };
-        let mask_z = if (xi != 0 && yi == 0 && zi == 0) || (yi != 0 && zi == 0) { 0xFFFFFFFF } else { 0 };
+        let mask_x = if xi != 0 && (yi == 0 || zi != 0) {
+            0xFFFFFFFF
+        } else {
+            0
+        };
+        let mask_y = if (xi != 0 && (yi != 0 || zi != 0)) || (yi != 0 && zi == 0) {
+            0xFFFFFFFF
+        } else {
+            0
+        };
+        let mask_z = if (xi != 0 && yi == 0 && zi == 0) || (yi != 0 && zi == 0) {
+            0xFFFFFFFF
+        } else {
+            0
+        };
 
         px ^= mask_x;
         py ^= mask_y;

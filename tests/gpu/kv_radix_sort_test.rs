@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use engine::algorithms::sorting::kv_radix_sort::{GpuKVRadixSort, RadixSortPayload};
-use engine::vulkan::buffers::VkBuffer;
-use engine::vulkan::compute::ComputeEngine;
-use engine::vulkan::core::VulkanContext;
-use engine::vulkan::frame::frame_pacer::FramePacer;
-use engine::vulkan::headless::VkHeadless;
+use engine::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use engine::backends::vulkan::algorithms::sorting::kv_radix_sort::RadixSortPayload;
+use engine::backends::vulkan::runtime::buffers::VkBuffer;
+use engine::backends::vulkan::runtime::compute::ComputeExecutor;
+use engine::backends::vulkan::runtime::core::VulkanContext;
+use engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer;
+use engine::backends::vulkan::runtime::headless::VkHeadless;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 
@@ -21,7 +22,7 @@ struct KvRadixSortTest<T: Copy + std::fmt::Debug + std::cmp::PartialEq + RadixSo
 impl<T: Copy + std::fmt::Debug + std::cmp::PartialEq + RadixSortPayload> KvRadixSortTest<T> {
     pub fn new(
         vk_core: &Arc<VulkanContext>,
-        engine: &ComputeEngine,
+        engine: &ComputeExecutor,
         count: u32,
         mut rng: ThreadRng,
         payload_generator: impl Fn(u32) -> T,
@@ -65,37 +66,40 @@ impl<T: Copy + std::fmt::Debug + std::cmp::PartialEq + RadixSortPayload> KvRadix
     pub fn run_test(
         &self,
         vk_core: &Arc<VulkanContext>,
-        engine: &ComputeEngine,
+        engine: &ComputeExecutor,
         frame_pacer: &FramePacer,
         indirect_dispatch: bool,
     ) {
-        engine.record_commands(&frame_pacer, |cmd| {
-            if indirect_dispatch {
-                self.sorter.sort_indirect(
-                    vk_core,
-                    self.count_buffer.address(),
-                    &self.keys_buffer,
-                    &self.payload_buffer,
-                    cmd,
-                );
-            } else {
-                self.sorter.sort(
-                    vk_core,
-                    &self.keys_buffer,
-                    &self.payload_buffer,
-                    cmd,
-                    self.input_keys.len(),
-                );
-            }
-        }).expect("failed to record radix-sort commands");
+        engine
+            .record_commands(&frame_pacer, |cmd| {
+                if indirect_dispatch {
+                    self.sorter.sort_indirect(
+                        vk_core,
+                        self.count_buffer.address(),
+                        &self.keys_buffer,
+                        &self.payload_buffer,
+                        cmd,
+                    );
+                } else {
+                    self.sorter.sort(
+                        vk_core,
+                        &self.keys_buffer,
+                        &self.payload_buffer,
+                        cmd,
+                        self.input_keys.len(),
+                    );
+                }
+            })
+            .expect("failed to record radix-sort commands");
 
-        engine.submit_without_signaling(&frame_pacer)
+        engine
+            .submit_without_signaling(&frame_pacer)
             .expect("failed to submit radix-sort commands");
 
         self.validate(vk_core, engine);
     }
 
-    fn validate(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeEngine) {
+    fn validate(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeExecutor) {
         let mut expected: Vec<(u32, T)> = self
             .input_keys
             .clone()
@@ -128,7 +132,7 @@ impl<T: Copy + std::fmt::Debug + std::cmp::PartialEq + RadixSortPayload> KvRadix
 #[test]
 pub fn kv_radix_sort_test() {
     VkHeadless::run(|engine, vk_core, rng| {
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let count = 1400024;
         let kv_radix_sort_test = KvRadixSortTest::<u32>::new(vk_core, engine, count, rng, |i| i);
         kv_radix_sort_test.run_test(vk_core, engine, &frame_pacer, false);
@@ -138,7 +142,7 @@ pub fn kv_radix_sort_test() {
 #[test]
 pub fn kv_radix_sort_indirect_test() {
     VkHeadless::run(|engine, vk_core, rng| {
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let count = 2100024;
         let kv_radix_sort_test = KvRadixSortTest::<u32>::new(vk_core, engine, count, rng, |i| i);
         kv_radix_sort_test.run_test(vk_core, engine, &frame_pacer, true);
@@ -148,7 +152,7 @@ pub fn kv_radix_sort_indirect_test() {
 #[test]
 pub fn kv_radix_sort_indirect_uvec2_payload_test() {
     VkHeadless::run(|engine, vk_core, rng| {
-        let frame_pacer = engine::vulkan::frame::frame_pacer::FramePacer::new(1);
+        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let count = 1000023;
         let kv_radix_sort_test =
             KvRadixSortTest::<glam::UVec2>::new(vk_core, engine, count, rng, |i| {

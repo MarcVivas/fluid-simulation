@@ -14,7 +14,7 @@ pub struct NeighborSearchPushConstants {
     pub node_bounding_boxes: vk::DeviceAddress,
 
     // Read write buffers
-    pub super_clusters_neighbors: vk::DeviceAddress,
+    pub leaf_neighbors: vk::DeviceAddress,
     pub allocator: vk::DeviceAddress,
     pub processed_leaves_counter: vk::DeviceAddress,
     pub particle_to_neighborhood: vk::DeviceAddress,

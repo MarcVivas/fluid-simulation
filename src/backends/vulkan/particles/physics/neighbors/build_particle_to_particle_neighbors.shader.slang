@@ -2,22 +2,21 @@
 const uint THREAD_GROUP_SIZE = 64;
 [vk::constant_id(1)]
 const uint MAX_PARTICLE_NEIGHBORS = 96;
+[vk::constant_id(2)]
+const uint PARTICLE_NEIGHBOR_TILE_SIZE = 32;
 
 import NeighborRange;
-import LeafNeighbor;
 import LeafParticles;
 
 struct PushConsts {
-  Ptr<LeafParticles, Access.Read> leaf_particles;
   Ptr<float4, Access.Read> positions;
-  Ptr<LeafNeighbor, Access.Read> leaf_neighbors;
+  Ptr<LeafParticles, Access.Read> leaf_neighbors;
   
-  Ptr<uint32_t, Access.ReadWrite> allocator_counter;
   Ptr<NeighborRange, Access.ReadWrite> particle_to_neighborhood;
   Ptr<uint32_t, Access.ReadWrite> neighbor_particle_indices;
 
   uint32_t num_particles;
-  float search_radius;
+  float search_radius_sq;
 
 }
 
@@ -36,39 +35,86 @@ func main(const uint global_id: SV_DispatchThreadID){
 
     const float3 pos = pc.positions[global_id].xyz;
    
-   uint local_neighbors[MAX_PARTICLE_NEIGHBORS];
-   uint valid_neighbor_count = 0;
+    uint local_neighbors[MAX_PARTICLE_NEIGHBORS];
+    uint valid_neighbor_count = 0;
 
-   for(uint i = 0; i < num_neighbor_leaves; i++){
-       const uint n_leaf_idx = pc.leaf_neighbors[start_neighbor_leaf + i].neighbor_leaf_idx;
-       const LeafParticles n_leaf = pc.leaf_particles[n_leaf_idx];
+    
+    for(uint i = 0; i < num_neighbor_leaves; i++){
+        const LeafParticles n_leaf = pc.leaf_neighbors[start_neighbor_leaf + i];
 
-       // Loop through all particles of this neighbor leaf
-       for(uint j = 0; j < n_leaf.particle_count; j++){
-           const uint idx = n_leaf.first_particle_index + j;
-           const float3 pos_j = pc.positions[idx].xyz;
+        // Fetch four independent candidate positions before testing any.
+        // Append in the original order so the capacity limit selects the same neighbors.
+        uint j = 0;
+        for(; j + 3 < n_leaf.particle_count; j += 4){
+            const uint idx0 = n_leaf.first_particle_index + j;
+            const uint idx1 = idx0 + 1;
+            const uint idx2 = idx0 + 2;
+            const uint idx3 = idx0 + 3;
+            const float3 pos0 = pc.positions[idx0].xyz;
+            const float3 pos1 = pc.positions[idx1].xyz;
+            const float3 pos2 = pc.positions[idx2].xyz;
+            const float3 pos3 = pc.positions[idx3].xyz;
 
-           const float dist = distance(pos, pos_j);
-           if(dist < pc.search_radius){
-               if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
-                   local_neighbors[valid_neighbor_count++] = idx;
-               }
-           }
-       }
-   }
+            const float3 r0 = pos - pos0;
+            const float3 r1 = pos - pos1;
+            const float3 r2 = pos - pos2;
+            const float3 r3 = pos - pos3;
+            const float dist_sq0 = dot(r0, r0);
+            const float dist_sq1 = dot(r1, r1);
+            const float dist_sq2 = dot(r2, r2);
+            const float dist_sq3 = dot(r3, r3);
 
-   uint global_start_idx = 0;
-   if(valid_neighbor_count > 0){
-       InterlockedAdd(*pc.allocator_counter, valid_neighbor_count, global_start_idx);
+            if(dist_sq0 < pc.search_radius_sq){
+                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
+                    local_neighbors[valid_neighbor_count++] = idx0;
+                }
+            }
+            if(dist_sq1 < pc.search_radius_sq){
+                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
+                    local_neighbors[valid_neighbor_count++] = idx1;
+                }
+            }
+            if(dist_sq2 < pc.search_radius_sq){
+                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
+                    local_neighbors[valid_neighbor_count++] = idx2;
+                }
+            }
+            if(dist_sq3 < pc.search_radius_sq){
+                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
+                    local_neighbors[valid_neighbor_count++] = idx3;
+                }
+            }
+        }
 
-       for(uint i = 0; i < valid_neighbor_count; i++){
-           pc.neighbor_particle_indices[global_start_idx + i] = local_neighbors[i];
-       }
-   }
+        // Process up to three remaining candidates.
+        for(; j < n_leaf.particle_count; j++){
+            const uint idx = n_leaf.first_particle_index + j;
+            const float3 pos_j = pc.positions[idx].xyz;
 
-   NeighborRange neighborhood;
-   neighborhood.neighbor_count = valid_neighbor_count;
-   neighborhood.neighbor_index = (valid_neighbor_count > 0) ? global_start_idx : 0;
-   pc.particle_to_neighborhood[global_id] = neighborhood;
+            const float3 r = pos - pos_j;
+            const float dist_sq = dot(r, r);
+            if(dist_sq < pc.search_radius_sq){
+                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
+                    local_neighbors[valid_neighbor_count++] = idx;
+                }
+            }
+        }
+    }
+
+    // Buffer the complete list before copying: active lanes now write the
+    // same neighbor ordinal into adjacent columns of the particle tile.
+    const uint tile = global_id / PARTICLE_NEIGHBOR_TILE_SIZE;
+    const uint lane = global_id % PARTICLE_NEIGHBOR_TILE_SIZE;
+    const uint global_start_idx = tile * MAX_PARTICLE_NEIGHBORS * PARTICLE_NEIGHBOR_TILE_SIZE + lane;
+    if(valid_neighbor_count > 0){
+        for(uint i = 0; i < valid_neighbor_count; i++){
+            pc.neighbor_particle_indices[global_start_idx + i * PARTICLE_NEIGHBOR_TILE_SIZE] = local_neighbors[i];
+        }
+    }
+
+    NeighborRange neighborhood;
+    neighborhood.neighbor_count = valid_neighbor_count;
+    neighborhood.neighbor_index = global_start_idx;
+    pc.particle_to_neighborhood[global_id] = neighborhood;
 
 }

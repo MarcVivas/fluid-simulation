@@ -5,6 +5,7 @@ use ash::vk;
 use crate::backends::vulkan::particles::ParticleBuffers;
 use crate::backends::vulkan::particles::physics::neighbors::neighbor_list_data::*;
 use crate::backends::vulkan::particles::physics::neighbors::neighbor_search::NeighborSearch;
+use crate::backends::vulkan::particles::physics::octree::LeafParticles;
 use crate::backends::vulkan::particles::physics::octree::octree::Octree;
 use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
@@ -67,7 +68,7 @@ impl NeighborList {
         );
     }
 
-    pub fn leaf_to_leaf_neighbors(&self) -> &VkBuffer<LeafNeighbor> {
+    pub fn leaf_to_leaf_neighbors(&self) -> &VkBuffer<LeafParticles> {
         &self.data.leaf_to_leaf_neighbors()
     }
 

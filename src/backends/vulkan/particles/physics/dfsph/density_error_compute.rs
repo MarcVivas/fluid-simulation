@@ -1,3 +1,4 @@
+use crate::backends::vulkan::particles::physics::neighbors::PARTICLE_NEIGHBOR_TILE_SIZE;
 const SHADER: crate::backends::vulkan::runtime::shaders::ShaderCode =
     crate::shader!("particles/physics/dfsph/density_error_compute");
 
@@ -36,10 +37,10 @@ struct DensityErrorPushConstants {
     neighbor_particle_indices: vk::DeviceAddress,
     num_elements: u32,
     kernel_radius: f32,
-    kernel_radius_2: f32,
     spiky_constant: f32,
     delta_time: f32,
     rest_density: f32,
+    _padding: u32
 }
 
 impl DensityErrorCompute {
@@ -47,7 +48,11 @@ impl DensityErrorCompute {
         let (density_error_compute_pass, density_error_compute_shader) =
             ComputeSystemBuilder::new(vk_core.clone(), SHADER)
                 .entry_points(&["main"])
-                .specialization(SpecializationConstants::default().u32(THREAD_GROUP_SIZE))
+                .specialization(
+                    SpecializationConstants::default()
+                        .u32(THREAD_GROUP_SIZE)
+                        .u32(PARTICLE_NEIGHBOR_TILE_SIZE as u32),
+                )
                 .push_constants::<DensityErrorPushConstants>()
                 .build_with_single_pass()?;
         Ok(Self {
@@ -86,7 +91,6 @@ impl DensityErrorCompute {
             rest_density: physics_config.rest_density,
             particle_to_neighborhood,
             kernel_radius: physics_config.kernel_radius,
-            kernel_radius_2: physics_config.kernel_radius_2,
             spiky_constant: physics_config.kernel_spiky_grad,
             neighbor_particle_indices: neighbor_list.neighbor_particle_indices().address(),
             delta_time: physics_config.time_step,
@@ -124,6 +128,6 @@ fn shader_interface() {
         SHADER,
         5,
         &["main"],
-        1,
+        2,
     );
 }

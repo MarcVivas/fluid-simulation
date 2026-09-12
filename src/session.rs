@@ -18,6 +18,7 @@ pub struct Session {
     camera: Camera,
     camera_controller: CameraController,
     paused: bool,
+    #[allow(unused)]
     world: World,
 }
 

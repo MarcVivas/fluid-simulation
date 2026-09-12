@@ -8,10 +8,9 @@ use ash::vk::{self, DeviceAddress};
 use crate::backends::vulkan::particles::ParticleBuffers;
 use crate::backends::vulkan::particles::physics::neighbors::NeighborList;
 use crate::backends::vulkan::particles::physics::neighbors::NeighborListData;
-use crate::backends::vulkan::particles::physics::octree::octree::Octree;
+use crate::backends::vulkan::particles::physics::neighbors::PARTICLE_NEIGHBOR_TILE_SIZE;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
 use crate::backends::vulkan::runtime::commands::barrier_compute_to_compute;
-use crate::backends::vulkan::runtime::commands::barrier_transfer_to_compute;
 use crate::backends::vulkan::runtime::compute::ComputePass;
 use crate::backends::vulkan::runtime::compute::ComputeSystemBuilder;
 use crate::backends::vulkan::runtime::core::VulkanContext;
@@ -30,16 +29,14 @@ const THREAD_GROUP_SIZE: u32 = 64;
 #[repr(C)]
 #[derive(Debug, Default, Pod, Zeroable, Clone, Copy)]
 struct PushConstants {
-    leaf_particles: DeviceAddress,
     positions: DeviceAddress,
-    super_cluster_neighbors: DeviceAddress,
+    leaf_to_leaf_neighbors: DeviceAddress,
 
-    allocator_counter: DeviceAddress,
     particle_to_neighborhood: DeviceAddress,
     neighbor_particle_indices: DeviceAddress,
 
     num_particles: u32,
-    search_radius: f32,
+    search_radius_sq: f32,
 }
 
 impl ParticleToParticleNeighborsConstructor {
@@ -51,7 +48,8 @@ impl ParticleToParticleNeighborsConstructor {
                 .specialization(
                     SpecializationConstants::default()
                         .u32(THREAD_GROUP_SIZE)
-                        .u32(NeighborList::max_particle_neighbors()),
+                        .u32(NeighborList::max_particle_neighbors())
+                        .u32(PARTICLE_NEIGHBOR_TILE_SIZE as u32),
                 )
                 .build_with_single_pass()?;
 
@@ -66,44 +64,20 @@ impl ParticleToParticleNeighborsConstructor {
         vk_core: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         particles: &ParticleBuffers,
-        search_radius: f32,
-        octree: &Octree,
+        search_radius_sq: f32,
         neighbor_list_data: &NeighborListData,
     ) {
         let device = vk_core.device();
-
-        // Clear the allocator buffer to 0
-        let allocator = neighbor_list_data.allocator();
-        cmd_buffer.fill_buffer(
-            device,
-            neighbor_list_data.allocator().vk_buffer(),
-            0,
-            size_of::<u32>() as vk::DeviceSize,
-            0,
-        );
-        cmd_buffer.pipeline_memory_barrier(
-            device,
-            &[barrier_transfer_to_compute(
-                allocator.vk_buffer(),
-                vk::WHOLE_SIZE,
-                vk::AccessFlags2::SHADER_STORAGE_READ,
-            )],
-            &[],
-        );
 
         let num_particles = particles.positions_buffer.current().len() as u32;
 
         let num_workgroups = (num_particles + THREAD_GROUP_SIZE - 1) / THREAD_GROUP_SIZE;
 
-        let octree_data = octree.data();
-
         let push_constants = PushConstants {
-            leaf_particles: octree_data.leaf_particles().address(),
             positions: particles.positions_buffer.current().address(),
-            super_cluster_neighbors: neighbor_list_data.leaf_to_leaf_neighbors().address(),
-            allocator_counter: neighbor_list_data.allocator().address(),
+            leaf_to_leaf_neighbors: neighbor_list_data.leaf_to_leaf_neighbors().address(),
             particle_to_neighborhood: neighbor_list_data.particle_to_neighborhood().address(),
-            search_radius,
+            search_radius_sq,
             num_particles,
             neighbor_particle_indices: neighbor_list_data.neighbor_particle_indices().address(),
             ..Default::default()
@@ -122,11 +96,6 @@ impl ParticleToParticleNeighborsConstructor {
         cmd_buffer.pipeline_memory_barrier(
             device,
             &[
-                barrier_compute_to_compute(
-                    neighbor_list_data.allocator().vk_buffer(),
-                    vk::WHOLE_SIZE,
-                    vk::AccessFlags2::SHADER_STORAGE_READ | vk::AccessFlags2::SHADER_STORAGE_WRITE,
-                ),
                 barrier_compute_to_compute(
                     neighbor_list_data.neighbor_particle_indices().vk_buffer(),
                     vk::WHOLE_SIZE,
@@ -149,6 +118,6 @@ fn shader_interface() {
         SHADER,
         5,
         &["main"],
-        2,
+        3,
     );
 }

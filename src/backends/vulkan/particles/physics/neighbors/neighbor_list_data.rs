@@ -2,25 +2,29 @@ use std::sync::Arc;
 
 use ash::vk;
 
+use crate::backends::vulkan::particles::physics::octree::LeafParticles;
 use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::core::VulkanContext;
+
+// Passed to the builder and every solver pipeline as a specialization constant;
+// allocation and CPU readback use this same value.
+pub const PARTICLE_NEIGHBOR_TILE_SIZE: usize = 512;
+const _: () = assert!(PARTICLE_NEIGHBOR_TILE_SIZE.is_power_of_two()
+    && PARTICLE_NEIGHBOR_TILE_SIZE <= u32::MAX as usize);
 
 const QUEUE_MEMORY_PER_WORKGROUP: u32 = 128;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NeighborRange {
     pub neighbor_count: u32,
+    // Contiguous offset for leaf lists; base of a strided column for particle lists.
     pub neighbor_index: u32,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct LeafNeighbor {
-    pub neighbor_leaf_idx: u32,
-}
 
 pub struct NeighborListData {
     // Stores neighboring leaves, not particle ids.
-    leaf_to_leaf_neighbors: VkBuffer<LeafNeighbor>,
+    leaf_to_leaf_neighbors: VkBuffer<LeafParticles>,
 
     // An atomic counter initialized to 0 at the start of the frame.
     allocator: VkBuffer<u32>,
@@ -47,7 +51,7 @@ impl NeighborListData {
         let total_leaf_to_leaf_neighbors: usize =
             (max_neighbors_per_leaf * max_expected_leaves) as usize;
 
-        let leaf_to_leaf_neighbors: VkBuffer<LeafNeighbor> = VkBuffer::new_gpu_only_uninitialized(
+        let leaf_to_leaf_neighbors: VkBuffer<LeafParticles> = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
             total_leaf_to_leaf_neighbors,
             "Leaf to leaf neighbors",
@@ -77,7 +81,9 @@ impl NeighborListData {
 
         let particle_to_particle_neighbors: VkBuffer<u32> = VkBuffer::new_gpu_only_uninitialized(
             vk_core,
-            num_particles * max_neighbors_per_particle as usize,
+            num_particles.div_ceil(PARTICLE_NEIGHBOR_TILE_SIZE)
+                * PARTICLE_NEIGHBOR_TILE_SIZE
+                * max_neighbors_per_particle as usize,
             "particle_to_particle_neighbors",
         )?;
 
@@ -90,7 +96,7 @@ impl NeighborListData {
         })
     }
 
-    pub fn leaf_to_leaf_neighbors(&self) -> &VkBuffer<LeafNeighbor> {
+    pub fn leaf_to_leaf_neighbors(&self) -> &VkBuffer<LeafParticles> {
         &self.leaf_to_leaf_neighbors
     }
 

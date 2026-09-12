@@ -45,7 +45,7 @@ impl PhysicsConfig {
         Self {
             kernel_radius,
             rest_density: 1.0,
-            time_step: 1.0 / 120.0,
+            time_step: 1.0 / 90.0,
             kernel_radius_2: kernel_radius * kernel_radius,
             kernel_poly6,
             kernel_spiky_grad,
@@ -53,7 +53,7 @@ impl PhysicsConfig {
             dfsph: DfsphConfig::default(),
             wall_repulsion_acceleration: 40.0,
             wall_repulsion_distance: 0.35,
-            velocity_damping_rate: 0.01
+            velocity_damping_rate: 0.001
         }
     }
 

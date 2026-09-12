@@ -8,7 +8,6 @@ const uint QUEUE_MEMORY_PER_WORKGROUP = 128;
 import HilbertHelpers;
 import BoundingBox;
 import NeighborRange;
-import LeafNeighbor;
 import LeafParticles;
 import WarrenSalmonKey;
 
@@ -23,7 +22,7 @@ struct PushConsts {
   
   
 
-  Ptr<LeafNeighbor, Access.ReadWrite> leaf_neighbors;
+  Ptr<LeafParticles, Access.ReadWrite> leaf_neighbors;
   Ptr<uint32_t, Access.ReadWrite> allocator_counter;
   Ptr<uint32_t, Access.ReadWrite> processed_leaves_counter;
   Ptr<NeighborRange, Access.ReadWrite> particle_to_neighborhood;
@@ -115,7 +114,7 @@ func build_leaf_bounding_box(const LeafParticles leaf_particles) -> BoundingBox 
 
         const float3 lane_min = is_out_of_bounds ? float3(float.maxValue) : pos;
         const float3 lane_max = is_out_of_bounds ? float3(-float.maxValue) : pos;  
-     
+
         min_val = min(min_val, WaveActiveMin(lane_min));
         max_val = max(max_val, WaveActiveMax(lane_max));
     }
@@ -261,10 +260,7 @@ func write_results_to_global_memory(const LeafParticles leaf_particles, const ui
     
     // Write back all neighbors contiguously (supports neighbor_count > 64)
     for(uint i = local_id; i < clamped_neighbor_count; i+=THREAD_GROUP_SIZE){
-        LeafNeighbor neighbor;
-        // Just for testing purposes, store the leaves that we intersected with
-        neighbor.neighbor_leaf_idx = neighbor_leaves[i];
-        pc.leaf_neighbors[global_start_idx + i] = neighbor;
+        pc.leaf_neighbors[global_start_idx + i] = pc.leaf_particles[neighbor_leaves[i]];
     }
     GroupMemoryBarrierWithGroupSync();
 

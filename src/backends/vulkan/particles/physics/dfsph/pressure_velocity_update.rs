@@ -1,3 +1,4 @@
+use crate::backends::vulkan::particles::physics::neighbors::PARTICLE_NEIGHBOR_TILE_SIZE;
 const SHADER: crate::backends::vulkan::runtime::shaders::ShaderCode =
     crate::shader!("particles/physics/dfsph/pressure_velocity_update");
 
@@ -45,7 +46,11 @@ impl PressureVelocityUpdate {
         let (pressure_velocity_update_compute_pass, pressure_velocity_update_compute_shader) =
             ComputeSystemBuilder::new(vk_core.clone(), SHADER)
                 .entry_points(&["main"])
-                .specialization(SpecializationConstants::default().u32(THREAD_GROUP_SIZE))
+                .specialization(
+                    SpecializationConstants::default()
+                        .u32(THREAD_GROUP_SIZE)
+                        .u32(PARTICLE_NEIGHBOR_TILE_SIZE as u32),
+                )
                 .push_constants::<PressureVelocityUpdatePushConstants>()
                 .build_with_single_pass()?;
         Ok(Self {
@@ -113,6 +118,6 @@ fn shader_interface() {
         SHADER,
         5,
         &["main"],
-        1,
+        2,
     );
 }

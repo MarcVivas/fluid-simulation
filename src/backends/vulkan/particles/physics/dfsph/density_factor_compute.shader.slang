@@ -4,6 +4,8 @@ import LeafParticles;
 
 [vk::constant_id(0)]
 const uint THREAD_GROUP_SIZE = 64;
+[vk::constant_id(1)]
+const uint PARTICLE_NEIGHBOR_TILE_SIZE = 32;
 
 struct DensityPushConstants {
     Ptr<float4, Access.Read> packed_positions;
@@ -52,10 +54,6 @@ func process_single_interaction(
     const float3 other_pos = other_particle.xyz;
     const float3 vec = particle_sph.pos - other_pos;
     const float distance_squared = dot(vec, vec);
-
-    if (distance_squared > pc.kernel_radius_2)
-        return;
-
     const float other_mass = 1.0f;
 
     // Density
@@ -89,16 +87,16 @@ func main(const uint global_id: SV_DispatchThreadID) {
         
     ParticleSPH particle_sph = ParticleSPH(pos, global_id);
 
-    // Retrieve flat neighborhood bounds
-    const uint last_neighbor = neighborhood.neighbor_index + neighborhood.neighbor_count;
-    uint j = neighborhood.neighbor_index;
+    // Iterate neighbor ordinals in this particle column of the tile.
+    const uint last_neighbor = neighborhood.neighbor_count;
+    uint j = 0;
 
-    // Optional: ILP unrolled by 4 (fetching flat particle indices directly)
+    // ILP unrolled by 4 (fetching flat particle indices directly)
     for (; j + 3 < last_neighbor; j += 4) {
-        const uint idx0 = pc.neighbor_particle_indices[j];
-        const uint idx1 = pc.neighbor_particle_indices[j + 1];
-        const uint idx2 = pc.neighbor_particle_indices[j + 2];
-        const uint idx3 = pc.neighbor_particle_indices[j + 3];
+        const uint idx0 = pc.neighbor_particle_indices[neighborhood.neighbor_index + j * PARTICLE_NEIGHBOR_TILE_SIZE];
+        const uint idx1 = pc.neighbor_particle_indices[neighborhood.neighbor_index + (j + 1) * PARTICLE_NEIGHBOR_TILE_SIZE];
+        const uint idx2 = pc.neighbor_particle_indices[neighborhood.neighbor_index + (j + 2) * PARTICLE_NEIGHBOR_TILE_SIZE];
+        const uint idx3 = pc.neighbor_particle_indices[neighborhood.neighbor_index + (j + 3) * PARTICLE_NEIGHBOR_TILE_SIZE];
 
         const float4 p0 = pc.packed_positions[idx0];
         const float4 p1 = pc.packed_positions[idx1];
@@ -113,7 +111,7 @@ func main(const uint global_id: SV_DispatchThreadID) {
 
     // Remainder loop
     for (; j < last_neighbor; j++) {
-        const uint other_idx = pc.neighbor_particle_indices[j];
+        const uint other_idx = pc.neighbor_particle_indices[neighborhood.neighbor_index + j * PARTICLE_NEIGHBOR_TILE_SIZE];
         const float4 p = pc.packed_positions[other_idx];
         process_single_interaction(particle_sph, p, other_idx);
     }

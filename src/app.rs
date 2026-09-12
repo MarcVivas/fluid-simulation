@@ -13,8 +13,8 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 pub struct App {
     session: Option<Box<dyn AppSession>>,
-    window: Option<Window>,
     backend: BackendKind,
+    window: Option<Window>,
 }
 
 impl App {
@@ -41,7 +41,7 @@ impl ApplicationHandler for App {
 
         let world = World::new(
             glam::Vec3::splat(256.0),
-            100_000,
+            1_000_000,
             ParticleInitPreset::CollidingBlocks,
             1.7,
         );

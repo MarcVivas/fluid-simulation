@@ -115,7 +115,7 @@ impl NeighborSearch {
             node_first_child: octree_data.node_first_child().address(),
             leaf_particles: octree_data.leaf_particles().address(),
             positions: particles.positions_buffer.current().address(),
-            super_clusters_neighbors: neighbor_list_data.leaf_to_leaf_neighbors().address(),
+            leaf_neighbors: neighbor_list_data.leaf_to_leaf_neighbors().address(),
             allocator: neighbor_list_data.allocator().address(),
             processed_leaves_counter: neighbor_list_data.processed_leaves_counter().address(),
             particle_to_neighborhood: neighbor_list_data.particle_to_neighborhood().address(),
@@ -172,8 +172,7 @@ impl NeighborSearch {
             vk_core,
             cmd_buffer,
             particles,
-            search_radius,
-            octree,
+            search_radius * search_radius,
             neighbor_list_data,
         );
     }

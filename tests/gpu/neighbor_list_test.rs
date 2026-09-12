@@ -6,6 +6,7 @@ use engine::backends::vulkan::particles::ParticleStorage;
 
 use engine::backends::vulkan::particles::physics::neighbors::NeighborList;
 use engine::backends::vulkan::particles::physics::neighbors::NeighborRange;
+use engine::backends::vulkan::particles::physics::neighbors::PARTICLE_NEIGHBOR_TILE_SIZE;
 use engine::backends::vulkan::particles::physics::octree::octree::Octree;
 use engine::backends::vulkan::particles::physics::reorder::ParticleReorderer;
 use engine::backends::vulkan::runtime::commands::CommandBuffer;
@@ -290,9 +291,13 @@ impl NeighborListTest {
             let mut gpu_neighbors = std::collections::HashSet::new();
 
             for n in 0..range.neighbor_count {
-                let neighbor_idx = neighbor_particle_indices[(range.neighbor_index + n) as usize];
+                let neighbor_idx = neighbor_particle_indices
+                    [range.neighbor_index as usize + n as usize * PARTICLE_NEIGHBOR_TILE_SIZE];
                 gpu_neighbors.insert(neighbor_idx as usize);
             }
+
+            assert_eq!(gpu_neighbors.len(), range.neighbor_count as usize,
+                "Duplicate neighbors for particle {i}");
 
             // 2. Perform CPU brute-force search (self-interaction included)
             let mut cpu_neighbors = std::collections::HashSet::new();

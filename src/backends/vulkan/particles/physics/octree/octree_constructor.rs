@@ -5,7 +5,7 @@ use glam::Vec4;
 
 use crate::backends::vulkan::algorithms::exclusive_prefix_sum::ExclusivePrefixSum;
 use crate::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
-use crate::backends::vulkan::particles::physics::octree::leaves_histogram::LeavesHistogram;
+use crate::backends::vulkan::particles::physics::octree::leaf_offset_generator::LeafOffsetGenerator;
 use crate::backends::vulkan::particles::physics::octree::level_offset_generator::LevelOffsetGenerator;
 use crate::backends::vulkan::particles::physics::octree::node_key_generator::NodeKeyGenerator;
 use crate::backends::vulkan::particles::physics::octree::octree_data::OctreeData;
@@ -20,8 +20,8 @@ use crate::backends::vulkan::runtime::commands::barrier_transfer_to_compute;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 
 pub struct OctreeConstructor {
-    // Builds the historgram for each leaf in the cornerstone array
-    leaves_histogram: LeavesHistogram,
+    // Builds the offset for each leaf in the cornerstone array
+    leaf_offset_generator: LeafOffsetGenerator,
 
     // Marks leafs for: Merge, Subdivide or Nothing.
     rebalancing_ops_marker: RebalancingOpsMarker,
@@ -52,7 +52,7 @@ impl OctreeConstructor {
         max_bits: u32,
         max_node_keys: u32,
     ) -> anyhow::Result<Self> {
-        let leaves_histogram = LeavesHistogram::new(vk_core)?;
+        let leaf_offset_generator = LeafOffsetGenerator::new(vk_core)?;
         let rebalancing_ops_marker = RebalancingOpsMarker::new(vk_core)?;
         let prefix_sum: ExclusivePrefixSum = ExclusivePrefixSum::new(vk_core, max_leaves)?;
         let rebalancer = Rebalancer::new(vk_core, sentinel_val)?;
@@ -62,7 +62,7 @@ impl OctreeConstructor {
         let level_offset_generator = LevelOffsetGenerator::new(vk_core, max_level)?;
 
         Ok(Self {
-            leaves_histogram,
+            leaf_offset_generator,
             prefix_sum,
             rebalancing_ops_marker,
             rebalancer,
@@ -109,14 +109,14 @@ impl OctreeConstructor {
             );
 
             // Count how many particles are inside each node leaf
-            self.leaves_histogram
+            self.leaf_offset_generator
                 .indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
 
             // Sync Compute -> Compute
             cmd_buffer.pipeline_memory_barrier(
                 device,
                 &[barrier_compute_to_compute(
-                    octree_data.leaves_histogram().vk_buffer(),
+                    octree_data.leaf_offsets().vk_buffer(),
                     vk::WHOLE_SIZE,
                     vk::AccessFlags2::SHADER_STORAGE_READ,
                 )],
@@ -213,27 +213,20 @@ impl OctreeConstructor {
         );
 
         // This is needed after the loop
-        self.leaves_histogram
+        self.leaf_offset_generator
             .indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
         // Sync Compute -> Compute
         cmd_buffer.pipeline_memory_barrier(
             device,
             &[barrier_compute_to_compute(
-                octree_data.leaves_histogram().vk_buffer(),
+                octree_data.leaf_offsets().vk_buffer(),
                 vk::WHOLE_SIZE,
                 vk::AccessFlags2::SHADER_STORAGE_READ,
             )],
             &[],
         );
 
-        self.prefix_sum.indirect_dispatch(
-            vk_core,
-            cmd_buffer,
-            octree_data.leaves_histogram(),
-            octree_data.leaf_offsets(),
-            octree_data.indirect_dispatch_buffer_leaves(),
-            octree_data.leaf_count(),
-        );
+
 
         self.build_internal_nodes(vk_core, cmd_buffer, octree_data, world_min, world_size);
     }

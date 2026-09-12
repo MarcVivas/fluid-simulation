@@ -115,8 +115,8 @@ fn validate(
         .cornerstone_array()
         .read_back(vk_core, cmd_pool)
         .unwrap();
-    let leaves_histogram = octree_data
-        .leaves_histogram()
+    let leaf_offsets = octree_data
+        .leaf_offsets()
         .read_back(vk_core, cmd_pool)
         .unwrap();
     let leaf_count = octree_data
@@ -151,7 +151,10 @@ fn validate(
 
     assert_eq!(node_count, total_nodes);
 
-    let active_histogram = &leaves_histogram[0..leaf_count];
+    let active_histogram: Vec<u32> = leaf_offsets[..leaf_count + 1]
+        .windows(2)
+        .map(|offsets| offsets[1] - offsets[0])
+        .collect();
     let active_cornerstone = &cornerstone_array[0..leaf_count + 1];
     let active_node_keys = &node_keys[0..total_nodes];
     let active_node_first_child = &node_first_child[0..total_nodes];

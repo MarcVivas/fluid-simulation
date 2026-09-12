@@ -3,7 +3,7 @@ const uint THREAD_GROUP_SIZE = 64;
 [vk::constant_id(1)]
 const uint MAX_LEVELS = 10;
 
-import BoundingBox;
+import NodeBoundingBox;
 import WarrenSalmonKey;
 
 struct PushConsts {
@@ -12,7 +12,7 @@ struct PushConsts {
     Ptr<uint32_t, Access.Read> level_offsets;
     Ptr<uint32_t, Access.ReadWrite> node_first_child;
     Ptr<uint32_t, Access.Read> node_count;
-    Ptr<BoundingBox, Access.ReadWrite> node_bounding_boxes;
+    Ptr<NodeBoundingBox, Access.ReadWrite> node_bounding_boxes;
     float world_size;
     
 }
@@ -28,8 +28,7 @@ func main(const uint global_id : SV_DispatchThreadID){
 
     const uint32_t key = pc.node_keys[global_id];
 
-    const BoundingBox node_box = decode_warren_salmon_key(key, pc.world_size, pc.world_min, MAX_LEVELS); 
-    pc.node_bounding_boxes[global_id] = node_box; 
+    pc.node_bounding_boxes[global_id] = decode_warren_salmon_key(key, pc.world_size, pc.world_min, MAX_LEVELS); 
     
     const uint32_t level = firstbithigh(key) / 3;
 

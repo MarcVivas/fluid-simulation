@@ -3,7 +3,7 @@ const uint THREAD_GROUP_SIZE = 64;
 
 struct RebalancePushConsts {
     Ptr<uint32_t, Access.Read> leaf_count;
-    Ptr<uint32_t, Access.Read> leaves_histogram;
+    Ptr<uint32_t, Access.Read> leaf_offsets;
     Ptr<uint32_t, Access.Read> cornerstone_array;
     Ptr<uint32_t, Access.ReadWrite> rebalance_ops;
     Ptr<uint32_t, Access.ReadWrite> was_changed;
@@ -23,7 +23,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
     if(global_id >= num_leaves) return;
 
 
-    const uint32_t count = pc.leaves_histogram[global_id];
+    const uint32_t count = pc.leaf_offsets[global_id+1] - pc.leaf_offsets[global_id];
 
     const uint32_t key_i = pc.cornerstone_array[global_id];
     const uint32_t key_next = pc.cornerstone_array[global_id + 1];
@@ -68,12 +68,8 @@ func main(const uint global_id : SV_DispatchThreadID) {
 
             if(alL_siblings_are_leaves){
                 // Count the combined element count of the 8 sibling octants
-                uint32_t total_count = 0;
     
-                [unroll]
-                for(uint i = 0; i < 8; i++){
-                    total_count += pc.leaves_histogram[first_sibling_idx + i];
-                }
+                const uint32_t total_count = pc.leaf_offsets[end_sibling_idx] - pc.leaf_offsets[first_sibling_idx];
     
                 if(total_count <= pc.n_crit){
                     operation = 0;

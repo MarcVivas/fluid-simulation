@@ -22,6 +22,25 @@ impl BoundingBox {
     }
 }
 
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable, Default)]
+pub struct NodeBoundingBox {
+    /// xyz = minimum corner, w = cube side length
+    pub min_and_side_length: glam::Vec4,
+}
+
+impl NodeBoundingBox {
+    pub fn new(
+        min_corner: glam::Vec3,
+        side_length: f32,
+    ) -> Self {
+        Self {
+            min_and_side_length: min_corner.extend(side_length),
+        }
+    }
+}
+
 /// Backend-neutral world configuration and spatial bounds.
 #[derive(Clone, Copy, Debug)]
 pub struct WorldBounds {

@@ -6,7 +6,7 @@ use crate::backends::vulkan::runtime::buffers::IndirectBuffer;
 use crate::backends::vulkan::runtime::buffers::PingPong;
 use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::core::VulkanContext;
-use crate::world::bounds::BoundingBox;
+use crate::world::bounds::NodeBoundingBox;
 
 pub struct OctreeData {
     // ── Cornerstone array (leaf boundaries) ─────────────────
@@ -16,13 +16,6 @@ pub struct OctreeData {
     /// Size: (max_leaves + 1) × u64
     /// Invariant: K[i+1] - K[i] must equal 8^l for some integer l.
     cornerstone_array: PingPong<VkBuffer<u32>>,
-
-    // ── f-operation output (histogram) ──────────────────────────
-    /// N[i] = number of particles in leaf i, i.e. count of sfc_keys_sorted
-    /// values in [K[i], K[i+1]).
-    /// Written by f-kernel (two binary searches per leaf).
-    /// Size: max_leaves × u32
-    leaves_histogram: VkBuffer<u32>,
 
     // ── Phase 5: g-operation buffers ─────────────────────────────────────
     /// O[i]: rebalance decision per leaf.
@@ -80,7 +73,7 @@ pub struct OctreeData {
     node_count: VkBuffer<u32>,
 
     // The bounding boxes of each node
-    node_bounding_boxes: VkBuffer<BoundingBox>,
+    node_bounding_boxes: VkBuffer<NodeBoundingBox>,
 
     // Bool to check if the octree has reached convergence
     was_changed: VkBuffer<u32>,
@@ -119,13 +112,6 @@ impl OctreeData {
             queue,
         )?;
 
-        let leaves_histogram = VkBuffer::new_gpu_only(
-            vk_core,
-            &vec![0 as u32; max_leaves as usize],
-            "Leaf particle counts",
-            cmd_pool,
-            queue,
-        )?;
         let rebalance_ops = VkBuffer::new_gpu_only(
             vk_core,
             &vec![0 as u32; max_leaves as usize],
@@ -225,7 +211,6 @@ impl OctreeData {
         Ok(Self {
             cornerstone_array,
 
-            leaves_histogram,
             rebalance_ops,
             rebalance_prefix,
 
@@ -282,10 +267,6 @@ impl OctreeData {
         self.leaf_count.read_write()
     }
 
-    pub fn leaves_histogram(&self) -> &VkBuffer<u32> {
-        &self.leaves_histogram
-    }
-
     pub fn rebalance_prefix(&self) -> &VkBuffer<u32> {
         &self.rebalance_prefix
     }
@@ -318,7 +299,7 @@ impl OctreeData {
         &self.unsorted_leaf_particles
     }
 
-    pub fn node_bounding_boxes(&self) -> &VkBuffer<BoundingBox> {
+    pub fn node_bounding_boxes(&self) -> &VkBuffer<NodeBoundingBox> {
         &self.node_bounding_boxes
     }
 

@@ -25,7 +25,6 @@ struct NodeKeyGeneratorPushConstants {
     node_count: vk::DeviceAddress,
     leaf_particles: vk::DeviceAddress,
     leaf_offsets: vk::DeviceAddress,
-    leaves_histogram: vk::DeviceAddress,
     unsorted_leaf_particles: vk::DeviceAddress,
 }
 
@@ -72,7 +71,6 @@ impl NodeKeyGenerator {
             node_count: octree_data.node_count().address(),
             leaf_particles: octree_data.leaf_particles().address(),
             leaf_offsets: octree_data.leaf_offsets().address(),
-            leaves_histogram: octree_data.leaves_histogram().address(),
             unsorted_leaf_particles: octree_data.unsorted_leaf_particles().address(),
         };
 

@@ -26,7 +26,7 @@ const THREAD_GROUP_SIZE: u32 = 64;
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 struct RebalancingOpsMarkerPushConstants {
     leaf_count: vk::DeviceAddress,
-    leaves_histogram: vk::DeviceAddress,
+    leaf_offsets: vk::DeviceAddress,
     cornerstone_array: vk::DeviceAddress,
     rebalance_ops: vk::DeviceAddress,
     was_changed: vk::DeviceAddress,
@@ -60,7 +60,7 @@ impl RebalancingOpsMarker {
         let push_constants = RebalancingOpsMarkerPushConstants {
             leaf_count: octree_data.leaf_count().address(),
             cornerstone_array: octree_data.cornerstone_array().address(),
-            leaves_histogram: octree_data.leaves_histogram().address(),
+            leaf_offsets: octree_data.leaf_offsets().address(),
             rebalance_ops: octree_data.rebalance_ops().address(),
             n_critical: n_crit,
             maintainance_mode: maintainance_mode as u32,

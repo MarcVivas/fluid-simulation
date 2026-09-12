@@ -1,5 +1,5 @@
 const SHADER: crate::backends::vulkan::runtime::shaders::ShaderCode =
-    crate::shader!("particles/physics/octree/leaves_histogram");
+    crate::shader!("particles/physics/octree/leaf_offset_generator");
 
 use ash::vk;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::shaders::ShaderModule;
 use crate::backends::vulkan::runtime::shaders::SpecializationConstants;
 
-pub struct LeavesHistogram {
+pub struct LeafOffsetGenerator {
     leaf_particle_count_pass: ComputePass,
     #[allow(unused)]
     shader_module: ShaderModule,
@@ -29,12 +29,12 @@ struct LeavesHistogramPushConstants {
     leaf_count: vk::DeviceAddress,
     cornerstone_array: vk::DeviceAddress,
     keys: vk::DeviceAddress,
-    leaves_histogram: vk::DeviceAddress,
+    leaf_offsets: vk::DeviceAddress,
     num_keys: u32,
     _padding: u32,
 }
 
-impl LeavesHistogram {
+impl LeafOffsetGenerator {
     pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (leaf_particle_count_pass, shader_module) =
             ComputeSystemBuilder::new(vk_core.clone(), SHADER)
@@ -60,7 +60,7 @@ impl LeavesHistogram {
             leaf_count: octree_data.leaf_count().address(),
             cornerstone_array: octree_data.cornerstone_array().address(),
             keys: keys.address(),
-            leaves_histogram: octree_data.leaves_histogram().address(),
+            leaf_offsets: octree_data.leaf_offsets().address(),
             num_keys: keys.len() as u32,
             _padding: 0,
         };

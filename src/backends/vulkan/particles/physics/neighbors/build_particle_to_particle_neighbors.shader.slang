@@ -64,26 +64,36 @@ func main(const uint global_id: SV_DispatchThreadID){
             const float dist_sq2 = dot(r2, r2);
             const float dist_sq3 = dot(r3, r3);
 
-            if(dist_sq0 < pc.search_radius_sq){
-                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
-                    local_neighbors[valid_neighbor_count++] = idx0;
-                }
-            }
-            if(dist_sq1 < pc.search_radius_sq){
-                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
-                    local_neighbors[valid_neighbor_count++] = idx1;
-                }
-            }
-            if(dist_sq2 < pc.search_radius_sq){
-                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
-                    local_neighbors[valid_neighbor_count++] = idx2;
-                }
-            }
-            if(dist_sq3 < pc.search_radius_sq){
-                if(valid_neighbor_count < MAX_PARTICLE_NEIGHBORS){
-                    local_neighbors[valid_neighbor_count++] = idx3;
-                }
-            }
+            const uint accept0 = uint(dist_sq0 < pc.search_radius_sq);
+            const uint accept1 = uint(dist_sq1 < pc.search_radius_sq);
+            const uint accept2 = uint(dist_sq2 < pc.search_radius_sq);
+            const uint accept3 = uint(dist_sq3 < pc.search_radius_sq);
+          
+            // Exclusive prefix sum
+            const uint offset0 = 0;
+            const uint offset1 = accept0;
+            const uint offset2 = accept0 + accept1;
+            const uint offset3 = accept0 + accept1 + accept2;
+          
+            const uint accepted_count = accept0 + accept1 + accept2 + accept3;
+
+            const uint base = valid_neighbor_count;
+            const uint available = MAX_PARTICLE_NEIGHBORS - base;
+          
+            if (bool(accept0) && offset0 < available)
+                local_neighbors[base + offset0] = idx0;
+          
+            if (bool(accept1) && offset1 < available)
+                local_neighbors[base + offset1] = idx1;
+          
+            if (bool(accept2) && offset2 < available)
+                local_neighbors[base + offset2] = idx2;
+          
+            if (bool(accept3) && offset3 < available)
+                local_neighbors[base + offset3] = idx3;
+
+            valid_neighbor_count += min(accepted_count, available);
+            
         }
 
         // Process up to three remaining candidates.

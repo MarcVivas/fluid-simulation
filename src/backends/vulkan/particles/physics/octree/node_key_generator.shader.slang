@@ -15,7 +15,6 @@ struct PushConsts {
     Ptr<uint32_t, Access.ReadWrite> node_count;
     Ptr<LeafParticles, Access.ReadWrite> leaf_particles;
     Ptr<uint32_t, Access.Read> leaf_offsets;
-    Ptr<uint32_t, Access.Read> leaves_histogram;
     Ptr<LeafParticles, Access.ReadWrite> unsorted_leaf_particles;
 }
 [[vk::push_constant]] PushConsts pc;
@@ -49,7 +48,7 @@ func main(const uint global_id : SV_DispatchThreadID) {
 
     // Convert to Warren-Salmon placeholder-bit format
     const uint32_t warren_salmon_key = convert_key_to_warren_salmon(key_i, leaf_level, MAX_BITS);
-    const LeafParticles leaf_particles = LeafParticles(pc.leaf_offsets[global_id], pc.leaves_histogram[global_id]);
+    const LeafParticles leaf_particles = LeafParticles(pc.leaf_offsets[global_id], pc.leaf_offsets[global_id + 1] - pc.leaf_offsets[global_id]);
     pc.node_keys[num_internal_nodes + global_id] = warren_salmon_key;
     pc.leaf_particles[num_internal_nodes + global_id] = leaf_particles;
     pc.unsorted_leaf_particles[global_id] = leaf_particles;

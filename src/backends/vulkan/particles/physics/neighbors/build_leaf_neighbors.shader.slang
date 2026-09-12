@@ -6,6 +6,7 @@ const uint MAX_NEIGHBOR_CAPACITY = 256;
 const uint QUEUE_MEMORY_PER_WORKGROUP = 128;
 
 import HilbertHelpers;
+import NodeBoundingBox;
 import BoundingBox;
 import NeighborRange;
 import LeafParticles;
@@ -18,7 +19,7 @@ struct PushConsts {
   Ptr<LeafParticles, Access.Read> unsorted_leaf_particles;
   Ptr<float4, Access.Read> positions;
   Ptr<uint32_t, Access.Read> leaf_count;
-  Ptr<BoundingBox, Access.Read> node_bounding_boxes;
+  Ptr<NodeBoundingBox, Access.Read> node_bounding_boxes;
   
   
 
@@ -186,10 +187,10 @@ func traverse(
         
         if(is_valid_source){
             node_first_child_idx = pc.node_first_child[node_idx];
-            const BoundingBox node_box = pc.node_bounding_boxes[node_idx];
+            const NodeBoundingBox node_box = pc.node_bounding_boxes[node_idx];
 
             const bool is_internal_node = node_first_child_idx != LEAF;
-            const bool intersects = leaf_bounding_box.intersects(node_box);
+            const bool intersects = node_box.intersects(leaf_bounding_box);
 
             node_split = intersects && is_internal_node;
             const bool is_direct = intersects && !is_internal_node && (pc.leaf_particles[node_idx].particle_count > 0); 

@@ -1,4 +1,4 @@
-mod leaves_histogram;
+mod leaf_offset_generator;
 pub mod octree;
 mod octree_constructor;
 pub mod octree_data;

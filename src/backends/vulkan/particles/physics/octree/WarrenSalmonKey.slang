@@ -1,8 +1,7 @@
 module WarrenSalmonKey;
 
 import HilbertHelpers;
-import BoundingBox;
-
+import NodeBoundingBox;
 
 // Converts an SFC key to Warren Salmon format
 [ForceInline]
@@ -16,7 +15,7 @@ public func convert_key_to_warren_salmon(const uint32_t key, const uint32_t leve
 
 // Decodes a Warren-Salmon key to SFC, and returns the bounding box of the key. 
 [ForceInline]
-public func decode_warren_salmon_key(const uint key, const float world_size, const float4 world_min, const uint MAX_LEVELS) -> BoundingBox 
+public func decode_warren_salmon_key(const uint key, const float world_size, const float4 world_min, const uint MAX_LEVELS) -> NodeBoundingBox 
 {
     const uint node_level = firstbithigh(key) / 3;
     const uint path = key ^ (1u << (3u * node_level));
@@ -40,11 +39,13 @@ public func decode_warren_salmon_key(const uint key, const float world_size, con
     const float cell_size = world_size / grid_res;
     const float physical_node_size = cell_size * float(node_size_3d);
 
-    BoundingBox bounding_box;
-    bounding_box.min = world_min + float4(grid_pos, 0.0) * cell_size;
-    bounding_box.max = bounding_box.min + float4(physical_node_size);
-    
-    return bounding_box;
+    const float3 node_min =
+        world_min.xyz + float3(grid_pos) * cell_size;
+
+    return NodeBoundingBox(
+        node_min,
+        physical_node_size
+    );
 }
 
 // Computes the smallest possible Warren-Salmon key for the given level

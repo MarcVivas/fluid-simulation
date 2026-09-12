@@ -6,7 +6,7 @@ struct PushConsts {
     Ptr<uint32_t, Access.Read> leaf_count;
     Ptr<uint32_t, Access.Read> cornerstone_array;
     Ptr<uint32_t, Access.Read> keys;
-    Ptr<uint32_t, Access.ReadWrite> leaves_histogram;
+    Ptr<uint32_t, Access.ReadWrite> leaf_offsets;
     uint32_t num_keys;
 }
 
@@ -23,18 +23,16 @@ func main(const uint global_id : SV_DispatchThreadID){
     if(global_id >= num_leaves) return; 
 
     // Get the key boundaries of this leaf
-    const uint32_t left_key_boundary = pc.cornerstone_array[global_id];
-    const uint32_t right_key_boundary = pc.cornerstone_array[global_id + 1];
+    const uint32_t boundary = pc.cornerstone_array[global_id];
 
     // Binary search to find which elements fall into this range
-    const uint32_t start_idx = binary_search(left_key_boundary, pc.keys, pc.num_keys);
-    const uint32_t end_idx = binary_search(right_key_boundary, pc.keys, pc.num_keys);
-
-    // Compute the number of elements in the leaf
-    const uint32_t count = end_idx - start_idx;
+    pc.leaf_offsets[global_id] = binary_search(boundary, pc.keys, pc.num_keys);
 
     // Store count to global memory
-    pc.leaves_histogram[global_id] = count; 
+
+    if(global_id ==  num_leaves -1){
+        pc.leaf_offsets[num_leaves] = pc.num_keys;         
+    }
 
 }
 

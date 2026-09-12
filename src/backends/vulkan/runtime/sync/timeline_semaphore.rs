@@ -5,21 +5,21 @@ use ash::{prelude::VkResult, vk};
 use crate::backends::vulkan::runtime::core::VulkanContext;
 
 pub struct TimelineSemaphore {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     semaphore: vk::Semaphore,
 }
 
 impl TimelineSemaphore {
-    pub fn new(vk_core: Arc<VulkanContext>, initial_value: u64) -> Result<Self, vk::Result> {
+    pub fn new(vk_context: Arc<VulkanContext>, initial_value: u64) -> Result<Self, vk::Result> {
         let mut semaphore_type_info = vk::SemaphoreTypeCreateInfo::default()
             .semaphore_type(vk::SemaphoreType::TIMELINE)
             .initial_value(initial_value);
 
         let semaphore_info = vk::SemaphoreCreateInfo::default().push_next(&mut semaphore_type_info);
 
-        let semaphore = unsafe { vk_core.device().create_semaphore(&semaphore_info, None)? };
+        let semaphore = unsafe { vk_context.device().create_semaphore(&semaphore_info, None)? };
 
-        Ok(Self { vk_core, semaphore })
+        Ok(Self { vk_context, semaphore })
     }
 
     /// Blocks the CPU (host) thread until the semaphore reaches the target value
@@ -32,7 +32,7 @@ impl TimelineSemaphore {
             .values(&values);
 
         unsafe {
-            self.vk_core
+            self.vk_context
                 .device()
                 .wait_semaphores(&wait_info, timeout_ns)
         }
@@ -70,7 +70,7 @@ impl TimelineSemaphore {
 impl Drop for TimelineSemaphore {
     fn drop(&mut self) {
         unsafe {
-            self.vk_core
+            self.vk_context
                 .device()
                 .destroy_semaphore(self.semaphore, None);
         }

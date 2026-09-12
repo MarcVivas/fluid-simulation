@@ -1,27 +1,27 @@
 use criterion::{BenchmarkId, Criterion, Throughput};
-use engine::backends::vulkan::particles::physics::dfsph::density_factor_compute::DensityFactorCompute;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
-use engine::backends::vulkan::runtime::profiler::GpuProfiler;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::dfsph::density_factor_compute::DensityFactorCompute;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::runtime::profiler::GpuProfiler;
 use std::{sync::Arc, time::Duration};
 
 use crate::gpu_benches::gpu_bench_utils::execute_and_profile;
 
 // Import your algorithms and simulation structures
-use engine::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
-use engine::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
-use engine::backends::vulkan::particles::ParticleStorage;
-use engine::backends::vulkan::particles::physics::neighbors::NeighborList;
-use engine::backends::vulkan::particles::physics::octree::octree::Octree;
-use engine::backends::vulkan::particles::physics::reorder::ParticleReorderer;
-use engine::world::particles::physics_config::PhysicsConfig;
+use gpu_fluid_simulation::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
+use gpu_fluid_simulation::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use gpu_fluid_simulation::backends::vulkan::particles::ParticleStorage;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::neighbors::NeighborList;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::octree::Octree;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::reorder::ParticleReorderer;
+use gpu_fluid_simulation::world::particles::physics_config::PhysicsConfig;
 
 pub fn bench_density_compute(criterion: &mut Criterion) {
-    VkHeadless::run(|engine, vk_core, _rng| {
+    VkHeadless::run(|engine, vk_context, _rng| {
         // Initialize profiler
         let profiler =
-            GpuProfiler::new(vk_core.clone(), 10, 1).expect("failed to create GPU profiler");
+            GpuProfiler::new(vk_context.clone(), 10, 1).expect("failed to create GPU profiler");
 
         let mut group = criterion.benchmark_group("Density_Compute_Group");
         group.warm_up_time(Duration::from_secs(1));
@@ -33,7 +33,7 @@ pub fn bench_density_compute(criterion: &mut Criterion) {
 
         // Create, populate, and build structures on the GPU once before timing starts
         let (mut density_compute, particles, _octree, neighbor_list, physics_config) =
-            prepare_gpu_resources(vk_core, engine, num_particles);
+            prepare_gpu_resources(vk_context, engine, num_particles);
 
         let label = "Density compute";
 
@@ -44,9 +44,9 @@ pub fn bench_density_compute(criterion: &mut Criterion) {
                 for _ in 0..iters {
                     // Only timing the DensityCompute execution
                     total_gpu_ms +=
-                        execute_and_profile(vk_core, engine, &profiler, label, |cmd_buffer| {
+                        execute_and_profile(vk_context, engine, &profiler, label, |cmd_buffer| {
                             density_compute.execute(
-                                vk_core,
+                                vk_context,
                                 cmd_buffer,
                                 &neighbor_list,
                                 &particles,
@@ -67,7 +67,7 @@ pub fn bench_density_compute(criterion: &mut Criterion) {
 /// Prepares the particles, builds the spatial index, and generates the neighbor list
 /// on the GPU so the density kernel can run on realistic simulation data.
 fn prepare_gpu_resources(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     num_particles: u32,
 ) -> (
@@ -77,7 +77,7 @@ fn prepare_gpu_resources(
     NeighborList,
     PhysicsConfig,
 ) {
-    let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
 
     let search_radius = 2.;
     let physics_config = PhysicsConfig::new(search_radius);
@@ -90,9 +90,9 @@ fn prepare_gpu_resources(
     let mut particles = ParticleStorage::new(
         num_particles as usize,
         &glam::Vec3::new(world_size, world_size, world_size),
-        vk_core,
+        vk_context,
         cmd_pool,
-        engine::world::particles::ParticleInitPreset::CollidingBlocks,
+        gpu_fluid_simulation::world::particles::ParticleInitPreset::CollidingBlocks,
         search_radius,
     )
     .expect("Failed to initialize ParticleStorage");
@@ -100,15 +100,15 @@ fn prepare_gpu_resources(
     let max_levels = Octree::max_levels();
 
     let hilbert_encoder =
-        HilbertEncoder::new(vk_core, max_levels).expect("Failed to initialize HilbertEncoder");
-    let sorting_system = GpuKVRadixSort::new(vk_core, cmd_pool, num_particles, None)
+        HilbertEncoder::new(vk_context, max_levels).expect("Failed to initialize HilbertEncoder");
+    let sorting_system = GpuKVRadixSort::new(vk_context, cmd_pool, num_particles, None)
         .expect("Failed to initialize GpuKVRadixSort");
     let particle_reorderer =
-        ParticleReorderer::new(vk_core).expect("Failed to initialize ParticleReorderer");
+        ParticleReorderer::new(vk_context).expect("Failed to initialize ParticleReorderer");
     let mut octree =
-        Octree::new(vk_core, cmd_pool, num_particles).expect("Failed to initialize Octree");
+        Octree::new(vk_context, cmd_pool, num_particles).expect("Failed to initialize Octree");
     let neighbor_list = NeighborList::new(
-        vk_core,
+        vk_context,
         cmd_pool,
         num_particles as usize,
         octree.max_expected_leaves(),
@@ -116,7 +116,7 @@ fn prepare_gpu_resources(
         max_levels,
     )
     .expect("Failed to initialize NeighborList");
-    let density_compute = DensityFactorCompute::new(vk_core).expect("Failed to initialize DensityCompute");
+    let density_compute = DensityFactorCompute::new(vk_context).expect("Failed to initialize DensityCompute");
 
     // Prepare dependencies for the density compute kernel
     engine
@@ -124,7 +124,7 @@ fn prepare_gpu_resources(
             let particle_data = particles.buffers();
 
             hilbert_encoder.dispatch(
-                vk_core,
+                vk_context,
                 num_particles,
                 world_min,
                 world_size,
@@ -135,19 +135,19 @@ fn prepare_gpu_resources(
             );
 
             sorting_system.sort(
-                vk_core,
+                vk_context,
                 &particle_data.hilbert_keys,
                 &particle_data.particle_indexes,
                 cmd_buffer,
                 num_particles as usize,
             );
 
-            particle_reorderer.execute(vk_core, particle_data, cmd_buffer);
+            particle_reorderer.execute(vk_context, particle_data, cmd_buffer);
 
             particles.buffers_mut().swap();
 
             octree.build(
-                vk_core,
+                vk_context,
                 cmd_buffer,
                 &particles.buffers().hilbert_keys,
                 false,
@@ -156,7 +156,7 @@ fn prepare_gpu_resources(
             );
 
             neighbor_list.build(
-                vk_core,
+                vk_context,
                 cmd_buffer,
                 &octree,
                 particles.buffers(),
@@ -171,7 +171,7 @@ fn prepare_gpu_resources(
         .submit_without_signaling(&frame_pacer)
         .expect("failed to submit density benchmark commands");
     unsafe {
-        vk_core.device().device_wait_idle().unwrap();
+        vk_context.device().device_wait_idle().unwrap();
     }
 
     (

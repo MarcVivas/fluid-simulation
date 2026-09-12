@@ -6,14 +6,14 @@ use ash::vk;
 use std::sync::Arc;
 
 pub struct GraphicsPipeline {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     graphics_pipeline: vk::Pipeline,
     pipeline_layout: PipelineLayout,
 }
 
 impl GraphicsPipeline {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         render_target: &WindowRenderTarget,
         topology: Option<vk::PrimitiveTopology>,
         vertex_input_state_info: Option<vk::PipelineVertexInputStateCreateInfo>,
@@ -70,7 +70,7 @@ impl GraphicsPipeline {
 
         let surface_format = render_target
             .surface()
-            .get_physical_device_surface_formats(*vk_core.physical_device())?
+            .get_physical_device_surface_formats(*vk_context.physical_device())?
             .into_iter()
             .next()
             .context("surface returned no supported formats")?;
@@ -97,7 +97,7 @@ impl GraphicsPipeline {
             .push_next(&mut pipeline_rendering_info);
 
         let graphics_pipeline = unsafe {
-            vk_core.device().create_graphics_pipelines(
+            vk_context.device().create_graphics_pipelines(
                 vk::PipelineCache::null(),
                 &[graphics_pipeline_create_info],
                 None,
@@ -106,7 +106,7 @@ impl GraphicsPipeline {
         .map_err(|(_, error)| error)?[0];
 
         Ok(Self {
-            vk_core,
+            vk_context,
             graphics_pipeline,
             pipeline_layout,
         })
@@ -123,7 +123,7 @@ impl GraphicsPipeline {
 
 impl Drop for GraphicsPipeline {
     fn drop(&mut self) {
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
         unsafe {
             device.destroy_pipeline(self.graphics_pipeline, None);
         };

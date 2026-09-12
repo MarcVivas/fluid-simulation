@@ -16,14 +16,14 @@ pub struct GpuProfiler {
 
 impl GpuProfiler {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         max_zones: u32,
         frames_in_flight: usize,
     ) -> Result<Self> {
         let properties = unsafe {
-            vk_core
+            vk_context
                 .instance()
-                .get_physical_device_properties(*vk_core.physical_device())
+                .get_physical_device_properties(*vk_context.physical_device())
         };
 
         let timestamp_period = properties.limits.timestamp_period;
@@ -36,7 +36,7 @@ impl GpuProfiler {
         let mut query_pools = Vec::with_capacity(frames_in_flight);
 
         for _ in 0..frames_in_flight {
-            let query_pool = QueryPool::new(vk_core.clone(), create_info)?;
+            let query_pool = QueryPool::new(vk_context.clone(), create_info)?;
             query_pools.push(query_pool);
         }
 

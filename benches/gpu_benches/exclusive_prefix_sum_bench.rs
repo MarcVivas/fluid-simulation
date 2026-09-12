@@ -1,20 +1,20 @@
 use crate::gpu_benches::gpu_bench_utils::execute_and_profile;
 use criterion::{BenchmarkId, Criterion, Throughput};
-use engine::backends::vulkan::algorithms::exclusive_prefix_sum::ExclusivePrefixSum;
-use engine::backends::vulkan::runtime::buffers::VkBuffer;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
-use engine::backends::vulkan::runtime::profiler::GpuProfiler;
-use engine::backends::vulkan::runtime::shaders::traits::GpuTask;
+use gpu_fluid_simulation::backends::vulkan::algorithms::exclusive_prefix_sum::ExclusivePrefixSum;
+use gpu_fluid_simulation::backends::vulkan::runtime::buffers::VkBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::runtime::profiler::GpuProfiler;
+use gpu_fluid_simulation::backends::vulkan::runtime::shaders::GpuTask;
 use rand::{Rng, rngs::ThreadRng};
 use std::{sync::Arc, time::Duration};
 
 pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion) {
-    VkHeadless::run(|engine, vk_core, mut rng| {
+    VkHeadless::run(|engine, vk_context, mut rng| {
         // Initialize profiler (Max 10 zones, 1 frame in flight for benchmarking)
         let profiler =
-            GpuProfiler::new(vk_core.clone(), 10, 1).expect("failed to create GPU profiler");
+            GpuProfiler::new(vk_context.clone(), 10, 1).expect("failed to create GPU profiler");
 
         let mut group = criterion.benchmark_group("GPU_Exclusive_prefix_sum");
         group.warm_up_time(Duration::from_secs(1));
@@ -23,7 +23,7 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion) {
         let label = ExclusivePrefixSum::profiling_label();
 
         let max_size = 1 << 24;
-        let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, max_size)
+        let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_context, max_size)
             .expect("Failed to initialize ExclusivePrefixSum");
 
         for exponent in 10u32..=24u32 {
@@ -32,7 +32,7 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion) {
             let benchmark_id = BenchmarkId::new(label, size);
             group.throughput(Throughput::Bytes(size as u64 * size_of::<u32>() as u64));
 
-            let data_buffer = prepare_gpu_resources(vk_core, engine, &mut rng, size);
+            let data_buffer = prepare_gpu_resources(vk_context, engine, &mut rng, size);
 
             group.bench_with_input(benchmark_id, &size, |b, &_| {
                 // Using iter_custom to report only GPU time
@@ -41,9 +41,9 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion) {
 
                     for _ in 0..iters {
                         total_gpu_ms +=
-                            execute_and_profile(vk_core, engine, &profiler, label, |cmd_buffer| {
+                            execute_and_profile(vk_context, engine, &profiler, label, |cmd_buffer| {
                                 exclusive_prefix_sum.dispatch(
-                                    vk_core,
+                                    vk_context,
                                     cmd_buffer,
                                     &data_buffer,
                                     &data_buffer,
@@ -63,7 +63,7 @@ pub fn bench_exclusive_prefix_sum(criterion: &mut Criterion) {
 
 // Helper to keep the bench code clean
 fn prepare_gpu_resources(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     rng: &mut ThreadRng,
     num_elements: u32,
@@ -71,11 +71,11 @@ fn prepare_gpu_resources(
     let rng_data: Vec<u32> = (0..num_elements).map(|_| rng.random_range(0..=1)).collect();
 
     let buffer = VkBuffer::new_gpu_only(
-        vk_core,
+        vk_context,
         &rng_data,
         "Bench Buffer",
         engine.command_pool(),
-        *vk_core.compute_queue(),
+        *vk_context.compute_queue(),
     )
     .unwrap();
     buffer

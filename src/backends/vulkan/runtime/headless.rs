@@ -5,7 +5,7 @@ use rand::rngs::ThreadRng;
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct VkHeadless {
-    pub vk_core: Arc<VulkanContext>,
+    pub vk_context: Arc<VulkanContext>,
     pub engine: ComputeExecutor,
     pub mutex: Mutex<()>, // Mutex to prevent multiple tests use the same queue
 }
@@ -15,16 +15,16 @@ impl VkHeadless {
         static CONTEXT: OnceLock<VkHeadless> = OnceLock::new();
         CONTEXT.get_or_init(|| {
             // Initialize headless vulkan
-            let vk_core =
+            let vk_context =
                 Arc::new(init_headless().expect("failed to initialize headless Vulkan context"));
 
             // Initialize the compute engine
-            let engine = ComputeExecutor::new(vk_core.clone(), Self::frames_in_flight())
+            let engine = ComputeExecutor::new(vk_context.clone(), Self::frames_in_flight())
                 .expect("Failed to create Compute engine");
 
             // Return the TestContext
             VkHeadless {
-                vk_core: vk_core,
+                vk_context: vk_context,
                 mutex: Mutex::new(()),
                 engine,
             }
@@ -40,10 +40,10 @@ impl VkHeadless {
             .mutex
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let vk_core = &ctx.vk_core;
+        let vk_context = &ctx.vk_context;
         let engine = &ctx.engine;
         let rng = rand::rng();
-        code(engine, vk_core, rng);
+        code(engine, vk_context, rng);
     }
 
     pub fn frames_in_flight() -> usize {

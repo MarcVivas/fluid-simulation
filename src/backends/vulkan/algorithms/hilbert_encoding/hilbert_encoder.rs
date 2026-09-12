@@ -9,7 +9,7 @@ use crate::backends::vulkan::runtime::compute::ComputeSystemBuilder;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::shaders::ShaderModule;
 use crate::backends::vulkan::runtime::shaders::SpecializationConstants;
-use crate::backends::vulkan::runtime::shaders::traits::GpuTask;
+use crate::backends::vulkan::runtime::shaders::GpuTask;
 use ash::vk::{self};
 use bytemuck::{Pod, Zeroable};
 use glam::Vec4;
@@ -40,9 +40,9 @@ pub struct HilbertEncodingPushConstants {
 }
 
 impl HilbertEncoder {
-    pub fn new(vk_core: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
         let (hilbert_encoding_pass, hilbert_encoding_shader) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<HilbertEncodingPushConstants>()
                 .specialization(
@@ -60,7 +60,7 @@ impl HilbertEncoder {
 
     pub fn dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         num_points: u32,
         world_min: Vec4,
         world_size: f32,
@@ -85,7 +85,7 @@ impl HilbertEncoder {
         };
 
         self.hilbert_encoding_pass.dispatch_compute(
-            vk_core,
+            vk_context,
             command_buffer,
             thread_group_counts,
             &[],
@@ -94,7 +94,7 @@ impl HilbertEncoder {
         );
 
         barrier(
-            vk_core,
+            vk_context,
             command_buffer,
             hilbert_keys.vk_buffer(),
             points_ids.vk_buffer(),
@@ -103,7 +103,7 @@ impl HilbertEncoder {
 }
 
 fn barrier(
-    vk_core: &VulkanContext,
+    vk_context: &VulkanContext,
     cmd_buffer: &CommandBuffer,
     morton_codes: vk::Buffer,
     object_indices: vk::Buffer,
@@ -120,7 +120,7 @@ fn barrier(
             vk::AccessFlags2::SHADER_STORAGE_READ,
         ),
     ];
-    cmd_buffer.pipeline_memory_barrier(vk_core.device(), &buffer_memory_barriers, &[]);
+    cmd_buffer.pipeline_memory_barrier(vk_context.device(), &buffer_memory_barriers, &[]);
 }
 
 impl GpuTask for HilbertEncoder {

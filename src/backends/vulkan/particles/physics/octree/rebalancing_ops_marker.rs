@@ -35,9 +35,9 @@ struct RebalancingOpsMarkerPushConstants {
 }
 
 impl RebalancingOpsMarker {
-    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (rebalancing_ops_marker, shader_module) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<RebalancingOpsMarkerPushConstants>()
                 .specialization(SpecializationConstants::default().u32(THREAD_GROUP_SIZE))
@@ -51,7 +51,7 @@ impl RebalancingOpsMarker {
 
     pub fn indirect_dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree_data: &OctreeData,
         maintainance_mode: bool,
@@ -69,7 +69,7 @@ impl RebalancingOpsMarker {
 
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves().vk_buffer();
         self.rebalancing_ops_marker.indirect_dispatch(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &[],
             &[],

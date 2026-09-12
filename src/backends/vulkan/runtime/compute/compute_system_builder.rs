@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 /// A builder that helps create gpu compute systems.
 pub struct ComputeSystemBuilder {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     shader: ShaderCode,
     specialization: SpecializationConstants,
     entry_points: Vec<&'static str>,
@@ -26,9 +26,9 @@ pub struct ComputeSystemResources {
 }
 
 impl ComputeSystemBuilder {
-    pub fn new(vk_core: Arc<VulkanContext>, shader: ShaderCode) -> ComputeSystemBuilder {
+    pub fn new(vk_context: Arc<VulkanContext>, shader: ShaderCode) -> ComputeSystemBuilder {
         Self {
-            vk_core,
+            vk_context,
             shader,
             specialization: SpecializationConstants::default(),
             entry_points: vec![],
@@ -87,7 +87,7 @@ impl ComputeSystemBuilder {
             return Err(anyhow!("ComputeSystemBuilder::build() failed"));
         }
 
-        let shader = ShaderModule::new(self.vk_core.clone(), self.shader)?;
+        let shader = ShaderModule::new(self.vk_context.clone(), self.shader)?;
 
         let descriptor_config = [DescriptorSetLayoutConfig {
             bindings: &self.bindings,
@@ -111,7 +111,7 @@ impl ComputeSystemBuilder {
         let specialization_info = self.specialization.info();
         for entry_point in &self.entry_points {
             let pipeline_layout = PipelineLayout::new(
-                self.vk_core.clone(),
+                self.vk_context.clone(),
                 &descriptor_config,
                 &push_constant_ranges,
             )?;
@@ -129,7 +129,7 @@ impl ComputeSystemBuilder {
                 .layout(pipeline_layout.vk_pipeline_layout());
 
             let pipeline = unsafe {
-                self.vk_core.device().create_compute_pipelines(
+                self.vk_context.device().create_compute_pipelines(
                     vk::PipelineCache::null(),
                     &[pipeline_info],
                     None,
@@ -138,7 +138,7 @@ impl ComputeSystemBuilder {
             .map_err(|(_, error)| error)
             .context("Failed to create compute pipeline")?[0];
 
-            let compute_pass = ComputePass::new(self.vk_core.clone(), pipeline, pipeline_layout);
+            let compute_pass = ComputePass::new(self.vk_context.clone(), pipeline, pipeline_layout);
 
             compute_passes.push(compute_pass);
         }

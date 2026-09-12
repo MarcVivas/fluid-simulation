@@ -6,27 +6,27 @@ use ash::vk::CommandPoolCreateInfo;
 use std::sync::Arc;
 
 pub struct CommandPool {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     command_pool: vk::CommandPool,
 }
 
 impl CommandPool {
-    pub fn new(vk_core: Arc<VulkanContext>, cmd_pool_info: &CommandPoolCreateInfo) -> Result<Self> {
-        let command_pool = unsafe { vk_core.device().create_command_pool(cmd_pool_info, None) }?;
+    pub fn new(vk_context: Arc<VulkanContext>, cmd_pool_info: &CommandPoolCreateInfo) -> Result<Self> {
+        let command_pool = unsafe { vk_context.device().create_command_pool(cmd_pool_info, None) }?;
 
         Ok(Self {
-            vk_core,
+            vk_context,
             command_pool,
         })
     }
 
     /// Convenience constructor for pools where command buffers are frequently reset individually.
-    pub fn resetable(vk_core: Arc<VulkanContext>, queue_family_index: u32) -> Result<Self> {
+    pub fn resetable(vk_context: Arc<VulkanContext>, queue_family_index: u32) -> Result<Self> {
         let info = vk::CommandPoolCreateInfo::default()
             .queue_family_index(queue_family_index)
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
-        Self::new(vk_core, &info)
+        Self::new(vk_context, &info)
     }
 
     pub fn allocate_command_buffers(
@@ -40,7 +40,7 @@ impl CommandPool {
             .command_buffer_count(count);
 
         let vk_cmd_buffers = unsafe {
-            self.vk_core
+            self.vk_context
                 .device()
                 .allocate_command_buffers(&allocate_info)?
         };
@@ -57,7 +57,7 @@ impl CommandPool {
 
 impl Drop for CommandPool {
     fn drop(&mut self) {
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
         unsafe {
             device.destroy_command_pool(self.command_pool, None);
         }

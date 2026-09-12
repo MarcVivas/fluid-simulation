@@ -1,5 +1,6 @@
 mod leaf_offset_generator;
-pub mod octree;
+mod octree;
+pub use octree::Octree;
 mod octree_constructor;
 pub mod octree_data;
 mod rebalancer;

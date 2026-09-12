@@ -1,6 +1,6 @@
 use ash::vk;
 
-use crate::backends::vulkan::algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
+use crate::backends::vulkan::algorithms::sorting::kv_radix_sort::RadixSortPayload;
 use crate::backends::vulkan::runtime::buffers::IndirectBuffer;
 use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::core::VulkanContext;
@@ -32,7 +32,7 @@ pub struct SortingMetadata {
 
 impl<T: RadixSortPayload> RadixSortData<T> {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         max_keys: u32,
         keys_bit_count: Option<u32>,
@@ -41,25 +41,25 @@ impl<T: RadixSortPayload> RadixSortData<T> {
         bin_count: u32,
     ) -> anyhow::Result<Self> {
         let histogram_buffer = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             Self::calculate_histogram_len(max_keys, block_size, bin_count) as usize,
             "Histogram buffer",
         )?;
 
         let keys_b_buffer =
-            VkBuffer::new_gpu_only_uninitialized(vk_core, max_keys as usize, "Keys b buffer")?;
+            VkBuffer::new_gpu_only_uninitialized(vk_context, max_keys as usize, "Keys b buffer")?;
 
         let payload_b_buffer =
-            VkBuffer::new_gpu_only_uninitialized(vk_core, max_keys as usize, "Payload b buffer")?;
+            VkBuffer::new_gpu_only_uninitialized(vk_context, max_keys as usize, "Payload b buffer")?;
 
         let reduce_table_buffer = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             Self::calculate_reduce_table_len(max_keys, block_size, bin_count) as usize,
             "Reduce table buffer",
         )?;
 
         let scan_scratch_buffer = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             Self::calculate_scan_scratch_len(max_keys, block_size, bin_count) as usize,
             "Scan scratch buffer",
         )?;
@@ -67,9 +67,9 @@ impl<T: RadixSortPayload> RadixSortData<T> {
         let keys_bit_count = keys_bit_count.unwrap_or(32);
         let num_passes = Self::calculate_number_of_passes(keys_bit_count, bits_per_pass);
 
-        let metadata_buffer = VkBuffer::new_gpu_only_uninitialized(vk_core, 1, "Sorting metadata")?;
+        let metadata_buffer = VkBuffer::new_gpu_only_uninitialized(vk_context, 1, "Sorting metadata")?;
         let indirect_dispatch_buffer =
-            IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0); 5])?;
+            IndirectBuffer::new(vk_context, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0); 5])?;
 
         Ok(Self {
             keys_bit_count,

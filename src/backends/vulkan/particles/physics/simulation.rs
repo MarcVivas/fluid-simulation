@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use ash::vk;
 
 use crate::backends::vulkan::particles::physics::neighbors::NeighborList;
-use crate::backends::vulkan::particles::physics::octree::octree::Octree;
-use crate::backends::vulkan::particles::physics::solver::ParticleSolver;
+use crate::backends::vulkan::particles::physics::octree::Octree;
+use crate::backends::vulkan::particles::physics::ParticleSolver;
 use crate::backends::vulkan::runtime::compute::ComputeExecutor;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::frame::frame_pacer::FramePacer;
@@ -59,7 +59,7 @@ impl ParticlePhysics {
 
     fn record_update(
         &mut self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         gpu_world: &mut VulkanWorldResources,
         frame_pacer: &FramePacer,
         gpu_profiler: &GpuProfiler,
@@ -73,14 +73,14 @@ impl ParticlePhysics {
 
         self.compute_executor
             .record_commands(frame_pacer, |cmd_buffer| {
-                let state = gpu_world.state();
+                let bounds = gpu_world.bounds();
 
                 self.solver.update(
-                    vk_core,
+                    vk_context,
                     cmd_buffer,
                     gpu_world.particles_mut(),
-                    state.world_size,
-                    state.world_min,
+                    bounds.world_size,
+                    bounds.world_min,
                     &mut self.octree,
                     &self.neighbor_list,
                     gpu_profiler,
@@ -93,13 +93,13 @@ impl ParticlePhysics {
 
     pub fn update(
         &mut self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         gpu_world: &mut VulkanWorldResources,
         frame_pacer: &FramePacer,
         gpu_profiler: &GpuProfiler,
         paused: bool,
     ) -> Result<()> {
-        self.record_update(vk_core, gpu_world, frame_pacer, gpu_profiler, paused)?;
+        self.record_update(vk_context, gpu_world, frame_pacer, gpu_profiler, paused)?;
         Ok(())
     }
 

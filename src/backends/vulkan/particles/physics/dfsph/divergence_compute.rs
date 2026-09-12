@@ -41,9 +41,9 @@ struct DivergenceComputePushConstants {
 }
 
 impl DivergenceCompute {
-    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (divergence_compute_pass, divergence_compute_shader) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .specialization(
                     SpecializationConstants::default()
@@ -60,13 +60,13 @@ impl DivergenceCompute {
 
     pub fn execute(
         &mut self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         command_buffer: &CommandBuffer,
         neighbor_list: &NeighborList,
         particles: &ParticleStorage,
         physics_config: &PhysicsConfig,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
@@ -93,7 +93,7 @@ impl DivergenceCompute {
         };
 
         self.divergence_compute_pass.dispatch_compute(
-            vk_core,
+            vk_context,
             command_buffer,
             [num_workgroups, 1, 1],
             &[],

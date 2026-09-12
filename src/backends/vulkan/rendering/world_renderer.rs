@@ -22,15 +22,15 @@ pub struct VulkanWorldRenderer {
 
 impl VulkanWorldRenderer {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         window: &winit::window::Window,
         surface: Surface,
         frames_in_flight: usize,
     ) -> Result<Self> {
-        let renderer = FrameRenderer::new(vk_core.clone(), window, surface, frames_in_flight)
+        let renderer = FrameRenderer::new(vk_context.clone(), window, surface, frames_in_flight)
             .context("Failed to create renderer")?;
 
-        let particle_renderer = ParticleRenderer::new(vk_core.clone(), renderer.render_target())
+        let particle_renderer = ParticleRenderer::new(vk_context.clone(), renderer.render_target())
             .context("Failed to create particle renderer")?;
 
         let main_pass = MainPass::new();

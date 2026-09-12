@@ -5,7 +5,7 @@ use winit::window::Window;
 
 use crate::backends::gpu_backend::GpuBackend;
 use crate::backends::vulkan::particles::physics::ParticlePhysics;
-use crate::backends::vulkan::rendering::world_renderer::VulkanWorldRenderer;
+use crate::backends::vulkan::rendering::VulkanWorldRenderer;
 use crate::backends::vulkan::runtime::compute::ComputeExecutor;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::core::surface::Surface;

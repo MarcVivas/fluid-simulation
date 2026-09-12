@@ -11,9 +11,9 @@ pub struct FrameData {
 }
 
 impl FrameData {
-    pub fn new(vk_core: Arc<VulkanContext>, command_buffer: CommandBuffer) -> Result<Self> {
+    pub fn new(vk_context: Arc<VulkanContext>, command_buffer: CommandBuffer) -> Result<Self> {
         Ok(Self {
-            present_semaphore: BinarySemaphore::new(vk_core.clone())?,
+            present_semaphore: BinarySemaphore::new(vk_context.clone())?,
             command_buffer,
         })
     }

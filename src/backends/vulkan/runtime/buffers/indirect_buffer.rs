@@ -12,7 +12,7 @@ pub struct IndirectBuffer {
 
 impl IndirectBuffer {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         data: &[glam::UVec4],
     ) -> anyhow::Result<Self> {
@@ -38,12 +38,12 @@ impl IndirectBuffer {
         };
 
         let buffer = VkBuffer::new(
-            vk_core,
+            vk_context,
             data,
             buffer_create_info,
             allocation_create_desc,
             cmd_pool,
-            *vk_core.compute_queue(),
+            *vk_context.compute_queue(),
         )?;
 
         Ok(Self { buffer })

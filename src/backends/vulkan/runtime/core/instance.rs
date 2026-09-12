@@ -14,7 +14,7 @@ pub fn create_instance(
     entry: &Entry,
     required_extensions: &[*const c_char],
 ) -> anyhow::Result<Instance> {
-    let app_name = c"Vulkan";
+    let app_name = c"GPU Fluid Simulation";
     let app_info = vk::ApplicationInfo::default()
         .application_name(app_name)
         .application_version(0)
@@ -40,14 +40,12 @@ pub fn create_instance(
 
     let mut extension_names = required_extensions.to_vec();
 
-    #[cfg(debug_assertions)]
-    {
+    if cfg!(debug_assertions) {
         extension_names.push(debug_utils::NAME.as_ptr());
         extension_names.push(ash::ext::debug_report::NAME.as_ptr());
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    {
+    if cfg!(any(target_os = "macos", target_os = "ios")) {
         extension_names.push(ash::khr::portability_enumeration::NAME.as_ptr());
         extension_names.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
     }

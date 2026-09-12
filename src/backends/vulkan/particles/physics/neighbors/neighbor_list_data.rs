@@ -41,7 +41,7 @@ pub struct NeighborListData {
 
 impl NeighborListData {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         num_particles: usize,
         max_expected_leaves: u32,
@@ -52,35 +52,35 @@ impl NeighborListData {
             (max_neighbors_per_leaf * max_expected_leaves) as usize;
 
         let leaf_to_leaf_neighbors: VkBuffer<LeafParticles> = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             total_leaf_to_leaf_neighbors,
             "Leaf to leaf neighbors",
         )?;
 
         let processed_leaves_counter = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0],
             "Processed leaves counter",
             cmd_pool,
-            *vk_core.compute_queue(),
+            *vk_context.compute_queue(),
         )?;
         let allocator = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0],
             "Allocator",
             cmd_pool,
-            *vk_core.compute_queue(),
+            *vk_context.compute_queue(),
         )?;
 
         let particle_to_neighborhood: VkBuffer<NeighborRange> =
             VkBuffer::new_gpu_only_uninitialized(
-                vk_core,
+                vk_context,
                 num_particles,
                 "Particle to neighborhood",
             )?;
 
         let particle_to_particle_neighbors: VkBuffer<u32> = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             num_particles.div_ceil(PARTICLE_NEIGHBOR_TILE_SIZE)
                 * PARTICLE_NEIGHBOR_TILE_SIZE
                 * max_neighbors_per_particle as usize,

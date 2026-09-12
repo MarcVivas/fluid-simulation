@@ -1,12 +1,12 @@
-use engine::backends::vulkan::algorithms::sorting::radix_sort::RadixSort;
-use engine::backends::vulkan::runtime::buffers::VkBuffer;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::algorithms::sorting::radix_sort::RadixSort;
+use gpu_fluid_simulation::backends::vulkan::runtime::buffers::VkBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
 use rand::Rng;
 
 #[test]
 pub fn test_radix_sort() {
-    VkHeadless::run(|engine, vk_core, mut rng| {
-        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    VkHeadless::run(|engine, vk_context, mut rng| {
+        let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let count = 1400024;
 
         let mut input_array: Vec<u32> = (0..count)
@@ -16,19 +16,19 @@ pub fn test_radix_sort() {
             .collect();
 
         let input_buffer: VkBuffer<u32> = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &input_array,
             "Input",
             engine.command_pool(),
-            *vk_core.compute_queue(),
+            *vk_context.compute_queue(),
         )
         .unwrap();
 
-        let radix_sort = RadixSort::new(vk_core, count, Some(32)).unwrap();
+        let radix_sort = RadixSort::new(vk_context, count, Some(32)).unwrap();
 
         engine
             .record_commands(&frame_pacer, |cmd| {
-                radix_sort.sort(vk_core, &input_buffer, cmd);
+                radix_sort.sort(vk_context, &input_buffer, cmd);
             })
             .expect("failed to record radix-sort commands");
 
@@ -39,7 +39,7 @@ pub fn test_radix_sort() {
         input_array.sort();
 
         let actual_result: Vec<u32> = input_buffer
-            .read_back(vk_core, engine.command_pool())
+            .read_back(vk_context, engine.command_pool())
             .unwrap();
 
         assert_eq!(input_array, actual_result);

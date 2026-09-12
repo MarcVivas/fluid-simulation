@@ -1,5 +1,5 @@
 use crate::backends::vulkan::runtime::buffers::AllocatedBuffer;
-use crate::backends::vulkan::runtime::core::vk_core::VulkanContext;
+use crate::backends::vulkan::runtime::core::VulkanContext;
 use anyhow::{Result, anyhow};
 use ash::vk;
 use gpu_allocator::MemoryLocation;
@@ -17,7 +17,7 @@ pub struct VkBuffer<T: Copy> {
 
 impl<T: Copy> VkBuffer<T> {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         data: &[T],
         buffer_create_info: vk::BufferCreateInfo,
         allocation_create_desc: AllocationCreateDesc,
@@ -26,9 +26,9 @@ impl<T: Copy> VkBuffer<T> {
     ) -> Result<Self> {
         let len = data.len();
         let buffer_size = (len * size_of::<T>()) as vk::DeviceSize;
-        let device = vk_core.device();
+        let device = vk_context.device();
 
-        let staging_buffer = Self::create_staging_buffer(vk_core, buffer_size)?;
+        let staging_buffer = Self::create_staging_buffer(vk_context, buffer_size)?;
 
         // Copy data to the staging buffer
         let staging_data_ptr = staging_buffer
@@ -54,7 +54,7 @@ impl<T: Copy> VkBuffer<T> {
         };
 
         let allocated_buffer = AllocatedBuffer::new(
-            vk_core.clone(),
+            vk_context.clone(),
             &buffer_create_info,
             &allocation_create_desc,
         )?;
@@ -107,7 +107,7 @@ impl<T: Copy> VkBuffer<T> {
             device.free_command_buffers(command_pool, &[command_buffer]);
         }
 
-        let address: u64 = Self::get_address(vk_core, allocated_buffer.vk_buffer());
+        let address: u64 = Self::get_address(vk_context, allocated_buffer.vk_buffer());
 
         Ok(Self {
             buffer: allocated_buffer,
@@ -119,7 +119,7 @@ impl<T: Copy> VkBuffer<T> {
 
     /// To create buffers with uninitialized data.
     pub fn new_uninitialized(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         len: usize,
         buffer_create_info: vk::BufferCreateInfo,
         allocation_create_desc: AllocationCreateDesc,
@@ -133,12 +133,12 @@ impl<T: Copy> VkBuffer<T> {
         };
 
         let allocated_buffer = AllocatedBuffer::new(
-            vk_core.clone(),
+            vk_context.clone(),
             &buffer_create_info,
             &allocation_create_desc,
         )?;
 
-        let address: u64 = Self::get_address(vk_core, allocated_buffer.vk_buffer());
+        let address: u64 = Self::get_address(vk_context, allocated_buffer.vk_buffer());
 
         Ok(Self {
             buffer: allocated_buffer,
@@ -150,12 +150,12 @@ impl<T: Copy> VkBuffer<T> {
 
     /// Creates a buffer with uninitialized data that can be used for GPU only operations.
     pub fn new_gpu_only_uninitialized(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         len: usize,
         name: &str,
     ) -> Result<Self> {
-        let graphics_family = vk_core.graphics_queue_family_index();
-        let compute_family = vk_core.compute_queue_family_index();
+        let graphics_family = vk_context.graphics_queue_family_index();
+        let compute_family = vk_context.compute_queue_family_index();
 
         let (sharing_mode, queue_family_indices) = if graphics_family == compute_family {
             (vk::SharingMode::EXCLUSIVE, vec![])
@@ -184,19 +184,19 @@ impl<T: Copy> VkBuffer<T> {
             allocation_scheme: AllocationScheme::GpuAllocatorManaged,
         };
 
-        Self::new_uninitialized(vk_core, len, buffer_create_info, allocation_create_desc)
+        Self::new_uninitialized(vk_context, len, buffer_create_info, allocation_create_desc)
     }
 
     /// Creates a buffer with the given data that can be used for GPU only operations.
     pub fn new_gpu_only(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         data: &[T],
         name: &str,
         command_pool: vk::CommandPool,
         queue: vk::Queue,
     ) -> Result<Self> {
-        let graphics_family = vk_core.graphics_queue_family_index();
-        let compute_family = vk_core.compute_queue_family_index();
+        let graphics_family = vk_context.graphics_queue_family_index();
+        let compute_family = vk_context.compute_queue_family_index();
 
         let (sharing_mode, queue_family_indices) = if graphics_family == compute_family {
             (vk::SharingMode::EXCLUSIVE, vec![])
@@ -208,7 +208,7 @@ impl<T: Copy> VkBuffer<T> {
         };
 
         Self::new(
-            vk_core,
+            vk_context,
             data,
             vk::BufferCreateInfo::default()
                 .size((data.len() * size_of::<T>()) as vk::DeviceSize)
@@ -232,7 +232,7 @@ impl<T: Copy> VkBuffer<T> {
     }
 
     fn create_staging_buffer(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         buffer_size: vk::DeviceSize,
     ) -> Result<AllocatedBuffer> {
         let staging_buffer_create_info = vk::BufferCreateInfo {
@@ -251,7 +251,7 @@ impl<T: Copy> VkBuffer<T> {
         };
 
         let staging_buffer = AllocatedBuffer::new(
-            vk_core.clone(),
+            vk_context.clone(),
             &staging_buffer_create_info,
             &staging_alloc_create_desc,
         );
@@ -288,10 +288,10 @@ impl<T: Copy> VkBuffer<T> {
     #[allow(unused)]
     pub fn read_back(
         &self,
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         command_pool: vk::CommandPool,
     ) -> Result<Vec<T>> {
-        let device = vk_core.device();
+        let device = vk_context.device();
         let buffer_size = (self.len * size_of::<T>()) as vk::DeviceSize;
 
         // 1. Create a "Read" Staging Buffer (GpuToCpu)
@@ -309,7 +309,7 @@ impl<T: Copy> VkBuffer<T> {
         };
 
         let staging_buffer = AllocatedBuffer::new(
-            vk_core.clone(),
+            vk_context.clone(),
             &staging_buffer_create_info,
             &staging_alloc_desc,
         )?;
@@ -367,7 +367,7 @@ impl<T: Copy> VkBuffer<T> {
             let submit_info =
                 vk::SubmitInfo2::default().command_buffer_infos(&command_buffer_submit_infos);
 
-            device.queue_submit2(*vk_core.compute_queue(), &[submit_info], fence)?;
+            device.queue_submit2(*vk_context.compute_queue(), &[submit_info], fence)?;
             device.wait_for_fences(&[fence], true, u64::MAX)?;
 
             // 4. Map and Copy to Vec
@@ -393,9 +393,9 @@ impl<T: Copy> VkBuffer<T> {
         self.address
     }
 
-    fn get_address(vk_core: &Arc<VulkanContext>, buffer: vk::Buffer) -> u64 {
+    fn get_address(vk_context: &Arc<VulkanContext>, buffer: vk::Buffer) -> u64 {
         unsafe {
-            vk_core
+            vk_context
                 .buffer_device_address_loader()
                 .get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(buffer))
         }

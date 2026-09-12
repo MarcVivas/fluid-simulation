@@ -20,13 +20,13 @@ impl ParticleStorage {
     pub fn new(
         num_particles: usize,
         world_dim: &Vec3,
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         preset: ParticleInitPreset,
         search_radius: f32,
     ) -> anyhow::Result<Self> {
         let state = ParticleState::new(num_particles, world_dim, preset, search_radius);
-        Self::from_state(vk_core, cmd_pool, &state)
+        Self::from_state(vk_context, cmd_pool, &state)
     }
 
     pub fn positions_buffer(&self) -> &VkBuffer<Vec4> {
@@ -63,7 +63,7 @@ impl ParticleStorage {
     }
 
     pub fn from_state(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         state: &ParticleState,
     ) -> anyhow::Result<Self> {
@@ -86,9 +86,9 @@ impl ParticleStorage {
             .fold(0.0_f32, f32::max);
 
         let buffers = create_particle_data(
-            vk_core,
+            vk_context,
             cmd_pool,
-            *vk_core.compute_queue(),
+            *vk_context.compute_queue(),
             &state.positions,
             &state.velocities,
         )?;

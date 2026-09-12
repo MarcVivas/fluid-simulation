@@ -12,7 +12,7 @@ use crate::backends::vulkan::runtime::compute::ComputePass;
 use crate::backends::vulkan::runtime::compute::ComputeSystemBuilder;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::shaders::ShaderModule;
-use crate::backends::vulkan::runtime::shaders::traits::GpuTask;
+use crate::backends::vulkan::runtime::shaders::GpuTask;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
@@ -51,11 +51,11 @@ struct SortingPushConstants {
 
 impl RadixSort {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         max_keys: u32,
         keys_bit_count: Option<u32>,
     ) -> anyhow::Result<Self> {
-        let mut sorting_resources = ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+        let mut sorting_resources = ComputeSystemBuilder::new(vk_context.clone(), SHADER)
             .entry_points(&[
                 "count",
                 "scan_reduce_table",
@@ -67,7 +67,7 @@ impl RadixSort {
             .build_with_multiple_passes()?;
 
         let sorting_data = RadixSortData::new(
-            vk_core,
+            vk_context,
             max_keys,
             keys_bit_count,
             BITS_PER_PASS,
@@ -111,11 +111,11 @@ impl RadixSort {
 
     pub fn sort(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         keys: &VkBuffer<u32>,
         command_buffer: &CommandBuffer,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         let num_passes = self.sorting_data.num_passes;
 
@@ -137,7 +137,7 @@ impl RadixSort {
             // Pass 1: Count bits. Generates the histogram of every block
             // 4 bits per pass -> 2^4=16 possible bins, binary numbers
             self.counting_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_thread_groups, 1, 1],
                 &[],
@@ -149,7 +149,7 @@ impl RadixSort {
             // Pass 2: Reduce. Group blocks together (e.g., 8 blocks = 1 big block) and sum their histograms
             // This reads the large SumTable and creates a smaller "ReduceTable"
             self.reduce_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_scan_values, 1, 1],
                 &[],
@@ -161,7 +161,7 @@ impl RadixSort {
             // Pass 3: Scan to know where each bin starts globally
             // Scans the ReduceTable.
             self.scan_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [1, 1, 1],
                 &[],
@@ -172,7 +172,7 @@ impl RadixSort {
 
             // Pass 4: Scan and add. Convert the big block offsets back to the smaller blocks
             self.scan_add_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_scan_values, 1, 1],
                 &[],
@@ -183,14 +183,14 @@ impl RadixSort {
 
             // Pass 5: Scatter. Read the offsets from the scan and move the keys and payloads to the correct position.
             self.scatter_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_thread_groups, 1, 1],
                 &[],
                 &[],
                 push_constants_bytes,
             );
-            barrier_scatter_pass(vk_core, command_buffer, dst_keys.vk_buffer());
+            barrier_scatter_pass(vk_context, command_buffer, dst_keys.vk_buffer());
         }
     }
 
@@ -256,13 +256,13 @@ impl RadixSort {
     }
 }
 
-fn barrier_scatter_pass(vk_core: &VulkanContext, cmd_buffer: &CommandBuffer, dst_keys: vk::Buffer) {
+fn barrier_scatter_pass(vk_context: &VulkanContext, cmd_buffer: &CommandBuffer, dst_keys: vk::Buffer) {
     let buffer_memory_barriers = [compute_buffer_barrier(
         dst_keys,
         vk::AccessFlags2::SHADER_STORAGE_WRITE,
         vk::AccessFlags2::SHADER_STORAGE_READ,
     )];
-    cmd_buffer.pipeline_memory_barrier(vk_core.device(), &buffer_memory_barriers, &[]);
+    cmd_buffer.pipeline_memory_barrier(vk_context.device(), &buffer_memory_barriers, &[]);
 }
 
 impl GpuTask for RadixSort {

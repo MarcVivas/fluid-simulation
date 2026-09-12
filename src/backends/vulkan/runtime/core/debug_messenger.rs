@@ -1,7 +1,10 @@
 use anyhow::Result;
 use ash::ext::debug_utils;
 use ash::vk::DebugUtilsMessengerEXT;
-use ash::{Entry, vk};
+use ash::Entry;
+#[cfg(debug_assertions)]
+use ash::vk;
+#[cfg(debug_assertions)]
 use std::ffi;
 
 pub struct DebugMessenger {
@@ -10,12 +13,13 @@ pub struct DebugMessenger {
 }
 
 impl DebugMessenger {
-    pub fn new(entry: &Entry, instance: &ash::Instance) -> Result<Option<Self>> {
-        #[cfg(not(debug_assertions))]
-        {
-            return Ok(None);
-        }
+    #[cfg(not(debug_assertions))]
+    pub fn new(_entry: &Entry, _instance: &ash::Instance) -> Result<Option<Self>> {
+        Ok(None)
+    }
 
+    #[cfg(debug_assertions)]
+    pub fn new(entry: &Entry, instance: &ash::Instance) -> Result<Option<Self>> {
         let debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
             .message_severity(
                 vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -38,6 +42,7 @@ impl DebugMessenger {
             debug_messenger: debug_callback,
         }))
     }
+    #[cfg(debug_assertions)]
     unsafe extern "system" fn vulkan_debug_callback(
         message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
         message_type: vk::DebugUtilsMessageTypeFlagsEXT,

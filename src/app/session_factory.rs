@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
 use winit::window::Window;
 
-use crate::app_session::AppSession;
+use super::app_session::AppSession;
 use crate::backends::BackendKind;
 use crate::backends::gpu_backend::GpuBackend;
 use crate::backends::vulkan::VulkanBackend;
 use crate::backends::vulkan::runtime::core::init_with_window;
-use crate::session::Session;
+use super::session::Session;
 use crate::world::World;
 
 pub fn create_session(

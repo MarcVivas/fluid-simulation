@@ -7,7 +7,7 @@ use winit::{
     window::Window,
 };
 
-use crate::app_session::AppSession;
+use super::app_session::AppSession;
 use crate::backends::gpu_backend::GpuBackend;
 use crate::viewer::camera::Camera;
 use crate::viewer::camera_controller::CameraController;

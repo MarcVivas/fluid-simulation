@@ -1,30 +1,30 @@
 use std::sync::Arc;
 
 use ash::vk;
-use engine::backends::vulkan::particles::physics::octree::LeafParticles;
-use engine::backends::vulkan::particles::physics::octree::octree::Octree;
-use engine::backends::vulkan::runtime::buffers::VkBuffer;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
-use engine::world::bounds::BoundingBox;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::octree::LeafParticles;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::octree::Octree;
+use gpu_fluid_simulation::backends::vulkan::runtime::buffers::VkBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::world::bounds::BoundingBox;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 
 #[test]
 pub fn octree_test() {
-    VkHeadless::run(|engine, vk_core, mut rng| {
-        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    VkHeadless::run(|engine, vk_context, mut rng| {
+        let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let num_elements = 300000;
         let cmd_pool = engine.command_pool();
-        let (keys, keys_buffer) = generate_test_data(vk_core, engine, &mut rng, num_elements);
+        let (keys, keys_buffer) = generate_test_data(vk_context, engine, &mut rng, num_elements);
         let mut octree =
-            Octree::new(vk_core, cmd_pool, num_elements).expect("Failed to initialize Octree");
+            Octree::new(vk_context, cmd_pool, num_elements).expect("Failed to initialize Octree");
 
         engine
             .record_commands(&frame_pacer, |cmd_buffer| {
                 octree.build(
-                    vk_core,
+                    vk_context,
                     cmd_buffer,
                     &keys_buffer,
                     false,
@@ -38,31 +38,31 @@ pub fn octree_test() {
             .submit_without_signaling(&frame_pacer)
             .expect("failed to submit octree commands");
         unsafe {
-            vk_core.device().device_wait_idle().unwrap();
+            vk_context.device().device_wait_idle().unwrap();
         }
 
-        validate(vk_core, cmd_pool, &octree, &keys);
+        validate(vk_context, cmd_pool, &octree, &keys);
     });
 }
 
 #[test]
 pub fn octree_maintenance_test() {
-    VkHeadless::run(|engine, vk_core, mut rng| {
-        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    VkHeadless::run(|engine, vk_context, mut rng| {
+        let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let cmd_pool = engine.command_pool();
 
         // Initial Build with Dense Data
         let num_elements_initial = 30000;
         let (mut keys, mut keys_buffer) =
-            generate_test_data(vk_core, engine, &mut rng, num_elements_initial);
-        let mut octree = Octree::new(vk_core, cmd_pool, num_elements_initial)
+            generate_test_data(vk_context, engine, &mut rng, num_elements_initial);
+        let mut octree = Octree::new(vk_context, cmd_pool, num_elements_initial)
             .expect("Failed to initialize Octree");
 
         for _ in 0..20 {
             engine
                 .record_commands(&frame_pacer, |cmd_buffer| {
                     octree.build(
-                        vk_core,
+                        vk_context,
                         cmd_buffer,
                         &keys_buffer,
                         true,
@@ -75,10 +75,10 @@ pub fn octree_maintenance_test() {
                 .submit_without_signaling(&frame_pacer)
                 .expect("failed to submit octree maintenance commands");
             unsafe {
-                vk_core.device().device_wait_idle().unwrap();
+                vk_context.device().device_wait_idle().unwrap();
             }
 
-            validate(vk_core, cmd_pool, &octree, &keys);
+            validate(vk_context, cmd_pool, &octree, &keys);
 
             // Simulate ParticleStorage Moving/Dispersing
             // We will severely reduce the number of particles to trigger merges
@@ -91,11 +91,11 @@ pub fn octree_maintenance_test() {
 
             // Upload the new sparse data
             keys_buffer = VkBuffer::new_gpu_only(
-                vk_core,
+                vk_context,
                 &keys,
                 "keys_sparse",
                 cmd_pool,
-                *vk_core.compute_queue(),
+                *vk_context.compute_queue(),
             )
             .unwrap();
         }
@@ -103,7 +103,7 @@ pub fn octree_maintenance_test() {
 }
 
 fn validate(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     cmd_pool: vk::CommandPool,
     octree: &Octree,
     keys: &Vec<u32>,
@@ -113,35 +113,35 @@ fn validate(
     let octree_data = octree.data();
     let cornerstone_array = octree_data
         .cornerstone_array()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let leaf_offsets = octree_data
         .leaf_offsets()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let leaf_count = octree_data
         .leaf_count()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap()[0] as usize;
     let node_keys = octree_data
         .node_keys()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let node_count = octree_data
         .node_count()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap()[0] as usize;
     let level_offsets = octree_data
         .level_offsets()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let node_first_child = octree_data
         .node_first_child()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let leaf_particles = octree_data
         .leaf_particles()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let n_crit = octree.n_crit();
     let num_internal_nodes = (leaf_count - 1) / 7;
@@ -210,7 +210,7 @@ fn validate(
         max_levels as usize,
     );
 
-    validate_octree_bulletproof(vk_core, cmd_pool, &octree, num_elements);
+    validate_octree_bulletproof(vk_context, cmd_pool, &octree, num_elements);
 
     let total_counted: u32 = active_histogram.iter().sum();
     assert_eq!(
@@ -221,7 +221,7 @@ fn validate(
 }
 
 pub fn validate_octree_bulletproof(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     cmd_pool: vk::CommandPool,
     octree: &Octree,
     num_particles: usize,
@@ -229,23 +229,23 @@ pub fn validate_octree_bulletproof(
     let octree_data = octree.data();
     let node_keys = octree_data
         .node_keys()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let node_first_child = octree_data
         .node_first_child()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let leaf_data = octree_data
         .leaf_particles()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let level_offsets = octree_data
         .level_offsets()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap();
     let node_count = octree_data
         .node_count()
-        .read_back(vk_core, cmd_pool)
+        .read_back(vk_context, cmd_pool)
         .unwrap()[0] as usize;
     let max_levels = Octree::max_levels() as usize;
 
@@ -648,7 +648,7 @@ pub fn decode_warren_salmon_key(key: u32, world_size: f32, world_min: glam::Vec3
 }
 
 fn generate_test_data(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     rng: &mut ThreadRng,
     num_elements: u32,
@@ -673,11 +673,11 @@ fn generate_test_data(
 
     keys.sort();
     let keys_buffer = VkBuffer::new_gpu_only(
-        vk_core,
+        vk_context,
         &keys,
         "keys",
         engine.command_pool(),
-        *vk_core.compute_queue(),
+        *vk_context.compute_queue(),
     )
     .unwrap();
     (keys, keys_buffer)

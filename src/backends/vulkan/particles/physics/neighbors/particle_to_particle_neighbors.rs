@@ -40,9 +40,9 @@ struct PushConstants {
 }
 
 impl ParticleToParticleNeighborsConstructor {
-    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (build_particle_to_particle_neighbors, shader_module) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<PushConstants>()
                 .specialization(
@@ -61,13 +61,13 @@ impl ParticleToParticleNeighborsConstructor {
 
     pub fn build(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         particles: &ParticleBuffers,
         search_radius_sq: f32,
         neighbor_list_data: &NeighborListData,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         let num_particles = particles.positions_buffer.current().len() as u32;
 
@@ -85,7 +85,7 @@ impl ParticleToParticleNeighborsConstructor {
 
         let thread_groups = [num_workgroups, 1, 1];
         self.build_particle_to_particle_neighbors.dispatch_compute(
-            vk_core,
+            vk_context,
             cmd_buffer,
             thread_groups,
             &[],

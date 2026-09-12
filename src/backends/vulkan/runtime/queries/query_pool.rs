@@ -5,22 +5,22 @@ use std::sync::Arc;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 
 pub struct QueryPool {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     query_pool: vk::QueryPool,
 }
 
 impl QueryPool {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         query_pool_create_info: vk::QueryPoolCreateInfo,
     ) -> Result<Self> {
         let query_pool = unsafe {
-            vk_core
+            vk_context
                 .device()
                 .create_query_pool(&query_pool_create_info, None)?
         };
         Ok(Self {
-            vk_core,
+            vk_context,
             query_pool,
         })
     }
@@ -33,7 +33,7 @@ impl QueryPool {
 impl Drop for QueryPool {
     fn drop(&mut self) {
         unsafe {
-            self.vk_core
+            self.vk_context
                 .device()
                 .destroy_query_pool(self.query_pool, None);
         }

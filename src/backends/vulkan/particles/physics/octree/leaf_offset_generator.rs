@@ -35,9 +35,9 @@ struct LeavesHistogramPushConstants {
 }
 
 impl LeafOffsetGenerator {
-    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (leaf_particle_count_pass, shader_module) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<LeavesHistogramPushConstants>()
                 .specialization(SpecializationConstants::default().u32(THREAD_GROUP_SIZE))
@@ -51,7 +51,7 @@ impl LeafOffsetGenerator {
 
     pub fn indirect_dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         keys: &VkBuffer<u32>,
         octree_data: &OctreeData,
@@ -67,7 +67,7 @@ impl LeafOffsetGenerator {
 
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves().vk_buffer();
         self.leaf_particle_count_pass.indirect_dispatch(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &[],
             &[],

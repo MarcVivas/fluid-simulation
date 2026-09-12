@@ -51,15 +51,15 @@ impl<T> PingPong<T> {
 
 impl<T: Copy> PingPong<VkBuffer<T>> {
     pub fn new_vk_buffer(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         data: &[T],
         name: &str,
         command_pool: vk::CommandPool,
         queue: vk::Queue,
     ) -> anyhow::Result<Self> {
-        let ping = VkBuffer::new_gpu_only(vk_core, data, name, command_pool, queue)?;
+        let ping = VkBuffer::new_gpu_only(vk_context, data, name, command_pool, queue)?;
 
-        let pong = VkBuffer::new_gpu_only(vk_core, data, name, command_pool, queue)?;
+        let pong = VkBuffer::new_gpu_only(vk_context, data, name, command_pool, queue)?;
         Ok(PingPong::new(ping, pong))
     }
 }

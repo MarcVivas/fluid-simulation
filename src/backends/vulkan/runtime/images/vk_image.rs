@@ -11,19 +11,19 @@ pub struct VkImage {
 
 impl VkImage {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         image_create_info: &vk::ImageCreateInfo,
         allocation_create_desc: &AllocationCreateDesc,
     ) -> Result<Self> {
         let allocated_image =
-            AllocatedImage::new(vk_core.clone(), image_create_info, allocation_create_desc)?;
+            AllocatedImage::new(vk_context.clone(), image_create_info, allocation_create_desc)?;
 
         Ok(Self { allocated_image })
     }
 
     #[allow(unused)]
-    pub fn new_from_image(vk_core: &Arc<VulkanContext>, image: vk::Image) -> Self {
-        let allocated_image = AllocatedImage::new_from_image(vk_core.clone(), image);
+    pub fn new_from_image(vk_context: &Arc<VulkanContext>, image: vk::Image) -> Self {
+        let allocated_image = AllocatedImage::new_from_image(vk_context.clone(), image);
 
         Self { allocated_image }
     }

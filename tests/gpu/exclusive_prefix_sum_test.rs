@@ -1,46 +1,46 @@
 use std::sync::Arc;
 
-use engine::backends::vulkan::algorithms::exclusive_prefix_sum::ExclusivePrefixSum;
-use engine::backends::vulkan::runtime::buffers::VkBuffer;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::algorithms::exclusive_prefix_sum::ExclusivePrefixSum;
+use gpu_fluid_simulation::backends::vulkan::runtime::buffers::VkBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
 use rand::{Rng, rngs::ThreadRng};
 
 #[test]
 pub fn small_exclusive_prefix_sum() {
-    VkHeadless::run(|engine, vk_core, rng| {
-        run_prefix_sum_test(vk_core, engine, rng, 26);
+    VkHeadless::run(|engine, vk_context, rng| {
+        run_prefix_sum_test(vk_context, engine, rng, 26);
     });
 }
 
 #[test]
 pub fn medium_size_exclusive_prefix_sum() {
-    VkHeadless::run(|engine, vk_core, rng| {
-        run_prefix_sum_test(vk_core, engine, rng, 26000);
+    VkHeadless::run(|engine, vk_context, rng| {
+        run_prefix_sum_test(vk_context, engine, rng, 26000);
     });
 }
 
 #[test]
 pub fn large_exclusive_prefix_sum() {
-    VkHeadless::run(|engine, vk_core, rng| {
-        run_prefix_sum_test(vk_core, engine, rng, 21_600_000);
+    VkHeadless::run(|engine, vk_context, rng| {
+        run_prefix_sum_test(vk_context, engine, rng, 21_600_000);
     });
 }
 
 fn generate_random_test_case(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     num_elements: u32,
     rng: &mut ThreadRng,
 ) -> (Vec<u32>, VkBuffer<u32>) {
     let data: Vec<u32> = (0..num_elements).map(|_| rng.random_range(0..=1)).collect();
     let numbers_buffer: VkBuffer<u32> = VkBuffer::new_gpu_only(
-        vk_core,
+        vk_context,
         &data,
         "Numbers buffer",
         engine.command_pool(),
-        *vk_core.compute_queue(),
+        *vk_context.compute_queue(),
     )
     .unwrap();
 
@@ -58,21 +58,21 @@ fn cpu_exclusive_prefix_sum(data: &mut Vec<u32>) {
 }
 
 fn run_prefix_sum_test(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     mut rng: ThreadRng,
     num_elements: u32,
 ) {
-    let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
-    let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_core, num_elements)
+    let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    let exclusive_prefix_sum = ExclusivePrefixSum::new(vk_context, num_elements)
         .expect("Failed to initialize ExclusivePrefixSum");
 
     let (mut data, data_buffer): (Vec<u32>, VkBuffer<u32>) =
-        generate_random_test_case(vk_core, engine, num_elements, &mut rng);
+        generate_random_test_case(vk_context, engine, num_elements, &mut rng);
 
     engine
         .record_commands(&frame_pacer, |cmd_buffer| {
-            exclusive_prefix_sum.dispatch(vk_core, cmd_buffer, &data_buffer, &data_buffer);
+            exclusive_prefix_sum.dispatch(vk_context, cmd_buffer, &data_buffer, &data_buffer);
         })
         .expect("failed to record prefix-sum commands");
 
@@ -82,7 +82,7 @@ fn run_prefix_sum_test(
 
     cpu_exclusive_prefix_sum(&mut data);
     let actual = data_buffer
-        .read_back(vk_core, engine.command_pool())
+        .read_back(vk_context, engine.command_pool())
         .unwrap();
 
     assert_eq!(data, actual);

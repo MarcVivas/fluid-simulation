@@ -1,13 +1,13 @@
-use engine::backends::vulkan::runtime::commands::CommandBuffer;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer;
-use engine::backends::vulkan::runtime::profiler::GpuProfiler;
+use gpu_fluid_simulation::backends::vulkan::runtime::commands::CommandBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer;
+use gpu_fluid_simulation::backends::vulkan::runtime::profiler::GpuProfiler;
 use std::sync::Arc;
 
 /// A simple helper that handles the GPU timing loop.
 pub fn execute_and_profile<F>(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     profiler: &GpuProfiler,
     label: &str,
@@ -20,12 +20,12 @@ where
     engine
         .record_commands(&frame_pacer, |cb| {
             profiler.reset(
-                vk_core.device(),
+                vk_context.device(),
                 cb.vk_cmd_buffer(),
                 frame_pacer.ring_index(),
             );
             profiler.profile_scope(
-                vk_core.device(),
+                vk_context.device(),
                 cb.vk_cmd_buffer(),
                 label,
                 frame_pacer.ring_index(),
@@ -41,11 +41,11 @@ where
         .expect("failed to submit benchmark commands");
 
     unsafe {
-        vk_core.device().device_wait_idle().unwrap();
+        vk_context.device().device_wait_idle().unwrap();
     }
 
     let results = profiler
-        .get_results(vk_core.device(), &frame_pacer)
+        .get_results(vk_context.device(), &frame_pacer)
         .unwrap();
     *results.get(label).unwrap_or(&0.0)
 }

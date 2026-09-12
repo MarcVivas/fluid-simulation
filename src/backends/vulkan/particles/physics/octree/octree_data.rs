@@ -91,7 +91,7 @@ pub struct LeafParticles {
 
 impl OctreeData {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         max_leaves: u32,
         max_internal_nodes: u32,
@@ -100,12 +100,12 @@ impl OctreeData {
     ) -> anyhow::Result<Self> {
         let total_nodes = max_leaves + max_internal_nodes;
 
-        let queue = *vk_core.compute_queue();
+        let queue = *vk_context.compute_queue();
 
         let mut cornerstone_initial_data = vec![sentinel_val; (max_leaves + 1) as usize];
         cornerstone_initial_data[0] = 0;
         let cornerstone_array: PingPong<VkBuffer<u32>> = PingPong::new_vk_buffer(
-            vk_core,
+            vk_context,
             &cornerstone_initial_data,
             "Cornerstone array",
             cmd_pool,
@@ -113,14 +113,14 @@ impl OctreeData {
         )?;
 
         let rebalance_ops = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0 as u32; max_leaves as usize],
             "Rebalance ops",
             cmd_pool,
             queue,
         )?;
         let rebalance_prefix = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0 as u32; (max_leaves + 1) as usize],
             "Rebalance prefix",
             cmd_pool,
@@ -128,21 +128,21 @@ impl OctreeData {
         )?;
 
         let node_keys = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0xffffffff as u32; total_nodes as usize],
             "node_keys",
             cmd_pool,
             queue,
         )?;
         let node_first_child = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0 as u32; total_nodes as usize],
             "node_first_child",
             cmd_pool,
             queue,
         )?;
         let level_offsets = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0 as u32; (max_levels + 2) as usize],
             "level_offsets",
             cmd_pool,
@@ -150,21 +150,21 @@ impl OctreeData {
         )?;
 
         let leaf_offsets = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0 as u32; (max_leaves + 1) as usize],
             "level_offsets",
             cmd_pool,
             queue,
         )?;
         let leaf_particles = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![LeafParticles::default(); total_nodes as usize],
             "leaf_particles",
             cmd_pool,
             queue,
         )?;
         let unsorted_leaf_particles = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![LeafParticles::default(); total_nodes as usize],
             "unsorted_leaf_particles",
             cmd_pool,
@@ -172,14 +172,14 @@ impl OctreeData {
         )?;
 
         let leaf_count = PingPong::new_vk_buffer(
-            vk_core,
+            vk_context,
             &vec![1 as u32; 1 as usize],
             "leaf_count",
             cmd_pool,
             queue,
         )?;
         let node_count = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![1 as u32; 1 as usize],
             "node_count",
             cmd_pool,
@@ -187,13 +187,13 @@ impl OctreeData {
         )?;
 
         let node_bounding_boxes = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             total_nodes as usize,
             "Node bounding boxes",
         )?;
 
         let was_changed = VkBuffer::new_gpu_only(
-            vk_core,
+            vk_context,
             &vec![0 as u32; 1 as usize],
             "was changed",
             cmd_pool,
@@ -201,12 +201,12 @@ impl OctreeData {
         )?;
 
         let indirect_dispatch_buffer_leaves = IndirectBuffer::new(
-            vk_core,
+            vk_context,
             cmd_pool,
             &[glam::UVec4::new(1, 1, 1, 0), glam::UVec4::new(1, 1, 1, 0)],
         )?;
         let indirect_dispatch_buffer_nodes =
-            IndirectBuffer::new(vk_core, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0)])?;
+            IndirectBuffer::new(vk_context, cmd_pool, &[glam::UVec4::new(1, 1, 1, 0)])?;
 
         Ok(Self {
             cornerstone_array,

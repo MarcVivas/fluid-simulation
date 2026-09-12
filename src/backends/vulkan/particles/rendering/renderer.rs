@@ -1,9 +1,9 @@
 const TASK_SHADER: crate::backends::vulkan::runtime::shaders::ShaderCode =
-    crate::shader!("particles/particle_task_shader");
+    crate::shader!("particles/rendering/particle_task_shader");
 const MESH_SHADER: crate::backends::vulkan::runtime::shaders::ShaderCode =
-    crate::shader!("particles/particle_mesh_shader");
+    crate::shader!("particles/rendering/particle_mesh_shader");
 const FRAGMENT_SHADER: crate::backends::vulkan::runtime::shaders::ShaderCode =
-    crate::shader!("particles/particle_fragment_shader");
+    crate::shader!("particles/rendering/particle_fragment_shader");
 
 use crate::backends::vulkan::particles::ParticleRenderInput;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 #[allow(unused)]
 pub struct ParticleRenderer {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     graphics_pipeline: GraphicsPipeline,
     task_shader_module: ShaderModule,
     mesh_shader_module: ShaderModule,
@@ -40,12 +40,12 @@ struct PushConstants {
 }
 
 impl ParticleRenderer {
-    pub fn new(vk_core: Arc<VulkanContext>, render_target: &WindowRenderTarget) -> Result<Self> {
-        let task_shader_module = ShaderModule::new(vk_core.clone(), TASK_SHADER)?;
+    pub fn new(vk_context: Arc<VulkanContext>, render_target: &WindowRenderTarget) -> Result<Self> {
+        let task_shader_module = ShaderModule::new(vk_context.clone(), TASK_SHADER)?;
 
-        let mesh_shader_module = ShaderModule::new(vk_core.clone(), MESH_SHADER)?;
+        let mesh_shader_module = ShaderModule::new(vk_context.clone(), MESH_SHADER)?;
 
-        let fragment_shader_module = ShaderModule::new(vk_core.clone(), FRAGMENT_SHADER)?;
+        let fragment_shader_module = ShaderModule::new(vk_context.clone(), FRAGMENT_SHADER)?;
 
         let shader_stage_create_infos = vec![
             vk::PipelineShaderStageCreateInfo::default()
@@ -72,11 +72,11 @@ impl ParticleRenderer {
             .offset(0)
             .size(size_of::<PushConstants>() as u32);
 
-        let pipeline_layout = PipelineLayout::new(vk_core.clone(), &[], &[push_const_range])
+        let pipeline_layout = PipelineLayout::new(vk_context.clone(), &[], &[push_const_range])
             .context("Failed to create pipeline layout")?;
 
         let graphics_pipeline = GraphicsPipeline::new(
-            vk_core.clone(),
+            vk_context.clone(),
             render_target,
             None,
             None,
@@ -85,7 +85,7 @@ impl ParticleRenderer {
         )?;
 
         Ok(Self {
-            vk_core,
+            vk_context,
             graphics_pipeline,
             task_shader_module,
             mesh_shader_module,
@@ -103,7 +103,7 @@ impl ParticleRenderer {
         if total_particles <= 0 {
             return;
         }
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
         // Bind pipeline
         command_buffer.bind_pipeline(
             device,
@@ -134,7 +134,7 @@ impl ParticleRenderer {
 
         // Draw
         let group_count_x = (total_particles + 63) / 64;
-        let Some(mesh_shader_loader) = self.vk_core.mesh_shader_loader() else {
+        let Some(mesh_shader_loader) = self.vk_context.mesh_shader_loader() else {
             return;
         };
         unsafe {

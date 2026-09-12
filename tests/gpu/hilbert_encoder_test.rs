@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use engine::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
-use engine::backends::vulkan::runtime::buffers::VkBuffer;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
+use gpu_fluid_simulation::backends::vulkan::runtime::buffers::VkBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
 use glam::Vec4;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 
 #[test]
 pub fn test_hilbert_encoder() {
-    VkHeadless::run(|engine, vk_core, mut rng| {
-        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    VkHeadless::run(|engine, vk_context, mut rng| {
+        let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let count = 1_000_000;
         let cmd_pool = engine.command_pool();
 
@@ -22,14 +22,14 @@ pub fn test_hilbert_encoder() {
         let max_levels = 10; // For a 30-bit key
 
         let (hilbert_buffer, positions_buffer, points_indexes, original_points) =
-            generate_test_data(vk_core, engine, &mut rng, count, world_min, world_size);
+            generate_test_data(vk_context, engine, &mut rng, count, world_min, world_size);
 
-        let hilbert_encoder = HilbertEncoder::new(vk_core, max_levels).unwrap();
+        let hilbert_encoder = HilbertEncoder::new(vk_context, max_levels).unwrap();
 
         engine
             .record_commands(&frame_pacer, |cmd| {
                 hilbert_encoder.dispatch(
-                    vk_core,
+                    vk_context,
                     count as u32,
                     world_min,
                     world_size,
@@ -45,11 +45,11 @@ pub fn test_hilbert_encoder() {
             .submit_without_signaling(&frame_pacer)
             .expect("failed to submit Hilbert-encoder commands");
         unsafe {
-            vk_core.device().device_wait_idle().unwrap();
+            vk_context.device().device_wait_idle().unwrap();
         }
 
-        let result_keys: Vec<u32> = hilbert_buffer.read_back(vk_core, cmd_pool).unwrap();
-        let result_point_ids: Vec<u32> = points_indexes.read_back(vk_core, cmd_pool).unwrap();
+        let result_keys: Vec<u32> = hilbert_buffer.read_back(vk_context, cmd_pool).unwrap();
+        let result_point_ids: Vec<u32> = points_indexes.read_back(vk_context, cmd_pool).unwrap();
 
         validate(&result_keys, &result_point_ids, &original_points, count);
     });
@@ -142,7 +142,7 @@ fn validate(
 }
 
 fn generate_test_data(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     rng: &mut ThreadRng,
     count: usize,
@@ -186,29 +186,29 @@ fn generate_test_data(
     }
 
     let points_buffer = VkBuffer::new_gpu_only(
-        vk_core,
+        vk_context,
         &input_points,
         "Input Points",
         engine.command_pool(),
-        *vk_core.compute_queue(),
+        *vk_context.compute_queue(),
     )
     .unwrap();
 
     let hilbert_buffer = VkBuffer::new_gpu_only(
-        vk_core,
+        vk_context,
         &vec![0u32; count],
         "Hilbert keys Output",
         engine.command_pool(),
-        *vk_core.compute_queue(),
+        *vk_context.compute_queue(),
     )
     .unwrap();
 
     let points_indexes = VkBuffer::new_gpu_only(
-        vk_core,
+        vk_context,
         &vec![0u32; count],
         "Points indexes",
         engine.command_pool(),
-        *vk_core.compute_queue(),
+        *vk_context.compute_queue(),
     )
     .unwrap();
 

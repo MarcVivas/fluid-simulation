@@ -16,13 +16,13 @@ pub struct SwapchainPresenter {
 
 impl SwapchainPresenter {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         surface: Surface,
         window: &Window,
         frames_in_flight: usize,
     ) -> Result<Self> {
         let render_target =
-            WindowRenderTarget::new(vk_core.clone(), surface, window, frames_in_flight)
+            WindowRenderTarget::new(vk_context.clone(), surface, window, frames_in_flight)
                 .context("Failed to create render target")?;
         Ok(Self {
             render_target: render_target,
@@ -86,22 +86,22 @@ impl SwapchainPresenter {
 
     pub fn resize_window(
         &mut self,
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         window: &Window,
         frames_in_flight: usize,
     ) -> Result<()> {
         self.render_target
-            .resize_window(vk_core, window, frames_in_flight)
+            .resize_window(vk_context, window, frames_in_flight)
     }
 
     pub fn handle_window_resize(
         &mut self,
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         window: &Window,
         frames_in_flight: usize,
     ) -> Result<()> {
         if self.needs_resize() {
-            self.resize_window(vk_core, window, frames_in_flight)?;
+            self.resize_window(vk_context, window, frames_in_flight)?;
             self.set_needs_resize(false);
         }
         Ok(())

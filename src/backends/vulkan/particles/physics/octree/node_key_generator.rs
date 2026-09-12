@@ -36,12 +36,12 @@ pub struct NodeKeyGenerator {
 
 impl NodeKeyGenerator {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         max_level: u32,
         max_bits: u32,
     ) -> anyhow::Result<Self> {
         let (node_key_generator, shader_module) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<NodeKeyGeneratorPushConstants>()
                 .specialization(
@@ -60,7 +60,7 @@ impl NodeKeyGenerator {
 
     pub fn indirect_dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree_data: &OctreeData,
     ) {
@@ -76,7 +76,7 @@ impl NodeKeyGenerator {
 
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_leaves().vk_buffer();
         self.node_key_generator.indirect_dispatch(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &[],
             &[],

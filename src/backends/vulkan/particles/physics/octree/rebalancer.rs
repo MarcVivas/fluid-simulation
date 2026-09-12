@@ -36,8 +36,8 @@ struct RebalancerPushConstants {
 }
 
 impl Rebalancer {
-    pub fn new(vk_core: &Arc<VulkanContext>, sentinel_value: u32) -> anyhow::Result<Self> {
-        let (rebalancer, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+    pub fn new(vk_context: &Arc<VulkanContext>, sentinel_value: u32) -> anyhow::Result<Self> {
+        let (rebalancer, shader_module) = ComputeSystemBuilder::new(vk_context.clone(), SHADER)
             .entry_points(&["main"])
             .push_constants::<RebalancerPushConstants>()
             .specialization(
@@ -54,7 +54,7 @@ impl Rebalancer {
 
     pub fn indirect_dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree_data: &OctreeData,
     ) {
@@ -75,7 +75,7 @@ impl Rebalancer {
         };
 
         self.rebalancer.indirect_dispatch(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &[],
             &[],

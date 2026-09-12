@@ -1,6 +1,10 @@
-use crate::app_session::AppSession;
+pub mod app_session;
+pub mod session;
+pub mod session_factory;
+
+use self::app_session::AppSession;
 use crate::backends::BackendKind;
-use crate::session_factory::create_session;
+use self::session_factory::create_session;
 use crate::world::World;
 use crate::world::particles::ParticleInitPreset;
 use anyhow::Context;
@@ -15,14 +19,18 @@ pub struct App {
     session: Option<Box<dyn AppSession>>,
     backend: BackendKind,
     window: Option<Window>,
+    num_particles: usize,
+    preset: ParticleInitPreset,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(num_particles: usize, preset: ParticleInitPreset) -> Self {
         Self {
             window: None,
             session: None,
             backend: BackendKind::Vulkan,
+            num_particles,
+            preset,
         }
     }
 }
@@ -32,7 +40,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = {
             let window_attributes = WindowAttributes::default()
-                .with_title("Vulkan")
+                .with_title("GPU Fluid Simulation")
                 .with_inner_size(dpi::LogicalSize::new(1280.0, 720.0));
             event_loop
                 .create_window(window_attributes)
@@ -41,8 +49,8 @@ impl ApplicationHandler for App {
 
         let world = World::new(
             glam::Vec3::splat(256.0),
-            1_000_000,
-            ParticleInitPreset::CollidingBlocks,
+            self.num_particles,
+            self.preset,
             1.7,
         );
 

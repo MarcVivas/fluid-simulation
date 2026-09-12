@@ -19,7 +19,7 @@ pub struct Swapchain {
 
 impl Swapchain {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         surface: &Surface,
         window: &Window,
         old_swapchain: Option<&Swapchain>,
@@ -31,14 +31,14 @@ impl Swapchain {
         };
 
         let swapchain_loader =
-            ash::khr::swapchain::Device::new(vk_core.instance(), vk_core.device());
+            ash::khr::swapchain::Device::new(vk_context.instance(), vk_context.device());
 
         let surface_format = surface
-            .get_physical_device_surface_formats(*vk_core.physical_device())
+            .get_physical_device_surface_formats(*vk_context.physical_device())
             .context("failed to get surface formats")?[0];
 
         let surface_capabilities = surface
-            .get_physical_device_surface_capabilities(*vk_core.physical_device())
+            .get_physical_device_surface_capabilities(*vk_context.physical_device())
             .context("failed to get surface capabilities")?;
 
         let mut desired_image_count = surface_capabilities
@@ -59,7 +59,7 @@ impl Swapchain {
         };
 
         let presentation_modes = surface
-            .get_physical_device_surface_present_modes(*vk_core.physical_device())
+            .get_physical_device_surface_present_modes(*vk_context.physical_device())
             .context("failed to get surface present modes")?;
 
         // V-sync on -> vk::PresentModeKHR::FIFO
@@ -126,12 +126,12 @@ impl Swapchain {
                     })
                     .image(*image);
 
-                ImageView::new(vk_core.clone(), &create_view_info)
+                ImageView::new(vk_context.clone(), &create_view_info)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
         let render_finished_semaphores = (0..swapchain_images.len())
-            .map(|_| BinarySemaphore::new(vk_core.clone()))
+            .map(|_| BinarySemaphore::new(vk_context.clone()))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Self {

@@ -8,9 +8,8 @@ use ash::vk;
 use crate::backends::vulkan::particles::ParticleBuffers;
 use crate::backends::vulkan::particles::physics::neighbors::NeighborList;
 use crate::backends::vulkan::particles::physics::neighbors::NeighborListData;
-use crate::backends::vulkan::particles::physics::neighbors::neighbor_list_push_constants::NeighborSearchPushConstants;
 use crate::backends::vulkan::particles::physics::neighbors::particle_to_particle_neighbors::ParticleToParticleNeighborsConstructor;
-use crate::backends::vulkan::particles::physics::octree::octree::Octree;
+use crate::backends::vulkan::particles::physics::octree::Octree;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
 use crate::backends::vulkan::runtime::commands::barrier_compute_to_compute;
 use crate::backends::vulkan::runtime::commands::barrier_compute_to_transfer;
@@ -20,7 +19,34 @@ use crate::backends::vulkan::runtime::compute::ComputeSystemBuilder;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::shaders::ShaderModule;
 use crate::backends::vulkan::runtime::shaders::SpecializationConstants;
-use bytemuck::bytes_of;
+use bytemuck::{bytes_of, Pod, Zeroable};
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Zeroable, Pod, Default)]
+struct NeighborSearchPushConstants {
+    // Read only buffers
+    node_keys: vk::DeviceAddress,
+    node_first_child: vk::DeviceAddress,
+    leaf_particles: vk::DeviceAddress,
+    unsorted_leaf_particles: vk::DeviceAddress,
+    positions: vk::DeviceAddress,
+    leaf_count: vk::DeviceAddress,
+    node_bounding_boxes: vk::DeviceAddress,
+
+    // Read write buffers
+    leaf_neighbors: vk::DeviceAddress,
+    allocator: vk::DeviceAddress,
+    processed_leaves_counter: vk::DeviceAddress,
+    particle_to_neighborhood: vk::DeviceAddress,
+    neighbor_particle_indices: vk::DeviceAddress,
+
+    // Metadata
+    world_min: glam::Vec4,
+    world_size: f32,
+    search_radius: f32,
+    num_particles: u32,
+    num_thread_groups: u32,
+}
 
 pub struct NeighborSearch {
     #[allow(unused)]
@@ -31,12 +57,12 @@ pub struct NeighborSearch {
 
 impl NeighborSearch {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         super_cluster_size: u32,
         _max_levels: u32,
     ) -> anyhow::Result<Self> {
         let (build_leaf_neighbors, shader_module) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<NeighborSearchPushConstants>()
                 .specialization(
@@ -48,7 +74,7 @@ impl NeighborSearch {
                 .build_with_single_pass()?;
 
         let build_particle_to_particle_neighbors =
-            ParticleToParticleNeighborsConstructor::new(vk_core)?;
+            ParticleToParticleNeighborsConstructor::new(vk_context)?;
 
         Ok(Self {
             build_leaf_neighbors,
@@ -59,7 +85,7 @@ impl NeighborSearch {
 
     pub fn build(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree: &Octree,
         particles: &ParticleBuffers,
@@ -68,7 +94,7 @@ impl NeighborSearch {
         world_size: f32,
         neighbor_list_data: &NeighborListData,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         // Clear the allocator buffer to 0
         cmd_buffer.fill_buffer(
@@ -105,7 +131,7 @@ impl NeighborSearch {
         let num_particles = particles.positions_buffer.current().len() as u32;
 
         let thread_group_size = octree.n_crit();
-        let num_workgroups = vk_core
+        let num_workgroups = vk_context
             .device_properties()
             .num_persistent_workgroups(thread_group_size);
 
@@ -133,7 +159,7 @@ impl NeighborSearch {
 
         let thread_groups = [num_workgroups, 1, 1];
         self.build_leaf_neighbors.dispatch_compute(
-            vk_core,
+            vk_context,
             cmd_buffer,
             thread_groups,
             &[],
@@ -169,7 +195,7 @@ impl NeighborSearch {
         );
 
         self.build_particle_to_particle_neighbors.build(
-            vk_core,
+            vk_context,
             cmd_buffer,
             particles,
             search_radius * search_radius,

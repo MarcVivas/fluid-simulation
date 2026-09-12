@@ -34,17 +34,17 @@ pub struct Octree {
 
 impl Octree {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         num_elements: u32,
     ) -> anyhow::Result<Self> {
-        let max_elements_per_leaf = vk_core.device_properties().subgroup_size();
+        let max_elements_per_leaf = vk_context.device_properties().subgroup_size();
         let max_leaves = Self::max_leaves(num_elements, max_elements_per_leaf);
         let max_internal_nodes = Self::max_internal_nodes(max_leaves);
         let max_nodes = max_leaves + max_internal_nodes;
 
         let octree_data = OctreeData::new(
-            vk_core,
+            vk_context,
             cmd_pool,
             max_leaves,
             max_internal_nodes,
@@ -52,7 +52,7 @@ impl Octree {
             SENTINEL_VALUE,
         )?;
         let octree_constructor = OctreeConstructor::new(
-            vk_core,
+            vk_context,
             cmd_pool,
             max_leaves,
             SENTINEL_VALUE,
@@ -71,7 +71,7 @@ impl Octree {
 
     pub fn build(
         &mut self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         keys: &VkBuffer<u32>,
         maintenance_mode: bool,
@@ -80,7 +80,7 @@ impl Octree {
     ) {
         let n_crit = self.n_crit();
         self.octree_constructor.build(
-            vk_core,
+            vk_context,
             cmd_buffer,
             keys,
             &mut self.octree_data,
@@ -129,14 +129,14 @@ impl Octree {
 
     pub fn leaf_indexes(
         &self,
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         command_pool: CommandPool,
     ) -> anyhow::Result<Vec<u32>> {
         let node_first_child = self
             .data()
             .node_first_child()
-            .read_back(vk_core, command_pool)?;
-        let node_count = self.data().node_count().read_back(vk_core, command_pool)?[0] as usize;
+            .read_back(vk_context, command_pool)?;
+        let node_count = self.data().node_count().read_back(vk_context, command_pool)?[0] as usize;
 
         let leaves: Vec<u32> = (0u32..node_count as u32)
             .filter(|&i| Self::is_leaf(node_first_child[i as usize]))

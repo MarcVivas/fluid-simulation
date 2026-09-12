@@ -44,7 +44,7 @@ pub struct OctreeConstructor {
 
 impl OctreeConstructor {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         max_leaves: u32,
         sentinel_val: u32,
@@ -52,14 +52,14 @@ impl OctreeConstructor {
         max_bits: u32,
         max_node_keys: u32,
     ) -> anyhow::Result<Self> {
-        let leaf_offset_generator = LeafOffsetGenerator::new(vk_core)?;
-        let rebalancing_ops_marker = RebalancingOpsMarker::new(vk_core)?;
-        let prefix_sum: ExclusivePrefixSum = ExclusivePrefixSum::new(vk_core, max_leaves)?;
-        let rebalancer = Rebalancer::new(vk_core, sentinel_val)?;
-        let node_key_generator = NodeKeyGenerator::new(vk_core, max_level, max_bits)?;
-        let node_key_sorter = GpuKVRadixSort::new(vk_core, cmd_pool, max_node_keys, None)?;
-        let octree_linker = OctreeLinker::new(vk_core, max_level)?;
-        let level_offset_generator = LevelOffsetGenerator::new(vk_core, max_level)?;
+        let leaf_offset_generator = LeafOffsetGenerator::new(vk_context)?;
+        let rebalancing_ops_marker = RebalancingOpsMarker::new(vk_context)?;
+        let prefix_sum: ExclusivePrefixSum = ExclusivePrefixSum::new(vk_context, max_leaves)?;
+        let rebalancer = Rebalancer::new(vk_context, sentinel_val)?;
+        let node_key_generator = NodeKeyGenerator::new(vk_context, max_level, max_bits)?;
+        let node_key_sorter = GpuKVRadixSort::new(vk_context, cmd_pool, max_node_keys, None)?;
+        let octree_linker = OctreeLinker::new(vk_context, max_level)?;
+        let level_offset_generator = LevelOffsetGenerator::new(vk_context, max_level)?;
 
         Ok(Self {
             leaf_offset_generator,
@@ -75,7 +75,7 @@ impl OctreeConstructor {
 
     pub fn build(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         keys: &VkBuffer<u32>,
         octree_data: &mut OctreeData,
@@ -85,7 +85,7 @@ impl OctreeConstructor {
         world_min: Vec4,
         world_size: f32,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         for _ in 0..max_levels {
             // Set was changed to 0.
@@ -110,7 +110,7 @@ impl OctreeConstructor {
 
             // Count how many particles are inside each node leaf
             self.leaf_offset_generator
-                .indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
+                .indirect_dispatch(vk_context, cmd_buffer, keys, octree_data);
 
             // Sync Compute -> Compute
             cmd_buffer.pipeline_memory_barrier(
@@ -125,7 +125,7 @@ impl OctreeConstructor {
 
             // Decide whether we split or not the leaf nodes based on the histogram
             self.rebalancing_ops_marker.indirect_dispatch(
-                vk_core,
+                vk_context,
                 cmd_buffer,
                 octree_data,
                 maintenance_mode,
@@ -152,7 +152,7 @@ impl OctreeConstructor {
 
             // Perform a prefix sum of the reablancing operations
             self.prefix_sum.indirect_dispatch(
-                vk_core,
+                vk_context,
                 cmd_buffer,
                 octree_data.rebalance_ops(),
                 octree_data.rebalance_prefix(),
@@ -162,7 +162,7 @@ impl OctreeConstructor {
 
             // Apply the rebalancing ops (Create new nodes or merge)
             self.rebalancer
-                .indirect_dispatch(vk_core, cmd_buffer, octree_data);
+                .indirect_dispatch(vk_context, cmd_buffer, octree_data);
 
             octree_data.swap_ping_pong_buffers();
 
@@ -214,7 +214,7 @@ impl OctreeConstructor {
 
         // This is needed after the loop
         self.leaf_offset_generator
-            .indirect_dispatch(vk_core, cmd_buffer, keys, octree_data);
+            .indirect_dispatch(vk_context, cmd_buffer, keys, octree_data);
         // Sync Compute -> Compute
         cmd_buffer.pipeline_memory_barrier(
             device,
@@ -228,21 +228,21 @@ impl OctreeConstructor {
 
 
 
-        self.build_internal_nodes(vk_core, cmd_buffer, octree_data, world_min, world_size);
+        self.build_internal_nodes(vk_context, cmd_buffer, octree_data, world_min, world_size);
     }
 
     fn build_internal_nodes(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree_data: &mut OctreeData,
         world_min: Vec4,
         world_size: f32,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         self.node_key_generator
-            .indirect_dispatch(vk_core, cmd_buffer, octree_data);
+            .indirect_dispatch(vk_context, cmd_buffer, octree_data);
         cmd_buffer.pipeline_memory_barrier(
             device,
             &[
@@ -273,7 +273,7 @@ impl OctreeConstructor {
         // From LeafParticles to UVec2
         let leaf_particles_uvec2 = unsafe { std::mem::transmute(octree_data.leaf_particles()) };
         self.node_key_sorter.sort_indirect(
-            vk_core,
+            vk_context,
             octree_data.node_count().address(),
             octree_data.node_keys(),
             leaf_particles_uvec2,
@@ -281,7 +281,7 @@ impl OctreeConstructor {
         );
 
         self.level_offset_generator
-            .dispatch(vk_core, cmd_buffer, octree_data);
+            .dispatch(vk_context, cmd_buffer, octree_data);
         cmd_buffer.pipeline_memory_barrier(
             device,
             &[
@@ -299,7 +299,7 @@ impl OctreeConstructor {
         );
 
         self.octree_linker.indirect_dispatch(
-            vk_core,
+            vk_context,
             cmd_buffer,
             octree_data,
             world_min,

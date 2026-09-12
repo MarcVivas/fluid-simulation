@@ -32,9 +32,9 @@ struct LevelOffsetGeneratorPushConstants {
 }
 
 impl LevelOffsetGenerator {
-    pub fn new(vk_core: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
         let (level_offset_generator, shader_module) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<LevelOffsetGeneratorPushConstants>()
                 .specialization(
@@ -52,7 +52,7 @@ impl LevelOffsetGenerator {
 
     pub fn dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree_data: &OctreeData,
     ) {
@@ -67,7 +67,7 @@ impl LevelOffsetGenerator {
         };
 
         self.level_offset_generator.dispatch_compute(
-            vk_core,
+            vk_context,
             cmd_buffer,
             [1 as u32; 3],
             &[],

@@ -37,8 +37,8 @@ struct OctreeLinkerPushConstants {
 }
 
 impl OctreeLinker {
-    pub fn new(vk_core: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
-        let (octree_linker, shader_module) = ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+    pub fn new(vk_context: &Arc<VulkanContext>, max_levels: u32) -> anyhow::Result<Self> {
+        let (octree_linker, shader_module) = ComputeSystemBuilder::new(vk_context.clone(), SHADER)
             .entry_points(&["main"])
             .push_constants::<OctreeLinkerPushConstants>()
             .specialization(
@@ -56,7 +56,7 @@ impl OctreeLinker {
 
     pub fn indirect_dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree_data: &OctreeData,
         world_min: Vec4,
@@ -75,7 +75,7 @@ impl OctreeLinker {
 
         let dispatch_buffer = octree_data.indirect_dispatch_buffer_nodes().vk_buffer();
         self.octree_linker.indirect_dispatch(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &[],
             &[],

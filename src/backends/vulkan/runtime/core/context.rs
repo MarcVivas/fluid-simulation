@@ -9,9 +9,11 @@ use crate::backends::vulkan::runtime::core::surface::Surface;
 /// Shared Vulkan ownership passed to resource and rendering systems.
 ///
 pub struct VulkanContext {
-    instance: VulkanInstance,
-    device: VulkanDevice,
+    // Fields drop in declaration order: free GPU memory before destroying the
+    // device, and keep the instance's Vulkan loader alive until both are gone.
     allocator: GpuAllocator,
+    device: VulkanDevice,
+    instance: VulkanInstance,
 }
 
 impl VulkanContext {
@@ -24,23 +26,17 @@ impl VulkanContext {
         let device = VulkanDevice::new(instance.raw(), surface)?;
         let allocator = GpuAllocator::new(instance.raw(), device.raw(), device.physical_device())?;
         Ok(Self {
-            instance,
-            device,
             allocator,
+            device,
+            instance,
         })
     }
 
-    pub fn raw_device(&self) -> &ash::Device {
+    pub fn device(&self) -> &ash::Device {
         self.device.raw()
     }
-    pub fn raw_instance(&self) -> &ash::Instance {
-        self.instance.raw()
-    }
-    pub fn device(&self) -> &ash::Device {
-        self.raw_device()
-    }
     pub fn instance(&self) -> &ash::Instance {
-        self.raw_instance()
+        self.instance.raw()
     }
     pub fn physical_device(&self) -> &ash::vk::PhysicalDevice {
         &self.device.physical_device

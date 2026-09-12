@@ -13,11 +13,11 @@ pub struct ExclusivePrefixSumData {
 }
 
 impl ExclusivePrefixSumData {
-    pub fn new(vk_core: &Arc<VulkanContext>, num_thread_groups: u32) -> anyhow::Result<Self> {
-        let sync_counter = VkBuffer::new_gpu_only_uninitialized(vk_core, 1, "Sync counter")?;
+    pub fn new(vk_context: &Arc<VulkanContext>, num_thread_groups: u32) -> anyhow::Result<Self> {
+        let sync_counter = VkBuffer::new_gpu_only_uninitialized(vk_context, 1, "Sync counter")?;
 
         let status_array = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             num_thread_groups as usize,
             "Status array",
         )?;

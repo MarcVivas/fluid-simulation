@@ -15,7 +15,7 @@ pub struct RadixSortData {
 
 impl RadixSortData {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         max_keys: u32,
         keys_bit_count: Option<u32>,
         bits_per_pass: u32,
@@ -23,22 +23,22 @@ impl RadixSortData {
         bin_count: u32,
     ) -> anyhow::Result<Self> {
         let histogram_buffer = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             Self::calculate_histogram_len(max_keys, block_size, bin_count) as usize,
             "Histogram buffer",
         )?;
 
         let keys_b_buffer =
-            VkBuffer::new_gpu_only_uninitialized(vk_core, max_keys as usize, "Keys b buffer")?;
+            VkBuffer::new_gpu_only_uninitialized(vk_context, max_keys as usize, "Keys b buffer")?;
 
         let reduce_table_buffer = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             Self::calculate_reduce_table_len(max_keys, block_size, bin_count) as usize,
             "Reduce table buffer",
         )?;
 
         let scan_scratch_buffer = VkBuffer::new_gpu_only_uninitialized(
-            vk_core,
+            vk_context,
             Self::calculate_scan_scratch_len(max_keys, block_size, bin_count) as usize,
             "Scan scratch buffer",
         )?;

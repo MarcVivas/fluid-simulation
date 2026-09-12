@@ -8,40 +8,40 @@ use crate::world::WorldBounds;
 
 /// Vulkan storage initialized from the logical world and shared by physics and rendering.
 pub struct VulkanWorldResources {
-    state: WorldBounds,
-    particle_system: ParticleStorage,
+    bounds: WorldBounds,
+    particles: ParticleStorage,
 }
 
 impl VulkanWorldResources {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         world: &World,
         command_pool: ash::vk::CommandPool,
     ) -> anyhow::Result<Self> {
-        let state = WorldBounds::new(&world.dimensions());
+        let bounds = WorldBounds::new(&world.dimensions());
 
-        let particle_system =
-            ParticleStorage::from_state(vk_core, command_pool, world.initial_particles())?;
+        let particles =
+            ParticleStorage::from_state(vk_context, command_pool, world.initial_particles())?;
 
         Ok(Self {
-            particle_system,
-            state,
+            particles,
+            bounds,
         })
     }
 
-    pub fn state(&self) -> WorldBounds {
-        self.state
+    pub fn bounds(&self) -> WorldBounds {
+        self.bounds
     }
 
     pub fn particles(&self) -> &ParticleStorage {
-        &self.particle_system
+        &self.particles
     }
 
     pub fn particles_mut(&mut self) -> &mut ParticleStorage {
-        &mut self.particle_system
+        &mut self.particles
     }
 
     pub fn extract_render_data(&self) -> ParticleRenderInput {
-        self.particle_system.extract_render_data()
+        self.particles.extract_render_data()
     }
 }

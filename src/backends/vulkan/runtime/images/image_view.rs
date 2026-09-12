@@ -4,23 +4,23 @@ use ash::vk;
 use std::sync::Arc;
 
 pub struct ImageView {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     image_view: vk::ImageView,
 }
 
 impl ImageView {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         image_view_create_info: &vk::ImageViewCreateInfo,
     ) -> Result<Self> {
         let image_view = unsafe {
-            vk_core
+            vk_context
                 .device()
                 .create_image_view(image_view_create_info, None)
         }?;
 
         Ok(Self {
-            vk_core,
+            vk_context,
             image_view,
         })
     }
@@ -32,7 +32,7 @@ impl ImageView {
 
 impl Drop for ImageView {
     fn drop(&mut self) {
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
         unsafe {
             device.destroy_image_view(self.image_view, None);
         }

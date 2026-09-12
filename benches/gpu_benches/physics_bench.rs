@@ -1,24 +1,24 @@
 use criterion::{BenchmarkId, Criterion, Throughput};
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
-use engine::backends::vulkan::runtime::profiler::GpuProfiler;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::runtime::profiler::GpuProfiler;
 use std::{sync::Arc, time::Duration};
 
 use crate::gpu_benches::gpu_bench_utils::execute_and_profile;
 
 // Adjust these paths depending on where the ParticleSolver structure is located in your crate
-use engine::backends::vulkan::particles::ParticleStorage;
-use engine::backends::vulkan::particles::physics::neighbors::NeighborList;
-use engine::backends::vulkan::particles::physics::octree::octree::Octree;
-use engine::backends::vulkan::particles::physics::solver::ParticleSolver;
+use gpu_fluid_simulation::backends::vulkan::particles::ParticleStorage;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::neighbors::NeighborList;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::octree::Octree;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::ParticleSolver;
 
 pub fn bench_physics_engine(criterion: &mut Criterion) {
-    VkHeadless::run(|engine, vk_core, _rng| {
-        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    VkHeadless::run(|engine, vk_context, _rng| {
+        let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         // Initialize profiler with 32 zones to handle multiple internal scopes
         let profiler =
-            GpuProfiler::new(vk_core.clone(), 32, 1).expect("failed to create GPU profiler");
+            GpuProfiler::new(vk_context.clone(), 32, 1).expect("failed to create GPU profiler");
 
         let mut group = criterion.benchmark_group("Physics_Engine_Group");
         group.warm_up_time(Duration::from_secs(1));
@@ -37,7 +37,7 @@ pub fn bench_physics_engine(criterion: &mut Criterion) {
 
             // Allocate resources for this size
             let (mut physics_engine, mut particles, mut octree, neighbor_list) =
-                prepare_gpu_resources(vk_core, engine, num_particles);
+                prepare_gpu_resources(vk_context, engine, num_particles);
 
             let benchmark_id = BenchmarkId::new("physics_engine", num_particles);
 
@@ -47,9 +47,9 @@ pub fn bench_physics_engine(criterion: &mut Criterion) {
 
                     for _ in 0..iters {
                         total_gpu_ms +=
-                            execute_and_profile(vk_core, engine, &profiler, label, |cmd_buffer| {
+                            execute_and_profile(vk_context, engine, &profiler, label, |cmd_buffer| {
                                 physics_engine.update(
-                                    vk_core,
+                                    vk_context,
                                     cmd_buffer,
                                     &mut particles,
                                     world_size,
@@ -74,7 +74,7 @@ pub fn bench_physics_engine(criterion: &mut Criterion) {
 
 /// Sets up the physics system and pre-populates spatial structures
 fn prepare_gpu_resources(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     engine: &ComputeExecutor,
     num_particles: u32,
 ) -> (ParticleSolver, ParticleStorage, Octree, NeighborList) {
@@ -87,18 +87,18 @@ fn prepare_gpu_resources(
     let particles = ParticleStorage::new(
         num_particles as usize,
         &glam::Vec3::new(world_size, world_size, world_size),
-        vk_core,
+        vk_context,
         cmd_pool,
-        engine::world::particles::ParticleInitPreset::CollidingBlocks,
+        gpu_fluid_simulation::world::particles::ParticleInitPreset::CollidingBlocks,
         search_radius,
     )
     .expect("Failed to initialize ParticleStorage");
 
     // 2. Initialize Octree and Neighbor List structures
     let octree =
-        Octree::new(vk_core, cmd_pool, num_particles).expect("Failed to initialize Octree");
+        Octree::new(vk_context, cmd_pool, num_particles).expect("Failed to initialize Octree");
     let neighbor_list = NeighborList::new(
-        vk_core,
+        vk_context,
         cmd_pool,
         num_particles as usize,
         octree.max_expected_leaves(),
@@ -108,7 +108,7 @@ fn prepare_gpu_resources(
     .expect("Failed to initialize NeighborList");
 
     // 3. Initialize the main Physics Engine
-    let physics_engine = ParticleSolver::new(vk_core, cmd_pool, &particles, max_levels, search_radius)
+    let physics_engine = ParticleSolver::new(vk_context, cmd_pool, &particles, max_levels, search_radius)
             .expect("Failed to initialize ParticleSolver");
 
     (physics_engine, particles, octree, neighbor_list)

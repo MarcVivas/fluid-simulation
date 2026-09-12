@@ -10,7 +10,7 @@ use std::sync::Arc;
 use winit::window::Window;
 
 pub struct WindowRenderTarget {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     swapchain: Swapchain,
     surface: Surface,
     viewports: [vk::Viewport; 1],
@@ -21,19 +21,19 @@ pub struct WindowRenderTarget {
 
 impl WindowRenderTarget {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         surface: Surface,
         window: &Window,
         frames_in_flight: usize,
     ) -> Result<Self> {
         let surface_resolution = surface
-            .surface_resolution(*vk_core.physical_device(), window)
+            .surface_resolution(*vk_context.physical_device(), window)
             .context("Failed to query surface resolution")?;
 
-        let swapchain = Swapchain::new(&vk_core, &surface, window, None, frames_in_flight)
+        let swapchain = Swapchain::new(&vk_context, &surface, window, None, frames_in_flight)
             .context("Failed to create swapchain")?;
 
-        let depth_image = DepthImage::new(vk_core.clone(), &surface_resolution)
+        let depth_image = DepthImage::new(vk_context.clone(), &surface_resolution)
             .context("Failed to create depth image")?;
 
         let viewports = [vk::Viewport {
@@ -48,7 +48,7 @@ impl WindowRenderTarget {
         let scissors = [surface_resolution.into()];
 
         Ok(Self {
-            vk_core,
+            vk_context,
             surface,
             swapchain,
             depth_image,
@@ -66,16 +66,16 @@ impl WindowRenderTarget {
 
     pub fn resize_window(
         &mut self,
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         window: &Window,
         frames_in_flight: usize,
     ) -> Result<()> {
         // Wait for the device to be idle before the resize.
-        unsafe { vk_core.device().device_wait_idle()? };
+        unsafe { vk_context.device().device_wait_idle()? };
 
         self.resolution = self
             .surface
-            .surface_resolution(*vk_core.physical_device(), window)
+            .surface_resolution(*vk_context.physical_device(), window)
             .context("Failed to query surface resolution")?;
 
         // Don't need to resize if the window is not visible
@@ -85,7 +85,7 @@ impl WindowRenderTarget {
 
         // Swapchain recreation
         self.swapchain = Swapchain::new(
-            &self.vk_core,
+            &self.vk_context,
             &self.surface,
             window,
             Some(&self.swapchain),
@@ -94,7 +94,7 @@ impl WindowRenderTarget {
         .context("Failed to recreate swapchain")?;
 
         // Depth image recreation
-        let depth_image = DepthImage::new(self.vk_core.clone(), &self.resolution)
+        let depth_image = DepthImage::new(self.vk_context.clone(), &self.resolution)
             .context("Failed to recreate depth image")?;
 
         self.depth_image = depth_image;

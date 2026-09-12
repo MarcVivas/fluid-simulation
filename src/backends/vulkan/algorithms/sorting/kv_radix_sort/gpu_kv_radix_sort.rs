@@ -1,6 +1,6 @@
 use crate::backends::vulkan::algorithms::sorting::config::*;
 use crate::backends::vulkan::algorithms::sorting::kv_radix_sort::radix_sort_data::RadixSortData;
-use crate::backends::vulkan::algorithms::sorting::kv_radix_sort::radix_sort_payload::RadixSortPayload;
+use crate::backends::vulkan::algorithms::sorting::kv_radix_sort::RadixSortPayload;
 use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
 use crate::backends::vulkan::runtime::commands::compute_buffer_barrier;
@@ -10,7 +10,7 @@ use crate::backends::vulkan::runtime::compute::ComputePass;
 use crate::backends::vulkan::runtime::compute::ComputeSystemBuilder;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::shaders::ShaderModule;
-use crate::backends::vulkan::runtime::shaders::traits::GpuTask;
+use crate::backends::vulkan::runtime::shaders::GpuTask;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
@@ -55,14 +55,14 @@ struct SortingPushConstants {
 
 impl<T: RadixSortPayload> GpuKVRadixSort<T> {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         max_keys: u32,
         keys_bit_count: Option<u32>,
     ) -> anyhow::Result<Self> {
         let shader = T::shader();
 
-        let mut sorting_resources = ComputeSystemBuilder::new(vk_core.clone(), shader)
+        let mut sorting_resources = ComputeSystemBuilder::new(vk_context.clone(), shader)
             .entry_points(&[
                 "count",
                 "scan_reduce_table",
@@ -75,7 +75,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
             .build_with_multiple_passes()?;
 
         let sorting_data = RadixSortData::new(
-            vk_core,
+            vk_context,
             cmd_pool,
             max_keys,
             keys_bit_count,
@@ -125,13 +125,13 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
     pub fn sort(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
         command_buffer: &CommandBuffer,
         num_elements_to_sort: usize,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         let num_passes = self.sorting_data.num_passes;
 
@@ -169,7 +169,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
             // Pass 1: Count bits. Generates the histogram of every block
             // 4 bits per pass -> 2^4=16 possible bins, binary numbers
             self.counting_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_thread_groups, 1, 1],
                 &[],
@@ -181,7 +181,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
             // Pass 2: Reduce. Group blocks together (e.g., 8 blocks = 1 big block) and sum their histograms
             // This reads the large SumTable and creates a smaller "ReduceTable"
             self.reduce_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_scan_values, 1, 1],
                 &[],
@@ -193,7 +193,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
             // Pass 3: Scan to know where each bin starts globally
             // Scans the ReduceTable.
             self.scan_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [1, 1, 1],
                 &[],
@@ -204,7 +204,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 4: Scan and add. Convert the big block offsets back to the smaller blocks
             self.scan_add_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_scan_values, 1, 1],
                 &[],
@@ -215,7 +215,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 5: Scatter. Read the offsets from the scan and move the keys and payloads to the correct position.
             self.scatter_pass.dispatch_compute(
-                vk_core,
+                vk_context,
                 command_buffer,
                 [push_constants.num_thread_groups, 1, 1],
                 &[],
@@ -223,7 +223,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
                 push_constants_bytes,
             );
             barrier_scatter_pass(
-                vk_core,
+                vk_context,
                 command_buffer,
                 dst_keys.vk_buffer(),
                 dst_payload.vk_buffer(),
@@ -289,13 +289,13 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
     pub fn sort_indirect(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         count_buffer_address: vk::DeviceAddress,
         keys: &VkBuffer<u32>,
         payload: &VkBuffer<T>,
         command_buffer: &CommandBuffer,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         // Dispatch the Setup Shader (Runs once to prepare metadata and indirect parameters)
         let setup_pcs = SortingPushConstants {
@@ -310,7 +310,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
         };
 
         self.setup_indirect_pass.dispatch_compute(
-            vk_core,
+            vk_context,
             command_buffer,
             [1, 1, 1],
             &[],
@@ -363,7 +363,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 1: Count
             self.counting_pass.indirect_dispatch(
-                vk_core,
+                vk_context,
                 command_buffer,
                 &[],
                 &[],
@@ -375,7 +375,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 2: Reduce
             self.reduce_pass.indirect_dispatch(
-                vk_core,
+                vk_context,
                 command_buffer,
                 &[],
                 &[],
@@ -387,7 +387,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 3: Scan
             self.scan_pass.indirect_dispatch(
-                vk_core,
+                vk_context,
                 command_buffer,
                 &[],
                 &[],
@@ -399,7 +399,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 4: Scan Add
             self.scan_add_pass.indirect_dispatch(
-                vk_core,
+                vk_context,
                 command_buffer,
                 &[],
                 &[],
@@ -411,7 +411,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 
             // Pass 5: Scatter
             self.scatter_pass.indirect_dispatch(
-                vk_core,
+                vk_context,
                 command_buffer,
                 &[],
                 &[],
@@ -420,7 +420,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
                 4 * indirect_cmd_size,
             );
             barrier_scatter_pass(
-                vk_core,
+                vk_context,
                 command_buffer,
                 dst_keys.vk_buffer(),
                 dst_payload.vk_buffer(),
@@ -430,7 +430,7 @@ impl<T: RadixSortPayload> GpuKVRadixSort<T> {
 }
 
 fn barrier_scatter_pass(
-    vk_core: &VulkanContext,
+    vk_context: &VulkanContext,
     cmd_buffer: &CommandBuffer,
     dst_keys: vk::Buffer,
     dst_payload: vk::Buffer,
@@ -447,7 +447,7 @@ fn barrier_scatter_pass(
             vk::AccessFlags2::SHADER_STORAGE_READ,
         ),
     ];
-    cmd_buffer.pipeline_memory_barrier(vk_core.device(), &buffer_memory_barriers, &[]);
+    cmd_buffer.pipeline_memory_barrier(vk_context.device(), &buffer_memory_barriers, &[]);
 }
 
 impl<T: RadixSortPayload> GpuTask for GpuKVRadixSort<T> {

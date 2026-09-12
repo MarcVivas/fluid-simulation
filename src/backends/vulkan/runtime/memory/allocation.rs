@@ -3,10 +3,10 @@ use gpu_allocator::Result;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc};
 use std::sync::Arc;
 
-pub fn allocate(vk_core: &Arc<VulkanContext>, desc: &AllocationCreateDesc) -> Result<Allocation> {
-    vk_core.allocator().allocate(desc)
+pub fn allocate(vk_context: &Arc<VulkanContext>, desc: &AllocationCreateDesc) -> Result<Allocation> {
+    vk_context.allocator().allocate(desc)
 }
 
-pub fn deallocate(vk_core: &Arc<VulkanContext>, allocation: Allocation) -> Result<()> {
-    vk_core.allocator().free(allocation)
+pub fn deallocate(vk_context: &Arc<VulkanContext>, allocation: Allocation) -> Result<()> {
+    vk_context.allocator().free(allocation)
 }

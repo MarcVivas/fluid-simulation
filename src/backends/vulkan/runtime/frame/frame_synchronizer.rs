@@ -11,9 +11,9 @@ pub struct FrameSynchronizer {
 }
 
 impl FrameSynchronizer {
-    pub fn new(vk_core: Arc<VulkanContext>) -> Result<Self> {
+    pub fn new(vk_context: Arc<VulkanContext>) -> Result<Self> {
         Ok(Self {
-            timeline_semaphore: TimelineSemaphore::new(vk_core, 0).context("timeline semaphore")?,
+            timeline_semaphore: TimelineSemaphore::new(vk_context, 0).context("timeline semaphore")?,
         })
     }
 

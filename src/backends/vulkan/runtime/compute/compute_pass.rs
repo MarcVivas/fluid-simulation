@@ -5,19 +5,19 @@ use ash::vk;
 use std::sync::Arc;
 
 pub struct ComputePass {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     pipeline_layout: PipelineLayout,
     pipeline: vk::Pipeline,
 }
 
 impl ComputePass {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         pipeline: vk::Pipeline,
         pipeline_layout: PipelineLayout,
     ) -> Self {
         Self {
-            vk_core,
+            vk_context,
             pipeline,
             pipeline_layout,
         }
@@ -69,7 +69,7 @@ impl ComputePass {
 
     fn push_descriptors(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         buffers: &[vk::Buffer],
         images: &[ImageDescriptor],
@@ -117,7 +117,7 @@ impl ComputePass {
         // Push the descriptor writes to the command buffer.
         if !descriptor_writes.is_empty() {
             unsafe {
-                vk_core.push_descriptor().cmd_push_descriptor_set(
+                vk_context.push_descriptor().cmd_push_descriptor_set(
                     cmd_buffer.vk_cmd_buffer(),
                     vk::PipelineBindPoint::COMPUTE,
                     self.pipeline_layout.vk_pipeline_layout(),
@@ -131,14 +131,14 @@ impl ComputePass {
     /// Dispatch with buffers, images and push constants.
     pub fn dispatch_compute(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         thread_groups: [u32; 3],
         buffers: &[vk::Buffer],
         images: &[ImageDescriptor],
         push_constants: &[u8],
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         // Bind the pipeline.
         self.bind(device, cmd_buffer.vk_cmd_buffer());
@@ -147,7 +147,7 @@ impl ComputePass {
         self.set_push_constants(device, cmd_buffer, push_constants);
 
         // Push the descriptors.
-        self.push_descriptors(vk_core, cmd_buffer, buffers, images);
+        self.push_descriptors(vk_context, cmd_buffer, buffers, images);
 
         // Dispatch the compute shader.
         cmd_buffer.dispatch(device, thread_groups);
@@ -156,7 +156,7 @@ impl ComputePass {
     /// Indirect Dispatch with buffers, images and push constants.
     pub fn indirect_dispatch(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         buffers: &[vk::Buffer],
         images: &[ImageDescriptor],
@@ -164,13 +164,13 @@ impl ComputePass {
         dispatch_buffer: vk::Buffer,
         offset: u64,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         self.bind(device, cmd_buffer.vk_cmd_buffer());
 
         self.set_push_constants(device, cmd_buffer, push_constants);
 
-        self.push_descriptors(vk_core, cmd_buffer, buffers, images);
+        self.push_descriptors(vk_context, cmd_buffer, buffers, images);
 
         cmd_buffer.indirect_dispatch(device, dispatch_buffer, offset);
     }
@@ -184,7 +184,7 @@ pub struct ImageDescriptor {
 
 impl Drop for ComputePass {
     fn drop(&mut self) {
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
         unsafe {
             device.destroy_pipeline(self.pipeline, None);
         }

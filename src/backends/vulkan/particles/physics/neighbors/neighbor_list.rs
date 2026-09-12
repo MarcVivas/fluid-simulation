@@ -6,11 +6,11 @@ use crate::backends::vulkan::particles::ParticleBuffers;
 use crate::backends::vulkan::particles::physics::neighbors::neighbor_list_data::*;
 use crate::backends::vulkan::particles::physics::neighbors::neighbor_search::NeighborSearch;
 use crate::backends::vulkan::particles::physics::octree::LeafParticles;
-use crate::backends::vulkan::particles::physics::octree::octree::Octree;
+use crate::backends::vulkan::particles::physics::octree::Octree;
 use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
 use crate::backends::vulkan::runtime::core::VulkanContext;
-use crate::backends::vulkan::runtime::shaders::traits::GpuTask;
+use crate::backends::vulkan::runtime::shaders::GpuTask;
 
 const MAX_LEAF_NEIGHBORS: u32 = 256;
 const MAX_PARTICLE_NEIGHBORS: u32 = 96;
@@ -22,7 +22,7 @@ pub struct NeighborList {
 
 impl NeighborList {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         cmd_pool: vk::CommandPool,
         num_particles: usize,
         max_expected_leaves: u32,
@@ -30,7 +30,7 @@ impl NeighborList {
         max_levels: u32,
     ) -> anyhow::Result<Self> {
         let data = NeighborListData::new(
-            vk_core,
+            vk_context,
             cmd_pool,
             num_particles,
             max_expected_leaves,
@@ -38,7 +38,7 @@ impl NeighborList {
             MAX_LEAF_NEIGHBORS,
         )?;
 
-        let neighbor_search = NeighborSearch::new(vk_core, n_crit, max_levels)?;
+        let neighbor_search = NeighborSearch::new(vk_context, n_crit, max_levels)?;
 
         Ok(Self {
             data,
@@ -48,7 +48,7 @@ impl NeighborList {
 
     pub fn build(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         cmd_buffer: &CommandBuffer,
         octree: &Octree,
         particles: &ParticleBuffers,
@@ -57,7 +57,7 @@ impl NeighborList {
         world_size: f32,
     ) {
         self.neighbor_search.build(
-            vk_core,
+            vk_context,
             cmd_buffer,
             octree,
             particles,

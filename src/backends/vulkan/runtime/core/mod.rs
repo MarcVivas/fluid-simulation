@@ -1,9 +1,9 @@
-pub mod vk_core;
+pub mod context;
 pub use device_context::VulkanDevice;
 pub use device_extensions::DeviceExtensions;
 pub use gpu_allocator::GpuAllocator;
 pub use instance_context::VulkanInstance;
-pub use vk_core::{SharedVulkanContext, VulkanContext};
+pub use context::{SharedVulkanContext, VulkanContext};
 mod debug_messenger;
 mod device_context;
 mod device_extensions;
@@ -30,8 +30,8 @@ pub fn init_with_window(
         ash_window::enumerate_required_extensions(window.display_handle()?.as_raw())?;
     let instance = instance::create_instance(&entry, &window_extensions)?;
     let surface = Surface::new(&entry, &instance, &window)?;
-    let vk_core = Arc::new(VulkanContext::new(entry, instance, Some(&surface))?);
-    Ok((vk_core, surface))
+    let vk_context = Arc::new(VulkanContext::new(entry, instance, Some(&surface))?);
+    Ok((vk_context, surface))
 }
 
 pub fn init_headless() -> anyhow::Result<VulkanContext> {

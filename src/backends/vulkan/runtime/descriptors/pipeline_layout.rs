@@ -8,7 +8,7 @@ use std::sync::Arc;
 /// BindingGroupLayout <-> DescriptorSetLayout and PipelineLayout
 
 pub struct PipelineLayout {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     pipeline_layout: vk::PipelineLayout,
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
 }
@@ -20,11 +20,11 @@ pub struct DescriptorSetLayoutConfig<'a> {
 
 impl PipelineLayout {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         descriptor_set_layout_config: &[DescriptorSetLayoutConfig],
         push_constant_ranges: &[vk::PushConstantRange],
     ) -> VkResult<Self> {
-        let device = vk_core.device();
+        let device = vk_context.device();
         let mut descriptor_set_layouts = Vec::with_capacity(descriptor_set_layout_config.len());
 
         for config in descriptor_set_layout_config {
@@ -44,13 +44,13 @@ impl PipelineLayout {
             .push_constant_ranges(push_constant_ranges);
 
         let pipeline_layout = unsafe {
-            vk_core
+            vk_context
                 .device()
                 .create_pipeline_layout(&pipeline_layout_create_info, None)
         }?;
 
         Ok(Self {
-            vk_core,
+            vk_context,
             pipeline_layout,
             descriptor_set_layouts,
         })
@@ -69,11 +69,11 @@ impl Drop for PipelineLayout {
     fn drop(&mut self) {
         unsafe {
             for layout in self.descriptor_set_layouts.iter() {
-                self.vk_core
+                self.vk_context
                     .device()
                     .destroy_descriptor_set_layout(*layout, None);
             }
-            self.vk_core
+            self.vk_context
                 .device()
                 .destroy_pipeline_layout(self.pipeline_layout, None);
         }

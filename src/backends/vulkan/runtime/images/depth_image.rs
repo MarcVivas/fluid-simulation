@@ -15,7 +15,7 @@ pub struct DepthImage {
 
 const FORMAT: vk::Format = vk::Format::D16_UNORM;
 impl DepthImage {
-    pub fn new(vk_core: Arc<VulkanContext>, surface_resolution: &Extent2D) -> Result<Self> {
+    pub fn new(vk_context: Arc<VulkanContext>, surface_resolution: &Extent2D) -> Result<Self> {
         let depth_image_create_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(FORMAT)
@@ -35,7 +35,7 @@ impl DepthImage {
             allocation_scheme: AllocationScheme::GpuAllocatorManaged,
         };
 
-        let depth_image = VkImage::new(&vk_core, &depth_image_create_info, &allocation_desc)?;
+        let depth_image = VkImage::new(&vk_context, &depth_image_create_info, &allocation_desc)?;
 
         let depth_image_view_info = vk::ImageViewCreateInfo::default()
             .subresource_range(
@@ -48,7 +48,7 @@ impl DepthImage {
             .view_type(vk::ImageViewType::TYPE_2D)
             .format(depth_image_create_info.format);
 
-        let depth_image_view = ImageView::new(vk_core.clone(), &depth_image_view_info)?;
+        let depth_image_view = ImageView::new(vk_context.clone(), &depth_image_view_info)?;
 
         Ok(Self {
             view: depth_image_view,

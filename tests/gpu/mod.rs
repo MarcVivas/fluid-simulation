@@ -5,3 +5,4 @@ mod neighbor_list_test;
 mod octree_test;
 mod radix_sort_test;
 mod rearranging_test;
+mod context_lifetime_test;

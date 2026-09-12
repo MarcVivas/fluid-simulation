@@ -8,27 +8,27 @@ use ash::vk;
 use std::sync::Arc;
 
 pub struct ComputeExecutor {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     command_buffers: Vec<CommandBuffer>,
     frame_synchronizer: FrameSynchronizer,
     command_pool: CommandPool,
 }
 
 impl ComputeExecutor {
-    pub fn new(vk_core: Arc<VulkanContext>, frames_in_flight: usize) -> Result<Self> {
+    pub fn new(vk_context: Arc<VulkanContext>, frames_in_flight: usize) -> Result<Self> {
         let command_pool =
-            CommandPool::resetable(vk_core.clone(), vk_core.compute_queue_family_index())
+            CommandPool::resetable(vk_context.clone(), vk_context.compute_queue_family_index())
                 .context("failed to create compute command pool")?;
 
         let command_buffers = command_pool
             .allocate_command_buffers(frames_in_flight as u32, vk::CommandBufferLevel::PRIMARY)
             .context("failed to allocate compute command buffers")?;
 
-        let frame_synchronizer = FrameSynchronizer::new(vk_core.clone())
+        let frame_synchronizer = FrameSynchronizer::new(vk_context.clone())
             .context("Failed to build compute frame synchronizer")?;
 
         Ok(Self {
-            vk_core,
+            vk_context,
             command_buffers,
             command_pool,
             frame_synchronizer,
@@ -40,7 +40,7 @@ impl ComputeExecutor {
         frame_pacer: &FramePacer,
         record_commands_fn: impl FnOnce(&CommandBuffer),
     ) -> Result<()> {
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
 
         let ring_buffer_index = frame_pacer.ring_index();
 
@@ -80,8 +80,8 @@ impl ComputeExecutor {
         wait_semaphores: &[vk::SemaphoreSubmitInfo],
         send_signal: bool,
     ) -> Result<()> {
-        let device = self.vk_core.device();
-        let queue = self.vk_core.compute_queue();
+        let device = self.vk_context.device();
+        let queue = self.vk_context.compute_queue();
         let ring_index = frame_pacer.ring_index();
 
         let current_command_buffer = &self.command_buffers[ring_index];

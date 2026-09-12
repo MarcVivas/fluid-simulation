@@ -42,9 +42,9 @@ struct ApplyExternalPushConstants {
 }
 
 impl ApplyExternalForces {
-    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (apply_external_forces_compute_pass, apply_external_forces_compute_shader) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .specialization(SpecializationConstants::default().u32(THREAD_GROUP_SIZE))
                 .push_constants::<ApplyExternalPushConstants>()
@@ -57,13 +57,13 @@ impl ApplyExternalForces {
 
     pub fn execute(
         &mut self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         command_buffer: &CommandBuffer,
         particles: &ParticleStorage,
         physics_config: &PhysicsConfig,
         world_bounds: &WorldBounds
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
         let particle_data = particles.buffers();
         let num_elements = particle_data.hilbert_keys.len() as u32;
 
@@ -84,7 +84,7 @@ impl ApplyExternalForces {
         };
 
         self.apply_external_forces_compute_pass.dispatch_compute(
-            vk_core,
+            vk_context,
             command_buffer,
             [num_workgroups, 1, 1],
             &[],

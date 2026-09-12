@@ -15,7 +15,7 @@ use std::sync::Arc;
 use winit::window::Window;
 
 pub struct FrameRenderer {
-    vk_core: Arc<VulkanContext>,
+    vk_context: Arc<VulkanContext>,
     command_pool: CommandPool,
     frame_data: Vec<FrameData>,
     // For cpu-gpu sync
@@ -25,30 +25,30 @@ pub struct FrameRenderer {
 
 impl FrameRenderer {
     pub fn new(
-        vk_core: Arc<VulkanContext>,
+        vk_context: Arc<VulkanContext>,
         window: &Window,
         surface: Surface,
         frames_in_flight: usize,
     ) -> Result<Self> {
         let command_pool =
-            CommandPool::resetable(vk_core.clone(), vk_core.graphics_queue_family_index())?;
+            CommandPool::resetable(vk_context.clone(), vk_context.graphics_queue_family_index())?;
 
         let draw_command_buffers = command_pool
             .allocate_command_buffers(frames_in_flight as u32, vk::CommandBufferLevel::PRIMARY)?;
 
         let frame_data = (0..frames_in_flight)
-            .map(|i| FrameData::new(vk_core.clone(), draw_command_buffers[i]))
+            .map(|i| FrameData::new(vk_context.clone(), draw_command_buffers[i]))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let frame_synchronizer = FrameSynchronizer::new(vk_core.clone())
+        let frame_synchronizer = FrameSynchronizer::new(vk_context.clone())
             .context("Initialize renderer frame synchronizer")?;
 
         let swapchain_presenter =
-            SwapchainPresenter::new(vk_core.clone(), surface, window, frames_in_flight)
+            SwapchainPresenter::new(vk_context.clone(), surface, window, frames_in_flight)
                 .context("Failed to create swapchain presenter")?;
 
         Ok(Self {
-            vk_core,
+            vk_context,
             swapchain_presenter,
             command_pool,
             frame_data,
@@ -65,7 +65,7 @@ impl FrameRenderer {
         let frames_in_flight = frame_pacer.frames_in_flight() as u64;
 
         self.swapchain_presenter
-            .handle_window_resize(&self.vk_core, window, frames_in_flight as usize)
+            .handle_window_resize(&self.vk_context, window, frames_in_flight as usize)
             .context("Couldn't resize the window")?;
 
         // WAIT FOR GPU: Blocks CPU until this frame's resources are safe to use
@@ -110,10 +110,10 @@ impl FrameRenderer {
                 .signal_semaphore_infos(&signal_sem_info)
                 .command_buffer_infos(&cmd_info);
 
-            self.vk_core
+            self.vk_context
                 .device()
                 .queue_submit2(
-                    *self.vk_core.graphics_queue(),
+                    *self.vk_context.graphics_queue(),
                     &[submit_info],
                     vk::Fence::null(),
                 )
@@ -158,7 +158,7 @@ impl FrameRenderer {
             frame_pacer,
         )?;
 
-        let queue = *self.vk_core.graphics_queue();
+        let queue = *self.vk_context.graphics_queue();
         self.swapchain_presenter
             .present(queue, &[rendering_complete_semaphore], image_index)?;
 
@@ -173,26 +173,26 @@ impl FrameRenderer {
         mut draw_fn: impl FnMut(&CommandBuffer),
     ) -> Result<()> {
         let cmd_buffer = self.frame_data[frame_pacer.ring_index()].command_buffer();
-        cmd_buffer.reset(self.vk_core.device(), vk::CommandBufferResetFlags::empty())?;
+        cmd_buffer.reset(self.vk_context.device(), vk::CommandBufferResetFlags::empty())?;
         cmd_buffer.begin_command_buffer(
-            self.vk_core.device(),
+            self.vk_context.device(),
             &vk::CommandBufferBeginInfo::default()
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
         )?;
         pass.record(
-            self.vk_core.device(),
+            self.vk_context.device(),
             cmd_buffer,
             self.render_target(),
             image_index as usize,
             &mut draw_fn,
         )?;
-        cmd_buffer.end_command_buffer(self.vk_core.device())?;
+        cmd_buffer.end_command_buffer(self.vk_context.device())?;
         Ok(())
     }
 
     pub fn resize_window(&mut self, window: &Window, frames_in_flight: usize) -> Result<()> {
         self.swapchain_presenter
-            .resize_window(&self.vk_core, window, frames_in_flight)
+            .resize_window(&self.vk_context, window, frames_in_flight)
     }
 
     pub fn command_pool(&self) -> vk::CommandPool {
@@ -227,7 +227,7 @@ impl FrameRenderer {
 
 impl Drop for FrameRenderer {
     fn drop(&mut self) {
-        let device = self.vk_core.device();
+        let device = self.vk_context.device();
         unsafe {
             let _ = device.device_wait_idle();
         }

@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use engine::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
-use engine::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
-use engine::backends::vulkan::particles::ParticleStorage;
+use gpu_fluid_simulation::backends::vulkan::algorithms::hilbert_encoding::HilbertEncoder;
+use gpu_fluid_simulation::backends::vulkan::algorithms::sorting::kv_radix_sort::GpuKVRadixSort;
+use gpu_fluid_simulation::backends::vulkan::particles::ParticleStorage;
 
-use engine::backends::vulkan::particles::physics::neighbors::NeighborList;
-use engine::backends::vulkan::particles::physics::neighbors::NeighborRange;
-use engine::backends::vulkan::particles::physics::neighbors::PARTICLE_NEIGHBOR_TILE_SIZE;
-use engine::backends::vulkan::particles::physics::octree::octree::Octree;
-use engine::backends::vulkan::particles::physics::reorder::ParticleReorderer;
-use engine::backends::vulkan::runtime::commands::CommandBuffer;
-use engine::backends::vulkan::runtime::compute::ComputeExecutor;
-use engine::backends::vulkan::runtime::core::VulkanContext;
-use engine::backends::vulkan::runtime::headless::VkHeadless;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::neighbors::NeighborList;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::neighbors::NeighborRange;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::neighbors::PARTICLE_NEIGHBOR_TILE_SIZE;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::octree::Octree;
+use gpu_fluid_simulation::backends::vulkan::particles::physics::reorder::ParticleReorderer;
+use gpu_fluid_simulation::backends::vulkan::runtime::commands::CommandBuffer;
+use gpu_fluid_simulation::backends::vulkan::runtime::compute::ComputeExecutor;
+use gpu_fluid_simulation::backends::vulkan::runtime::core::VulkanContext;
+use gpu_fluid_simulation::backends::vulkan::runtime::headless::VkHeadless;
 use glam::{Vec4, Vec4Swizzles};
 
 use crate::gpu::octree_test::decode_hilbert_3d_cpu;
@@ -32,7 +32,7 @@ struct NeighborListTest {
 
 impl NeighborListTest {
     pub fn new(
-        vk_core: &Arc<VulkanContext>,
+        vk_context: &Arc<VulkanContext>,
         engine: &ComputeExecutor,
         num_particles: u32,
         search_radius: f32,
@@ -45,30 +45,30 @@ impl NeighborListTest {
         let particles = ParticleStorage::new(
             num_particles as usize,
             &world_max,
-            vk_core,
+            vk_context,
             cmd_pool,
-            engine::world::particles::ParticleInitPreset::CollidingBlocks,
+            gpu_fluid_simulation::world::particles::ParticleInitPreset::CollidingBlocks,
             search_radius,
         )
         .unwrap();
 
         let octree =
-            Octree::new(vk_core, cmd_pool, num_particles).expect("Failed to initialize Octree");
+            Octree::new(vk_context, cmd_pool, num_particles).expect("Failed to initialize Octree");
 
         let neighbor_list = NeighborList::new(
-            vk_core,
+            vk_context,
             cmd_pool,
             num_particles as usize,
             octree.max_expected_leaves(),
-            vk_core.subgroup_size(),
+            vk_context.subgroup_size(),
             Octree::max_levels(),
         )
         .expect("Failed to initialize NeighborList");
 
-        let hilbert_encoder = HilbertEncoder::new(vk_core, Octree::max_levels()).unwrap();
+        let hilbert_encoder = HilbertEncoder::new(vk_context, Octree::max_levels()).unwrap();
         let particle_sorter =
-            GpuKVRadixSort::new(vk_core, cmd_pool, particles.len() as u32, None).unwrap();
-        let particle_rearranger = ParticleReorderer::new(vk_core).unwrap();
+            GpuKVRadixSort::new(vk_context, cmd_pool, particles.len() as u32, None).unwrap();
+        let particle_rearranger = ParticleReorderer::new(vk_context).unwrap();
 
 
         Self {
@@ -84,13 +84,13 @@ impl NeighborListTest {
         }
     }
 
-    pub fn run_test(&mut self, vk_core: &Arc<VulkanContext>, cmd_buffer: &CommandBuffer) {
+    pub fn run_test(&mut self, vk_context: &Arc<VulkanContext>, cmd_buffer: &CommandBuffer) {
 
         let particle_data = self.particles.buffers();
 
 
         self.hilbert_encoder.dispatch(
-            vk_core,
+            vk_context,
             particle_data.hilbert_keys.len() as u32,
             self.world_min,
             self.world_size,
@@ -101,7 +101,7 @@ impl NeighborListTest {
         );
 
         self.particle_sorter.sort(
-            vk_core,
+            vk_context,
             &particle_data.hilbert_keys,
             &particle_data.particle_indexes,
             cmd_buffer,
@@ -109,12 +109,12 @@ impl NeighborListTest {
         );
 
         self.particle_rearranger
-            .execute(vk_core, particle_data, cmd_buffer);
+            .execute(vk_context, particle_data, cmd_buffer);
 
         self.particles.buffers_mut().swap();
 
         self.octree.build(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &self.particles.buffers().hilbert_keys,
             false,
@@ -123,7 +123,7 @@ impl NeighborListTest {
         );
 
         self.neighbor_list.build(
-            vk_core,
+            vk_context,
             cmd_buffer,
             &self.octree,
             self.particles.buffers(),
@@ -135,19 +135,19 @@ impl NeighborListTest {
 
     }
 
-    pub fn validate(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeExecutor) {
+    pub fn validate(&self, vk_context: &Arc<VulkanContext>, engine: &ComputeExecutor) {
         let command_pool = engine.command_pool();
 
         // Read back the updated flat particle-to-particle neighbor arrays from the GPU
         let particle_to_neighborhood = self
             .neighbor_list
             .particle_to_neighborhood()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
         let neighbor_particle_indices = self
             .neighbor_list
             .neighbor_particle_indices()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
 
         let positions = self
@@ -155,11 +155,11 @@ impl NeighborListTest {
             .buffers()
             .positions_buffer
             .current()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
 
         // 1. Verify octree geometry consistency (independent of neighbor list)
-        self.validate_octree_geometry(vk_core, engine);
+        self.validate_octree_geometry(vk_context, engine);
 
         // 2. Direct physical brute-force validation of your flat GPU particle-to-particle list
         self.validate_flat_particle_neighbors(
@@ -169,32 +169,32 @@ impl NeighborListTest {
         );
     }
 
-    pub fn validate_octree_geometry(&self, vk_core: &Arc<VulkanContext>, engine: &ComputeExecutor) {
+    pub fn validate_octree_geometry(&self, vk_context: &Arc<VulkanContext>, engine: &ComputeExecutor) {
         let command_pool = engine.command_pool();
         let node_keys = self
             .octree
             .data()
             .node_keys()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
         let node_first_child = self
             .octree
             .data()
             .node_first_child()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
         let leaf_particles = self
             .octree
             .data()
             .leaf_particles()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
         let positions = self
             .particles
             .buffers()
             .positions_buffer
             .current()
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
 
         let leaf_indices: Vec<u32> = (0..node_first_child.len() as u32)
@@ -208,7 +208,7 @@ impl NeighborListTest {
             .particles
             .buffers()
             .hilbert_keys
-            .read_back(vk_core, command_pool)
+            .read_back(vk_context, command_pool)
             .unwrap();
 
         for &leaf_idx in &leaf_indices {
@@ -336,15 +336,15 @@ impl NeighborListTest {
 
 #[test]
 pub fn test_neighbor_list_building() {
-    VkHeadless::run(|engine, vk_core, _| {
-        let frame_pacer = engine::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
+    VkHeadless::run(|engine, vk_context, _| {
+        let frame_pacer = gpu_fluid_simulation::backends::vulkan::runtime::frame::frame_pacer::FramePacer::new(1);
         let num_particles = 4200;
         let search_radius = 2.0f32;
         let world_size = 256.0;
         let world_min = glam::Vec3::new(0.0, 0.0, 0.0);
 
         let mut neighbor_list_test = NeighborListTest::new(
-            vk_core,
+            vk_context,
             engine,
             num_particles,
             search_radius,
@@ -357,17 +357,17 @@ pub fn test_neighbor_list_building() {
         for _ in 0..iterations {
             engine
                 .record_commands(&frame_pacer, |cmd_buffer| {
-                    neighbor_list_test.run_test(vk_core, cmd_buffer);
+                    neighbor_list_test.run_test(vk_context, cmd_buffer);
                 })
                 .expect("failed to record neighbor-list commands");
             engine
                 .submit_without_signaling(&frame_pacer)
                 .expect("failed to submit neighbor-list commands");
             unsafe {
-                vk_core.device().device_wait_idle().unwrap();
+                vk_context.device().device_wait_idle().unwrap();
             }
 
-            neighbor_list_test.validate(vk_core, engine);
+            neighbor_list_test.validate(vk_context, engine);
         }
     });
 }

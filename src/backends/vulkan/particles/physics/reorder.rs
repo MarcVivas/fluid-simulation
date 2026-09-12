@@ -8,7 +8,7 @@ use crate::backends::vulkan::runtime::compute::ComputePass;
 use crate::backends::vulkan::runtime::compute::ComputeSystemBuilder;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 use crate::backends::vulkan::runtime::shaders::ShaderModule;
-use crate::backends::vulkan::runtime::shaders::traits::GpuTask;
+use crate::backends::vulkan::runtime::shaders::GpuTask;
 use ash::vk;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
@@ -32,9 +32,9 @@ struct RearrangePushConstants {
 }
 
 impl ParticleReorderer {
-    pub fn new(vk_core: &Arc<VulkanContext>) -> anyhow::Result<Self> {
+    pub fn new(vk_context: &Arc<VulkanContext>) -> anyhow::Result<Self> {
         let (rearranging_pass, rearranging_shader) =
-            ComputeSystemBuilder::new(vk_core.clone(), SHADER)
+            ComputeSystemBuilder::new(vk_context.clone(), SHADER)
                 .entry_points(&["main"])
                 .push_constants::<RearrangePushConstants>()
                 .build_with_single_pass()?;
@@ -47,11 +47,11 @@ impl ParticleReorderer {
 
     pub fn execute(
         &self,
-        vk_core: &VulkanContext,
+        vk_context: &VulkanContext,
         particle_data: &ParticleBuffers,
         command_buffer: &CommandBuffer,
     ) {
-        let device = vk_core.device();
+        let device = vk_context.device();
 
         let num_elements = particle_data.particle_indexes.len() as u32;
 
@@ -72,7 +72,7 @@ impl ParticleReorderer {
         let thread_group_counts = [(num_elements + 63) / 64, 1, 1];
 
         self.rearranging_pass.dispatch_compute(
-            vk_core,
+            vk_context,
             command_buffer,
             thread_group_counts,
             &[],

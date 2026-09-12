@@ -24,7 +24,7 @@ impl ParticleBuffers {
 }
 
 pub fn create_particle_data(
-    vk_core: &Arc<VulkanContext>,
+    vk_context: &Arc<VulkanContext>,
     command_pool: ash::vk::CommandPool,
     queue: ash::vk::Queue,
     positions: &[Vec4],
@@ -32,29 +32,29 @@ pub fn create_particle_data(
 ) -> anyhow::Result<ParticleBuffers> {
     let len = positions.len();
     let positions_buffer = PingPong::new_vk_buffer(
-        vk_core,
+        vk_context,
         positions,
         "Particle positions buffer",
         command_pool,
         queue,
     )?;
     let velocities = PingPong::new_vk_buffer(
-        vk_core,
+        vk_context,
         velocities,
         "Particle velocities buffer",
         command_pool,
         queue,
     )?;
 
-    let densities = VkBuffer::new_gpu_only_uninitialized(vk_core, len, "Particle densities")?;
+    let densities = VkBuffer::new_gpu_only_uninitialized(vk_context, len, "Particle densities")?;
 
-    let hilbert_keys = VkBuffer::new_gpu_only_uninitialized(vk_core, len, "Particle hilbert keys")?;
-    let particle_indexes = VkBuffer::new_gpu_only_uninitialized(vk_core, len, "Particle indexes buffer")?;
+    let hilbert_keys = VkBuffer::new_gpu_only_uninitialized(vk_context, len, "Particle hilbert keys")?;
+    let particle_indexes = VkBuffer::new_gpu_only_uninitialized(vk_context, len, "Particle indexes buffer")?;
 
     let dfsph = DfsphBuffers {
-        factors: VkBuffer::new_gpu_only_uninitialized(vk_core, len, "DFSPH factors")?,
-        residuals: VkBuffer::new_gpu_only_uninitialized(vk_core, len, "DFSPH residuals")?,
-        pressure_coefficients: VkBuffer::new_gpu_only_uninitialized(vk_core, len, "DFSPH pressure_coefficients")?,
+        factors: VkBuffer::new_gpu_only_uninitialized(vk_context, len, "DFSPH factors")?,
+        residuals: VkBuffer::new_gpu_only_uninitialized(vk_context, len, "DFSPH residuals")?,
+        pressure_coefficients: VkBuffer::new_gpu_only_uninitialized(vk_context, len, "DFSPH pressure_coefficients")?,
     };
 
     Ok(ParticleBuffers {

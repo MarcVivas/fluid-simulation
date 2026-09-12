@@ -7,7 +7,7 @@ A highly optimized, particle-based GPU fluid simulation written in Rust and Vulk
 ### Demo
 
 <!-- Replace YOUR_VIDEO_ID with your actual YouTube video ID -->
-[![GPU Fluid Simulation Demo](https://img.youtube.com/vi/YOUR_VIDEO_ID/maxresdefault.jpg)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
+[![GPU Fluid Simulation Demo](https://img.youtube.com/vi/SBmlQNDkMKA/maxresdefault.jpg)](https://www.youtube.com/watch?v=SBmlQNDkMKA)
 
 > 💡 *Click the image above to watch the simulation in action on YouTube.*
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use ash::vk;
 use winit::window::Window;
 
 use crate::backends::gpu_backend::GpuBackend;
@@ -117,8 +118,10 @@ impl GpuBackend for VulkanBackend {
     }
 
     fn shutdown(&self) -> Result<()> {
-        unsafe { self.vk_context.device().device_wait_idle() }
-            .context("Failed to wait for Vulkan work during shutdown")
+        match unsafe { self.vk_context.device().device_wait_idle() } {
+            Ok(()) | Err(vk::Result::ERROR_DEVICE_LOST) => Ok(()),
+            Err(error) => Err(error).context("Failed to wait for Vulkan work during shutdown"),
+        }
     }
 }
 

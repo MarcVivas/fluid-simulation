@@ -150,7 +150,7 @@ impl ParticleSolver {
                     vk_context,
                     command_buffer,
                     &particles.buffers().hilbert_keys,
-                    false,
+                    true,
                     world_min,
                     world_size,
                 );

@@ -213,10 +213,16 @@ void count(const uint3 local_id : SV_GroupThreadID, const uint3 group_id : SV_Gr
 
         // Pre-load the key values in order to hide some of the read latency
         uint local_src_keys[ELEMENTS_PER_THREAD];
-        local_src_keys[0] = push_constants.src_keys[data_index];
-        local_src_keys[1] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE];
-        local_src_keys[2] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2];
-        local_src_keys[3] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3];
+        local_src_keys[0] = data_index < num_keys ? push_constants.src_keys[data_index] : 0;
+        local_src_keys[1] = data_index + THREAD_GROUP_SIZE < num_keys
+            ? push_constants.src_keys[data_index + THREAD_GROUP_SIZE]
+            : 0;
+        local_src_keys[2] = data_index + THREAD_GROUP_SIZE * 2 < num_keys
+            ? push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2]
+            : 0;
+        local_src_keys[3] = data_index + THREAD_GROUP_SIZE * 3 < num_keys
+            ? push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3]
+            : 0;
 
         // For each local value
         for(uint i = 0; i < ELEMENTS_PER_THREAD; i++){
@@ -378,15 +384,27 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
 
         // Pre-load values in local memory
         uint local_src_keys[ELEMENTS_PER_THREAD];
-        local_src_keys[0] = push_constants.src_keys[data_index];
-        local_src_keys[1] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE];
-        local_src_keys[2] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2];
-        local_src_keys[3] = push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3];
+        local_src_keys[0] = data_index < num_keys ? push_constants.src_keys[data_index] : 0;
+        local_src_keys[1] = data_index + THREAD_GROUP_SIZE < num_keys
+            ? push_constants.src_keys[data_index + THREAD_GROUP_SIZE]
+            : 0;
+        local_src_keys[2] = data_index + THREAD_GROUP_SIZE * 2 < num_keys
+            ? push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 2]
+            : 0;
+        local_src_keys[3] = data_index + THREAD_GROUP_SIZE * 3 < num_keys
+            ? push_constants.src_keys[data_index + THREAD_GROUP_SIZE * 3]
+            : 0;
         uint local_src_payload[ELEMENTS_PER_THREAD];
-        local_src_payload[0] = push_constants.src_payload[data_index];
-        local_src_payload[1] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE];
-        local_src_payload[2] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 2];
-        local_src_payload[3] = push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 3];
+        local_src_payload[0] = data_index < num_keys ? push_constants.src_payload[data_index] : 0;
+        local_src_payload[1] = data_index + THREAD_GROUP_SIZE < num_keys
+            ? push_constants.src_payload[data_index + THREAD_GROUP_SIZE]
+            : 0;
+        local_src_payload[2] = data_index + THREAD_GROUP_SIZE * 2 < num_keys
+            ? push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 2]
+            : 0;
+        local_src_payload[3] = data_index + THREAD_GROUP_SIZE * 3 < num_keys
+            ? push_constants.src_payload[data_index + THREAD_GROUP_SIZE * 3]
+            : 0;
 
         // For each element
         for (uint i = 0; i < ELEMENTS_PER_THREAD; i++){
@@ -465,7 +483,7 @@ void scatter(const uint local_id : SV_GroupThreadID, const uint group_id : SV_Gr
 
             // Prefix histogram
             const uint value = local_id < BIN_COUNT ? shared_local_histogram[local_id] : 0;
-            const uint histogram_prefix_sum = WavePrefixSum(value);
+            const uint histogram_prefix_sum = thread_group_scan(value, local_id);
 
             // Broadcast prefix sum via shared memory
             if(local_id < BIN_COUNT){

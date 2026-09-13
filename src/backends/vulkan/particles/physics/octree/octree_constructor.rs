@@ -16,6 +16,7 @@ use crate::backends::vulkan::runtime::buffers::VkBuffer;
 use crate::backends::vulkan::runtime::commands::CommandBuffer;
 use crate::backends::vulkan::runtime::commands::barrier_compute_to_compute;
 use crate::backends::vulkan::runtime::commands::barrier_compute_to_indirect;
+use crate::backends::vulkan::runtime::commands::barrier_compute_to_transfer;
 use crate::backends::vulkan::runtime::commands::barrier_transfer_to_compute;
 use crate::backends::vulkan::runtime::core::VulkanContext;
 
@@ -191,6 +192,18 @@ impl OctreeConstructor {
             );
         }
 
+        // The rebalancer wrote the saved dispatch size with a compute shader;
+        // make those writes visible to the transfer stage before copying.
+        cmd_buffer.pipeline_memory_barrier(
+            device,
+            &[barrier_compute_to_transfer(
+                octree_data.indirect_dispatch_buffer_leaves().vk_buffer(),
+                vk::WHOLE_SIZE,
+                vk::AccessFlags2::TRANSFER_READ | vk::AccessFlags2::TRANSFER_WRITE,
+            )],
+            &[],
+        );
+
         // Copy the saved indirect disptach buffer to the active slot
         cmd_buffer.copy_buffer(
             device,
@@ -211,6 +224,13 @@ impl OctreeConstructor {
             )],
             &[],
         );
+        // SYNC: Transfer -> Indirect command read for the copied dispatch size
+        let indirect_sync = [vk::MemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::TRANSFER)
+            .src_access_mask(vk::AccessFlags2::TRANSFER_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::DRAW_INDIRECT)
+            .dst_access_mask(vk::AccessFlags2::INDIRECT_COMMAND_READ)];
+        cmd_buffer.pipeline_global_barrier2(device, &indirect_sync);
 
         // This is needed after the loop
         self.leaf_offset_generator

@@ -105,12 +105,15 @@ func build_leaf_bounding_box(const LeafParticles leaf_particles) -> BoundingBox 
     // Variables to store the result
     float3 min_val = float3(float.maxValue);
     float3 max_val = float3(-float.maxValue);
+    const uint safe_first_particle = pc.num_particles > 0
+        ? min(leaf_particles.first_particle_index, pc.num_particles - 1)
+        : 0;
     
     
     for(uint i = leaf_start; i < loop_end; i+=wave_size){
-        const bool is_out_of_bounds = i >= leaf_end;
+        const bool is_out_of_bounds = i >= leaf_end || i >= pc.num_particles;
         
-        const uint safe_i = is_out_of_bounds ? leaf_particles.first_particle_index : i;
+        const uint safe_i = is_out_of_bounds ? safe_first_particle : i;
         const float3 pos = pc.positions[safe_i].xyz; 
 
         const float3 lane_min = is_out_of_bounds ? float3(float.maxValue) : pos;
@@ -256,7 +259,9 @@ func write_results_to_global_memory(const LeafParticles leaf_particles, const ui
     // Fill particle to neighborhood map
     NeighborRange neighborhood = NeighborRange(clamped_neighbor_count, global_start_idx); 
     for(uint k = local_id + leaf_particles.first_particle_index; k < leaf_particles.first_particle_index + leaf_particles.particle_count; k+=THREAD_GROUP_SIZE){
-        pc.particle_to_neighborhood[k] = neighborhood;
+        if (k < pc.num_particles) {
+            pc.particle_to_neighborhood[k] = neighborhood;
+        }
     }
     
     // Write back all neighbors contiguously (supports neighbor_count > 64)

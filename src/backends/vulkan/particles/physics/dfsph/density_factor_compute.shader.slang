@@ -98,10 +98,15 @@ func main(const uint global_id: SV_DispatchThreadID) {
         const uint idx2 = pc.neighbor_particle_indices[neighborhood.neighbor_index + (j + 2) * PARTICLE_NEIGHBOR_TILE_SIZE];
         const uint idx3 = pc.neighbor_particle_indices[neighborhood.neighbor_index + (j + 3) * PARTICLE_NEIGHBOR_TILE_SIZE];
 
-        const float4 p0 = pc.packed_positions[idx0];
-        const float4 p1 = pc.packed_positions[idx1];
-        const float4 p2 = pc.packed_positions[idx2];
-        const float4 p3 = pc.packed_positions[idx3];
+        // Validate indices before issuing any position-buffer load.
+        const uint safe0 = min(idx0, num_elements - 1);
+        const uint safe1 = min(idx1, num_elements - 1);
+        const uint safe2 = min(idx2, num_elements - 1);
+        const uint safe3 = min(idx3, num_elements - 1);
+        const float4 p0 = pc.packed_positions[safe0];
+        const float4 p1 = pc.packed_positions[safe1];
+        const float4 p2 = pc.packed_positions[safe2];
+        const float4 p3 = pc.packed_positions[safe3];
 
         process_single_interaction(particle_sph, p0, idx0);
         process_single_interaction(particle_sph, p1, idx1);
@@ -112,6 +117,9 @@ func main(const uint global_id: SV_DispatchThreadID) {
     // Remainder loop
     for (; j < last_neighbor; j++) {
         const uint other_idx = pc.neighbor_particle_indices[neighborhood.neighbor_index + j * PARTICLE_NEIGHBOR_TILE_SIZE];
+        if (other_idx >= num_elements) {
+            continue;
+        }
         const float4 p = pc.packed_positions[other_idx];
         process_single_interaction(particle_sph, p, other_idx);
     }

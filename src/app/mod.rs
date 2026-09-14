@@ -3,8 +3,8 @@ pub mod session;
 pub mod session_factory;
 
 use self::app_session::AppSession;
-use crate::backends::BackendKind;
 use self::session_factory::create_session;
+use crate::backends::BackendKind;
 use crate::world::World;
 use crate::world::particles::ParticleInitPreset;
 use anyhow::Context;
@@ -54,7 +54,8 @@ impl ApplicationHandler for App {
             1.7,
         );
 
-        let session = create_session(&window, self.backend, world).expect("Failed to initialize session");
+        let session =
+            create_session(&window, self.backend, world).expect("Failed to initialize session");
 
         self.window = Some(window);
         self.session = Some(session);
@@ -83,6 +84,10 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 if let Err(err) = session.frame(window) {
                     eprintln!("Error during update_and_render: {:?}", err);
+                    // A frame error is terminal for the current Vulkan device. Do not
+                    // schedule another redraw after VK_ERROR_DEVICE_LOST.
+                    event_loop.exit();
+                    return;
                 }
                 window.request_redraw();
             }

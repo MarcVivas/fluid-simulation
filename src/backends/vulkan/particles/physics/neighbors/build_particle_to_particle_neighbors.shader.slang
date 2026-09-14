@@ -50,10 +50,14 @@ func main(const uint global_id: SV_DispatchThreadID){
             const uint idx1 = idx0 + 1;
             const uint idx2 = idx0 + 2;
             const uint idx3 = idx0 + 3;
-            const float3 pos0 = pc.positions[idx0].xyz;
-            const float3 pos1 = pc.positions[idx1].xyz;
-            const float3 pos2 = pc.positions[idx2].xyz;
-            const float3 pos3 = pc.positions[idx3].xyz;
+            const uint safe0 = min(idx0, pc.num_particles - 1);
+            const uint safe1 = min(idx1, pc.num_particles - 1);
+            const uint safe2 = min(idx2, pc.num_particles - 1);
+            const uint safe3 = min(idx3, pc.num_particles - 1);
+            const float3 pos0 = pc.positions[safe0].xyz;
+            const float3 pos1 = pc.positions[safe1].xyz;
+            const float3 pos2 = pc.positions[safe2].xyz;
+            const float3 pos3 = pc.positions[safe3].xyz;
 
             const float3 r0 = pos - pos0;
             const float3 r1 = pos - pos1;
@@ -64,10 +68,10 @@ func main(const uint global_id: SV_DispatchThreadID){
             const float dist_sq2 = dot(r2, r2);
             const float dist_sq3 = dot(r3, r3);
 
-            const uint accept0 = uint(dist_sq0 < pc.search_radius_sq);
-            const uint accept1 = uint(dist_sq1 < pc.search_radius_sq);
-            const uint accept2 = uint(dist_sq2 < pc.search_radius_sq);
-            const uint accept3 = uint(dist_sq3 < pc.search_radius_sq);
+            const uint accept0 = uint(idx0 < pc.num_particles && dist_sq0 < pc.search_radius_sq);
+            const uint accept1 = uint(idx1 < pc.num_particles && dist_sq1 < pc.search_radius_sq);
+            const uint accept2 = uint(idx2 < pc.num_particles && dist_sq2 < pc.search_radius_sq);
+            const uint accept3 = uint(idx3 < pc.num_particles && dist_sq3 < pc.search_radius_sq);
           
             // Exclusive prefix sum
             const uint offset0 = 0;
@@ -99,6 +103,9 @@ func main(const uint global_id: SV_DispatchThreadID){
         // Process up to three remaining candidates.
         for(; j < n_leaf.particle_count; j++){
             const uint idx = n_leaf.first_particle_index + j;
+            if (idx >= pc.num_particles) {
+                continue;
+            }
             const float3 pos_j = pc.positions[idx].xyz;
 
             const float3 r = pos - pos_j;
